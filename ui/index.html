@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Hızlı Belge Doldurucu</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="ustcubuk">
+  <div class="marka">Hızlı Belge Doldurucu</div>
+  <nav class="sekmeler">
+    <button class="sekme etkin" data-sekme="belge">Belge Gir</button>
+    <button class="sekme" data-sekme="kasa">Kasa</button>
+    <button class="sekme" data-sekme="rapor">Rapor</button>
+    <button class="sekme" data-sekme="ekstre">Ekstre</button>
+    <button class="sekme" data-sekme="ayar">Ayarlar</button>
+  </nav>
+  <div class="durum">
+    <span id="firmaEtiketi" class="etiket">—</span>
+    <span id="yazmaEtiketi" class="etiket kapali">Vega'ya yazma: kapalı</span>
+  </div>
+</header>
+
+<div id="uyari" class="uyari gizli"></div>
+
+<main>
+
+  <!-- ══════════════════ BELGE GİR ══════════════════ -->
+  <section class="sayfa etkin" id="sayfa-belge">
+    <div class="kutu">
+      <div class="satirlar-ust">
+        <div class="alan buyuk">
+          <label for="cariArama">Müşteri</label>
+          <input type="text" id="cariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
+          <div id="cariSonuc" class="acilir gizli"></div>
+          <div id="cariSecili" class="secili gizli"></div>
+        </div>
+        <div class="alan">
+          <label for="belgeTarih">Tarih</label>
+          <input type="date" id="belgeTarih">
+        </div>
+        <div class="alan">
+          <label for="fisNo">Fiş No</label>
+          <input type="text" id="fisNo" placeholder="(boş bırakılabilir)" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="kutu">
+      <table class="veri girdi" id="satirTablo">
+        <thead>
+          <tr>
+            <th class="genis">Cinsi</th>
+            <th class="sayi">Daralı Miktar</th>
+            <th class="sayi">Kasa Adedi</th>
+            <th>Kasa Tipi</th>
+            <th class="sayi">Fiyat</th>
+            <th class="sayi">Tutar</th>
+            <th class="sayi">Kasa Tutarı</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="satirGovde"></tbody>
+      </table>
+      <datalist id="stokListesi"></datalist>
+      <button class="dugme ikincil" id="satirEkle">+ Satır Ekle</button>
+    </div>
+
+    <div class="kutu toplamlar">
+      <div class="toplam"><span>Ürün toplamı</span><b id="urunToplam">0,00</b></div>
+      <div class="toplam"><span>Kasa tutarı</span><b id="kasaToplam">0,00</b></div>
+      <div class="toplam genel"><span>Genel toplam</span><b id="genelToplam">0,00</b></div>
+    </div>
+
+    <div class="kutu eylemler">
+      <button class="dugme birincil buyuk" id="kaydetFatura">Satış Faturası Olarak Kaydet</button>
+      <button class="dugme birincil buyuk" id="kaydetCariCikis">Cari Çıkış Olarak Kaydet</button>
+      <button class="dugme ucuncul" id="formTemizle">Formu Temizle</button>
+    </div>
+
+    <div class="kutu gizli" id="sonKayit"></div>
+  </section>
+
+  <!-- ══════════════════ KASA ══════════════════ -->
+  <section class="sayfa" id="sayfa-kasa">
+    <div class="kutu">
+      <h2>Kasa İadesi</h2>
+      <p class="ipucu">
+        Müşteriye verilen kasaların depozitosu cari borcuna eklenir. Kasalar geri
+        geldiğinde buradan düşülür.
+      </p>
+      <div class="satirlar-ust">
+        <div class="alan buyuk">
+          <label for="iadeCariArama">Müşteri</label>
+          <input type="text" id="iadeCariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
+          <div id="iadeCariSonuc" class="acilir gizli"></div>
+          <div id="iadeCariSecili" class="secili gizli"></div>
+        </div>
+        <div class="alan">
+          <label for="iadeKasaTipi">Kasa Tipi</label>
+          <select id="iadeKasaTipi"></select>
+        </div>
+        <div class="alan kucuk">
+          <label for="iadeAdet">İade Adedi</label>
+          <input type="text" id="iadeAdet" inputmode="decimal" autocomplete="off">
+        </div>
+        <div class="alan">
+          <label for="iadeTarih">Tarih</label>
+          <input type="date" id="iadeTarih">
+        </div>
+        <div class="alan dugmeAlani">
+          <button class="dugme birincil" id="iadeKaydet">İadeyi Kaydet</button>
+        </div>
+      </div>
+      <div id="iadeBilgi" class="ipucu"></div>
+    </div>
+
+    <div class="kutu">
+      <div class="baslikSatir">
+        <h2>Müşteride Duran Kasalar</h2>
+        <button class="dugme ikincil" id="kasaYenile">Yenile</button>
+      </div>
+      <table class="veri" id="kasaTablo">
+        <thead>
+          <tr>
+            <th>Müşteri</th>
+            <th>Kasa Tipi</th>
+            <th class="sayi">Açık Adet</th>
+            <th class="sayi">Depozito Borcu</th>
+          </tr>
+        </thead>
+        <tbody id="kasaGovde"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════ RAPOR ══════════════════ -->
+  <section class="sayfa" id="sayfa-rapor">
+    <div class="kutu">
+      <div class="satirlar-ust">
+        <div class="alan">
+          <label for="raporBaslangic">Başlangıç</label>
+          <input type="date" id="raporBaslangic">
+        </div>
+        <div class="alan">
+          <label for="raporBitis">Bitiş</label>
+          <input type="date" id="raporBitis">
+        </div>
+        <div class="alan dugmeAlani">
+          <button class="dugme ikincil" id="raporBuHafta">Bu Hafta</button>
+          <button class="dugme birincil" id="raporGetir">Getir</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="kutu">
+      <table class="veri" id="raporTablo">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th class="genis">Cinsi</th>
+            <th class="sayi">Daralı Miktar</th>
+            <th class="sayi">Kasa Adedi</th>
+            <th>Kasa Tipi</th>
+            <th class="sayi">Fiyat</th>
+            <th class="sayi">Tutar</th>
+            <th>Fiş No</th>
+            <th>Müşteri</th>
+            <th>Vega</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="raporGovde"></tbody>
+      </table>
+      <div id="raporOzet" class="ipucu"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ EKSTRE ══════════════════ -->
+  <section class="sayfa" id="sayfa-ekstre">
+    <div class="kutu">
+      <div class="satirlar-ust">
+        <div class="alan buyuk">
+          <label for="ekstreCariArama">Müşteri</label>
+          <input type="text" id="ekstreCariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
+          <div id="ekstreCariSonuc" class="acilir gizli"></div>
+          <div id="ekstreCariSecili" class="secili gizli"></div>
+        </div>
+        <div class="alan">
+          <label for="ekstreBaslangic">Başlangıç</label>
+          <input type="date" id="ekstreBaslangic">
+        </div>
+        <div class="alan">
+          <label for="ekstreBitis">Bitiş</label>
+          <input type="date" id="ekstreBitis">
+        </div>
+        <div class="alan dugmeAlani">
+          <button class="dugme birincil" id="ekstreGetir">Getir</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="kutu">
+      <table class="veri" id="ekstreTablo">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>İşlem</th>
+            <th>Evrak No</th>
+            <th class="genis">Açıklama</th>
+            <th class="sayi">Borç</th>
+            <th class="sayi">Alacak</th>
+            <th class="sayi">Bakiye</th>
+          </tr>
+        </thead>
+        <tbody id="ekstreGovde"></tbody>
+      </table>
+      <div id="ekstreOzet" class="ipucu"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ AYARLAR ══════════════════ -->
+  <section class="sayfa" id="sayfa-ayar">
+    <div class="kutu">
+      <h2>Veritabanı Bağlantısı</h2>
+      <div class="izgara">
+        <div class="alan">
+          <label for="aySunucu">SQL Server</label>
+          <input type="text" id="aySunucu" placeholder="SUNUCU-ADI veya SUNUCU\SQLEXPRESS">
+        </div>
+        <div class="alan kucuk">
+          <label for="ayPort">Port</label>
+          <input type="text" id="ayPort" inputmode="numeric">
+        </div>
+        <div class="alan">
+          <label for="ayKullanici">Kullanıcı</label>
+          <input type="text" id="ayKullanici">
+        </div>
+        <div class="alan">
+          <label for="aySifre">Şifre</label>
+          <input type="password" id="aySifre" placeholder="(değiştirmek için yazın)">
+        </div>
+        <div class="alan">
+          <label for="ayVegaDb">Vega veritabanı</label>
+          <input type="text" id="ayVegaDb">
+        </div>
+        <div class="alan">
+          <label for="ayKendiDb">Kendi veritabanımız</label>
+          <input type="text" id="ayKendiDb">
+        </div>
+      </div>
+      <div class="eylemler sol">
+        <button class="dugme ikincil" id="ayBaglantiTest">Bağlantıyı Dene</button>
+        <button class="dugme ikincil" id="ayVeritabaniKur">Kendi Veritabanını Kur</button>
+      </div>
+      <div id="ayBaglantiSonuc" class="ipucu"></div>
+    </div>
+
+    <div class="kutu">
+      <h2>Firma ve Dönem</h2>
+      <p class="ipucu">
+        Bir kez seçilir ve kaydedilir. Buradan değiştirilmedikçe program her
+        açılışta aynı firma ve dönemle çalışır.
+      </p>
+      <div class="izgara">
+        <div class="alan">
+          <label for="ayFirma">Firma</label>
+          <select id="ayFirma"></select>
+        </div>
+        <div class="alan">
+          <label for="ayDonem">Dönem</label>
+          <select id="ayDonem"></select>
+        </div>
+        <div class="alan">
+          <label for="ayDepo">Depo</label>
+          <select id="ayDepo"></select>
+        </div>
+        <div class="alan kucuk">
+          <label for="ayKdv">KDV %</label>
+          <input type="text" id="ayKdv" inputmode="decimal">
+        </div>
+        <div class="alan kucuk">
+          <label for="ayOnek">Belge Öneki</label>
+          <input type="text" id="ayOnek" maxlength="3">
+        </div>
+      </div>
+      <div class="eylemler sol">
+        <button class="dugme ikincil" id="ayFirmaYenile">Listeyi Yenile</button>
+      </div>
+    </div>
+
+    <div class="kutu">
+      <h2>Kasa Tipleri ve Depozito Bedelleri</h2>
+      <p class="ipucu">
+        Kasa bedeli Vega'da tanımlı değil; burada tutuluyor. Bedel girilmemiş bir
+        kasa tipi için kasa tutarı sıfır hesaplanır.
+      </p>
+      <table class="veri" id="kasaTipiTablo">
+        <thead>
+          <tr>
+            <th>Kod</th>
+            <th class="genis">Ad</th>
+            <th class="sayi">Depozito (TL)</th>
+            <th>Aktif</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="kasaTipiGovde"></tbody>
+      </table>
+      <button class="dugme ikincil" id="kasaTipiEkle">+ Kasa Tipi Ekle</button>
+    </div>
+
+    <div class="kutu">
+      <h2>Vega'ya Yazma</h2>
+      <p class="ipucu">
+        Kapalıyken program tam çalışır; belgeler yalnızca kendi veritabanımızda
+        tutulur. Açmadan önce VEGADB yedeği alınmalı ve işlem önce DEMO
+        firmasında denenmeli.
+      </p>
+      <div class="alan onay">
+        <label><input type="checkbox" id="ayYazmaAktif"> Vega'ya yazmayı aç</label>
+      </div>
+    </div>
+
+    <div class="kutu">
+      <div class="eylemler sol">
+        <button class="dugme birincil buyuk" id="ayKaydet">Ayarları Kaydet</button>
+      </div>
+      <div id="ayBilgi" class="ipucu"></div>
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

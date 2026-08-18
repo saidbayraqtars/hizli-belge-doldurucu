@@ -1,0 +1,80 @@
+{
+  "name": "hizli-belge-doldurucu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Haftalık ürün satış girişi ve kasa depozito takibi — belge oluşunca VegaWin (VEGADB) veritabanına yazar",
+  "author": "Bayraktar Yazılım",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test:db": "node kurulum/test-sorgular.js",
+    "test:yazma": "node kurulum/test-yazma.js",
+    "dist": "electron-builder --win --publish never",
+    "dist:dir": "electron-builder --win --x64 --dir --publish never",
+    "yayinla": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "mssql": "9.3.2"
+  },
+  "devDependencies": {
+    "electron": "22.3.27",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.bayraktar.hizlibelgedoldurucu",
+    "productName": "Hizli Belge Doldurucu",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "db/**/*",
+      "ui/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "ayarlar.ornek.json",
+        "to": "ayarlar.ornek.json"
+      },
+      {
+        "from": "kurulum/sql-kullanici-olustur.sql",
+        "to": "kurulum/sql-kullanici-olustur.sql"
+      },
+      {
+        "from": "kurulum/sql-yazma-yetkisi-ver.sql",
+        "to": "kurulum/sql-yazma-yetkisi-ver.sql"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "saidbayraqtars",
+        "repo": "hizli-belge-doldurucu-releases",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hizli Belge Doldurucu"
+    }
+  }
+}

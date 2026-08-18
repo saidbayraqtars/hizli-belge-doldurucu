@@ -1,0 +1,26 @@
+{
+  "_aciklama": "Örnek ayar dosyası. Program ilk açılışta bunu kopyalayıp kendi ayar dosyasını oluşturur. Sunucu adı ve şifreyi kurulumda doldurun.",
+
+  "sunucu": "SUNUCU-ADI",
+  "port": 1433,
+  "windowsGirisi": false,
+  "kullanici": "belge_doldurucu",
+  "sifre": "",
+  "_sifreNotu": "kurulum/sql-kullanici-olustur.sql içinde belirlediğiniz şifreyi buraya yazın.",
+
+  "vegaVeritabani": "VEGADB",
+  "kendiVeritabani": "BELGE_DOLDURUCU",
+
+  "varsayilanFirma": "",
+  "varsayilanDonem": "",
+  "_firmaNotu": "Ayarlar ekranından bir kez seçilir, buraya kaydedilir ve değiştirilmedikçe aynı kalır.",
+
+  "varsayilanDepo": 1,
+  "varsayilanKdv": 0,
+
+  "belgeOneki": "H",
+  "_belgeOnekiNotu": "Bu programın ürettiği belge numaralarının öneki. Vega kendi belgelerinde A/S/Z kullanıyor; ayrı bir harf seçildiği için numaralar asla çakışmaz.",
+
+  "vegayaYazmaAktif": false,
+  "_vegayaYazmaNotu": "true yapılana kadar program VEGADB'ye tek satır yazmaz. Kayıtlar yine kendi veritabanında tutulur."
+}
