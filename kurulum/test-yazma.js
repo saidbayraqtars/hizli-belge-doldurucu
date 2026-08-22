@@ -172,14 +172,16 @@ async function calistir() {
   const cari = cariler[0];
   console.log(`         Musteri: ${cari.ad} (IND ${cari.cariInd}), baslangic bakiyesi ${cari.bakiye}`);
 
-  // Kasa kartı — vega-test-olustur.sql'in eklediği "SINAMA KASA" kartı.
-  const kasaKartlari = await vega.kasaKartlariniGetir({ firma: FIRMA, donem: DONEM });
-  const kasa = kasaKartlari.find((k) => k.kod === 'SINAMA-KASA') || kasaKartlari[0];
-  kontrol('Kasa karti bulundu (isim eslesmesiyle)', !!kasa,
-    kasa ? `${kasa.kod} · depozito ${kasa.depozito} TL` : 'yok');
-  if (!kasa) return ozet();
-  kontrol('Kasa depozito bedeli ALISFIYATI uzerinden geldi', kasa.depozito === 100,
-    String(kasa.depozito));
+  // Kasa tipi — Vega'da karsiligi yok, dogrudan BD_KasaTipi'de olusturuluyor.
+  // Sinama tekrar calistirilirsa (VEGA_TEST yeniden kurulmadan) ayni kod
+  // zaten var olabilir — varsa onu kullan, yoksa olustur (UNIQUE Kod).
+  const mevcutTipler = await yardimci.kasaTipleriGetir();
+  let kasa = mevcutTipler.find((k) => k.kod === 'SINAMA-KASA');
+  if (!kasa) {
+    const kasaKayit = await yardimci.kasaTipiKaydet({ kod: 'SINAMA-KASA', ad: 'Sinama Kasa', dara: 1.5, depozito: 100 });
+    kasa = { id: kasaKayit.id, kod: 'SINAMA-KASA', ad: 'Sinama Kasa', dara: 1.5, depozito: 100 };
+  }
+  kontrol('Kasa tipi hazir', !!kasa.id, `${kasa.kod} (Id ${kasa.id})`);
 
   // Örnek: 10,8 kg × 30 TL = 324,00 TL ürün + 1 kasa × 100 TL depozito.
   function ornekSatirlar() {

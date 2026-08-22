@@ -31,11 +31,26 @@ async function hazirla(zorla) {
   const db = vt();
   if (hazirlandiVt === db && !zorla) return { tamam: true, zatenHazir: true };
 
+  // BD_KasaTipi eski şekli Vega stok kartına bağlıydı (StokNo = Vega IND).
+  // Gerçekte kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski
+  // Access programının kendi kısa kodlarıydı. Bu yüzden tablo artık tamamen
+  // bağımsız: kod/ad/dara/depozito hepsi burada, elle girilir. Eski şekilde
+  // kurulmuş bir tablo bulunursa (canlıya hiç çıkmadığı için veri kaybı
+  // riski yok) silinip yeni şekliyle yeniden kurulur.
   await calistir(`
+    IF OBJECT_ID('[${db}].dbo.BD_KasaTipi', 'U') IS NOT NULL
+       AND COL_LENGTH('[${db}].dbo.BD_KasaTipi', 'Kod') IS NULL
+      DROP TABLE [${db}].dbo.BD_KasaTipi;
+
     IF OBJECT_ID('[${db}].dbo.BD_KasaTipi', 'U') IS NULL
     CREATE TABLE [${db}].dbo.BD_KasaTipi (
-      StokNo   INT PRIMARY KEY,        -- Vega TBLSTOKLAR.IND (kasa/kap karti)
-      Dara     DECIMAL(18,3) NOT NULL DEFAULT 0
+      Id        INT IDENTITY(1,1) PRIMARY KEY,
+      Kod       NVARCHAR(50)  NOT NULL,
+      Ad        NVARCHAR(250) NULL,
+      Dara      DECIMAL(18,3) NOT NULL DEFAULT 0,
+      Depozito  DECIMAL(18,2) NOT NULL DEFAULT 0,
+      Aktif     BIT           NOT NULL DEFAULT 1,
+      OlusturmaTarihi DATETIME NOT NULL DEFAULT GETDATE()
     );
 
     IF OBJECT_ID('[${db}].dbo.BD_Islem', 'U') IS NULL
@@ -64,7 +79,7 @@ async function hazirla(zorla) {
       Tarih      DATE          NOT NULL,
       CariInd    INT           NOT NULL,
       CariAd     NVARCHAR(250) NULL,
-      StokNo     INT           NOT NULL,     -- Vega TBLSTOKLAR.IND (kasa karti)
+      StokNo     INT           NOT NULL,     -- BD_KasaTipi.Id (Vega'da karsiligi yok)
       StokKodu   NVARCHAR(50)  NULL,
       StokAdi    NVARCHAR(250) NULL,
       Adet       DECIMAL(18,3) NOT NULL,     -- + verildi, - iade
@@ -83,6 +98,11 @@ async function hazirla(zorla) {
                    WHERE name = 'IX_BD_KasaHareket_Cari'
                      AND object_id = OBJECT_ID('[${db}].dbo.BD_KasaHareket'))
       CREATE INDEX IX_BD_KasaHareket_Cari ON [${db}].dbo.BD_KasaHareket (Firma, CariInd);
+
+    IF NOT EXISTS (SELECT 1 FROM [${db}].sys.indexes
+                   WHERE name = 'UX_BD_KasaTipi_Kod'
+                     AND object_id = OBJECT_ID('[${db}].dbo.BD_KasaTipi'))
+      CREATE UNIQUE INDEX UX_BD_KasaTipi_Kod ON [${db}].dbo.BD_KasaTipi (Kod);
   `);
 
   hazirlandiVt = db;
@@ -96,30 +116,71 @@ function kimlik(kullanici) {
   };
 }
 
-// --- Dara ağırlığı (kasa/kap boşken kaç kg) ---------------------------------
+// --- Kasa tipleri (PK, SBÜYÜK, SMUZ, UP... — Vega'da karşılığı yok) ---------
+//
+// Eski Access programının kendi kısa kodları. Kod+ad+dara+depozito hepsi
+// burada, elle tutulur; Vega'ya hiç bakılmaz. Silme YUMUŞAK (Aktif=0) —
+// geçmiş BD_KasaHareket satırları bu Id'ye referans veriyor, silinirse
+// geçmiş hareketlerin adı/kodu kaybolur.
 
-async function kasaDaralariGetir() {
+async function kasaTipleriGetir(sadeceAktif) {
   await hazirla();
-  const satirlar = await sorgu(`SELECT StokNo, Dara FROM [${vt()}].dbo.BD_KasaTipi`);
-  const harita = {};
-  for (const s of satirlar) harita[Number(s.StokNo)] = Number(s.Dara) || 0;
-  return harita;
+  const filtre = sadeceAktif ? 'WHERE Aktif = 1' : '';
+  const satirlar = await sorgu(
+    `SELECT Id, Kod, Ad, Dara, Depozito, Aktif FROM [${vt()}].dbo.BD_KasaTipi ${filtre} ORDER BY Kod`
+  );
+  return satirlar.map((s) => ({
+    id: Number(s.Id),
+    kod: String(s.Kod || '').trim(),
+    ad: String(s.Ad || '').trim(),
+    dara: Number(s.Dara) || 0,
+    depozito: Number(s.Depozito) || 0,
+    aktif: !!s.Aktif
+  }));
 }
 
-async function kasaDarasiKaydet(stokNo, dara) {
+async function kasaTipiKaydet(ayrinti) {
   await hazirla();
   const db = vt();
-  const no = Number(stokNo);
-  if (!no) throw new Error('Kasa kartı numarası eksik.');
-  const d = Number(dara) || 0;
+  const kod = String((ayrinti && ayrinti.kod) || '').trim();
+  if (!kod) throw new Error('Kasa tipi kodu boş olamaz.');
+  const ad = (ayrinti && ayrinti.ad) ? String(ayrinti.ad).trim() : null;
+  const dara = Number(ayrinti && ayrinti.dara) || 0;
+  const depozito = Number(ayrinti && ayrinti.depozito) || 0;
+  const id = ayrinti && ayrinti.id ? Number(ayrinti.id) : null;
 
+  try {
+    if (id) {
+      await calistir(
+        `UPDATE [${db}].dbo.BD_KasaTipi
+         SET Kod = @kod, Ad = @ad, Dara = @dara, Depozito = @depozito
+         WHERE Id = @id`,
+        { id, kod, ad, dara, depozito }
+      );
+      return { tamam: true, id };
+    }
+    const r = await sorgu(
+      `INSERT INTO [${db}].dbo.BD_KasaTipi (Kod, Ad, Dara, Depozito)
+       OUTPUT INSERTED.Id AS id
+       VALUES (@kod, @ad, @dara, @depozito)`,
+      { kod, ad, dara, depozito }
+    );
+    return { tamam: true, id: Number(r[0].id) };
+  } catch (e) {
+    if (/unique|UX_BD_KasaTipi_Kod/i.test(e.message || '')) {
+      throw new Error(`"${kod}" kodlu bir kasa tipi zaten var.`);
+    }
+    throw e;
+  }
+}
+
+async function kasaTipiSil(id) {
+  await hazirla();
+  const no = Number(id);
+  if (!no) throw new Error('Kasa tipi kimliği eksik.');
   await calistir(
-    `
-    UPDATE [${db}].dbo.BD_KasaTipi SET Dara = @dara WHERE StokNo = @stokNo;
-    IF @@ROWCOUNT = 0
-      INSERT INTO [${db}].dbo.BD_KasaTipi (StokNo, Dara) VALUES (@stokNo, @dara);
-    `,
-    { stokNo: no, dara: d }
+    `UPDATE [${vt()}].dbo.BD_KasaTipi SET Aktif = 0 WHERE Id = @id`,
+    { id: no }
   );
   return { tamam: true };
 }
@@ -276,8 +337,9 @@ async function kasaHareketleriniSil(t, islemId) {
 
 module.exports = {
   hazirla,
-  kasaDaralariGetir,
-  kasaDarasiKaydet,
+  kasaTipleriGetir,
+  kasaTipiKaydet,
+  kasaTipiSil,
   islemYaz,
   islemGetir,
   islemGeriAlindiIsaretle,

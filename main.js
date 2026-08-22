@@ -108,14 +108,18 @@ uc('firma:depolar', async () => firma.depolariGetir());
 
 uc('vega:cariler', async (girdi) => vega.carileriGetir(girdi));
 uc('vega:stoklar', async (girdi) => vega.stoklariGetir(girdi));
-uc('vega:kasaKartlari', async (girdi) => vega.kasaKartlariniGetir(girdi));
 uc('vega:bakiye', async (girdi) => vega.cariBakiye(girdi));
 uc('vega:ekstre', async (girdi) => vega.cariEkstre(girdi));
 
-// --- Yardımcı (VEGADB içindeki küçük tablolar — dara, kasa defteri, günlük) -
+// --- Yardımcı (VEGADB içindeki küçük tablolar — kasa tipi, kasa defteri, günlük) -
+//
+// Kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski Access
+// programının kendi kısa kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR, tamamen
+// BD_KasaTipi'de elle tutuluyor.
 
-uc('yardimci:kasaDaralari', async () => yardimci.kasaDaralariGetir());
-uc('yardimci:kasaDarasiKaydet', async (girdi) => yardimci.kasaDarasiKaydet(girdi.stokNo, girdi.dara));
+uc('yardimci:kasaTipleri', async (girdi) => yardimci.kasaTipleriGetir(girdi && girdi.sadeceAktif));
+uc('yardimci:kasaTipiKaydet', async (girdi) => yardimci.kasaTipiKaydet(girdi));
+uc('yardimci:kasaTipiSil', async (girdi) => yardimci.kasaTipiSil(girdi.id));
 uc('yardimci:kasaBakiye', async (girdi) => yardimci.kasaBakiyesi(girdi));
 uc('yardimci:sonIslemler', async (girdi) => yardimci.sonIslemleriGetir(girdi));
 

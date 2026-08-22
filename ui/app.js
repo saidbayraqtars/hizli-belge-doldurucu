@@ -1043,57 +1043,165 @@ async function ayarlariKaydet(sessiz) {
   return durum.ayar;
 }
 
-// --- Kasa kartları (Vega'dan salt okunur + dara) ----------------------------
+// --- Kasa tipleri (elle tutulan liste — Vega'da karşılığı yok) --------------
+//
+// PK, SBÜYÜK, SMUZ, UP gibi kodlar eski Access programının kendi kısa
+// kodlarıydı, Vega'da hiç yok. Bu yüzden liste tamamen burada, elle
+// tutuluyor: kod, ad, dara (kap boşken kaç kg) ve depozito bedeli hepsi
+// düzenlenebilir. İlk satır her zaman yeni kasa tipi eklemek için boş kalır.
 
 function kasaKartlariTablosunuDoldur() {
   const govde = el('kasaTipiGovde');
   govde.innerHTML = '';
+  govde.appendChild(kasaTipiEkleSatiri());
   if (!durum.kasaKartlari.length) {
-    return boslukTemizle(govde, 5, 'Bu firmada kasa/kap kartı bulunamadı (Vega stok kartlarında adında "KASA" ya da "DEPOZİTO" geçen kart yok).');
+    const bosTr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'ipucu';
+    td.textContent = 'Henüz kasa tipi eklenmedi — yukarıdan ekleyin.';
+    bosTr.appendChild(td);
+    govde.appendChild(bosTr);
+    return;
   }
   for (const k of durum.kasaKartlari) govde.appendChild(kasaKartiSatiri(k));
+}
+
+function sayiGirdisi(deger, yerTutucu) {
+  const i = document.createElement('input');
+  i.type = 'text';
+  i.className = 'sayi';
+  i.inputMode = 'decimal';
+  if (yerTutucu) i.placeholder = yerTutucu;
+  if (deger != null) i.value = String(deger).replace('.', ',');
+  return i;
+}
+
+function kasaTipiEkleSatiri() {
+  const tr = document.createElement('tr');
+
+  const kodHucre = document.createElement('td');
+  const kodGirdi = document.createElement('input');
+  kodGirdi.type = 'text';
+  kodGirdi.placeholder = 'ör. PK';
+  kodHucre.appendChild(kodGirdi);
+
+  const adHucre = document.createElement('td');
+  const adGirdi = document.createElement('input');
+  adGirdi.type = 'text';
+  adGirdi.placeholder = 'ör. Paket Kasa';
+  adHucre.appendChild(adGirdi);
+
+  const depozitoHucre = document.createElement('td');
+  const depozitoGirdi = sayiGirdisi(null, 'TL');
+  depozitoHucre.appendChild(depozitoGirdi);
+
+  const daraHucre = document.createElement('td');
+  const daraGirdi = sayiGirdisi(null, 'kg');
+  daraHucre.appendChild(daraGirdi);
+
+  const eylemHucre = document.createElement('td');
+  const ekle = document.createElement('button');
+  ekle.type = 'button';
+  ekle.className = 'dugme mini birincil';
+  ekle.textContent = 'Ekle';
+  ekle.addEventListener('click', async () => {
+    const kod = kodGirdi.value.trim();
+    if (!kod) return bildir('Kasa tipi kodu boş olamaz.', 'hata');
+    ekle.disabled = true;
+    try {
+      await cagir('yardimci:kasaTipiKaydet', {
+        kod, ad: adGirdi.value.trim(),
+        dara: sayiOku(daraGirdi.value),
+        depozito: sayiOku(depozitoGirdi.value)
+      });
+      bildir(`"${kod}" kasa tipi eklendi.`, 'basarili');
+      await kasaKartlariniYukle();
+    } catch (e) {
+      bildir('Eklenemedi: ' + e.message, 'hata');
+    } finally {
+      ekle.disabled = false;
+    }
+  });
+  eylemHucre.appendChild(ekle);
+
+  tr.append(kodHucre, adHucre, depozitoHucre, daraHucre, eylemHucre);
+  return tr;
 }
 
 function kasaKartiSatiri(kasa) {
   const tr = document.createElement('tr');
 
-  const kod = document.createElement('td');
-  kod.textContent = kasa.kod;
-  const ad = document.createElement('td');
-  ad.textContent = kasa.ad;
-  const depozito = document.createElement('td');
-  depozito.className = 'sayi';
-  depozito.textContent = para(kasa.depozito) + ' TL';
+  const kodHucre = document.createElement('td');
+  const kodGirdi = document.createElement('input');
+  kodGirdi.type = 'text';
+  kodGirdi.value = kasa.kod;
+  kodHucre.appendChild(kodGirdi);
+
+  const adHucre = document.createElement('td');
+  const adGirdi = document.createElement('input');
+  adGirdi.type = 'text';
+  adGirdi.value = kasa.ad;
+  adHucre.appendChild(adGirdi);
+
+  const depozitoHucre = document.createElement('td');
+  const depozitoGirdi = sayiGirdisi(kasa.depozito);
+  depozitoHucre.appendChild(depozitoGirdi);
 
   const daraHucre = document.createElement('td');
-  const daraGirdi = document.createElement('input');
-  daraGirdi.type = 'text';
-  daraGirdi.className = 'sayi';
-  daraGirdi.inputMode = 'decimal';
-  daraGirdi.value = String(kasa.dara || 0).replace('.', ',');
+  const daraGirdi = sayiGirdisi(kasa.dara);
   daraHucre.appendChild(daraGirdi);
 
   const eylemHucre = document.createElement('td');
+
   const kaydet = document.createElement('button');
   kaydet.type = 'button';
   kaydet.className = 'dugme mini birincil';
   kaydet.textContent = 'Kaydet';
   kaydet.addEventListener('click', async () => {
+    const kod = kodGirdi.value.trim();
+    if (!kod) return bildir('Kasa tipi kodu boş olamaz.', 'hata');
     kaydet.disabled = true;
     try {
-      const dara = sayiOku(daraGirdi.value);
-      await cagir('yardimci:kasaDarasiKaydet', { stokNo: kasa.id, dara });
-      kasa.dara = dara;
-      bildir('Dara kaydedildi.', 'basarili');
+      await cagir('yardimci:kasaTipiKaydet', {
+        id: kasa.id, kod, ad: adGirdi.value.trim(),
+        dara: sayiOku(daraGirdi.value),
+        depozito: sayiOku(depozitoGirdi.value)
+      });
+      bildir('Kaydedildi.', 'basarili');
+      await kasaKartlariniYukle();
     } catch (e) {
       bildir('Kaydedilemedi: ' + e.message, 'hata');
     } finally {
       kaydet.disabled = false;
     }
   });
-  eylemHucre.appendChild(kaydet);
 
-  tr.append(kod, ad, depozito, daraHucre, eylemHucre);
+  const sil = document.createElement('button');
+  sil.type = 'button';
+  sil.className = 'dugme mini ucuncul';
+  sil.textContent = 'Sil';
+  sil.addEventListener('click', async () => {
+    const onay = await cagir('onay', {
+      baslik: 'Kasa tipini sil',
+      mesaj: `"${kasa.kod}" kasa tipi silinsin mi?`,
+      ayrinti: 'Bu tip artık seçilemez. Geçmiş kasa hareketleri etkilenmez.',
+      tamamBaslik: 'Sil'
+    });
+    if (!onay.onaylandi) return;
+    sil.disabled = true;
+    try {
+      await cagir('yardimci:kasaTipiSil', { id: kasa.id });
+      bildir('Silindi.', 'basarili');
+      await kasaKartlariniYukle();
+    } catch (e) {
+      bildir('Silinemedi: ' + e.message, 'hata');
+      sil.disabled = false;
+    }
+  });
+
+  eylemHucre.append(kaydet, sil);
+  tr.append(kodHucre, adHucre, depozitoHucre, daraHucre, eylemHucre);
   return tr;
 }
 
@@ -1117,20 +1225,31 @@ function ustCubugunuGuncelle() {
 
 async function kasaKartlariniYukle() {
   try {
-    const kartlar = await cagir('vega:kasaKartlari', { firma: firmaKodu(), donem: donemKodu() });
-    let daralar = {};
-    try {
-      daralar = await cagir('yardimci:kasaDaralari', {});
-    } catch (e) {
-      // Yardımcı tablolar henüz kurulmamış olabilir (ör. SQL yetkisi
-      // henüz verilmedi) — dara bilgisi olmadan da devam edilebilir.
-    }
-    durum.kasaKartlari = kartlar.map((k) => Object.assign({}, k, { dara: daralar[k.id] || 0 }));
+    durum.kasaKartlari = await cagir('yardimci:kasaTipleri', { sadeceAktif: true });
   } catch (e) {
     durum.kasaKartlari = [];
-    bildir('Kasa/kap kartları okunamadı: ' + e.message, 'hata');
+    bildir('Kasa tipleri okunamadı: ' + e.message, 'hata');
   }
   kasaKartiSecimDoldur(el('iadeKasaTipi'));
+  kasaSatirSecimleriniTazele();
+  kasaKartlariTablosunuDoldur();
+}
+
+// Açılışta ilk ürün satırı, kasa kartları Vega'dan gelmeden ÖNCE kuruluyor
+// (baslat() önce satirEkle() çağırıyor, kasaKartlariniYukle() sonra bitiyor).
+// O satırın kasa tipi kutusu, kartlar oluşturulduğu andaki (boş) listeyle
+// dolduğu için kalıcı olarak boş kalırdı — burada var olan tüm satırların
+// kutusu, kartlar geldikten sonra yeniden kuruluyor. Seçili değer varsa korunur.
+function kasaSatirSecimleriniTazele() {
+  for (const tr of el('satirGovde').children) {
+    const s = tr._satir;
+    if (!s || !s.tipSecim) continue;
+    const eskiDeger = s.tipSecim.value;
+    const yeni = kasaKartiSecenekleri(eskiDeger);
+    yeni.addEventListener('change', toplamlariGuncelle);
+    s.tipSecim.replaceWith(yeni);
+    s.tipSecim = yeni;
+  }
 }
 
 async function baslangicVerisiniYukle() {

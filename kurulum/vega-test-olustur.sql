@@ -127,21 +127,9 @@ CLOSE gezgin;
 DEALLOCATE gezgin;
 GO
 
-/* Kasa/kap kartı — kopyalanan TOP 5 stok kartı arasında adında KASA geçen
-   olmayabilir (genelde ilk kartlar sistem kodlarıdır: VADE FARKI, KUR
-   FARKI...). Kasa tespiti (db/vega.js → kasaKartlariniGetir) isim eşleşmesi
-   kullandığı için sınama bir tane elle ekliyor. Depozito bedeli ALISFIYATI
-   alanına yazılıyor: canlı kurulumlarda bu alanın kullanıldığı gözlendi. */
-
-IF OBJECT_ID(N'[VEGA_TEST].dbo.F0102TBLSTOKLAR', 'U') IS NOT NULL
-BEGIN
-  DECLARE @yeniInd INT = (SELECT ISNULL(MAX(IND), 0) + 1 FROM [VEGA_TEST].dbo.F0102TBLSTOKLAR);
-  SET IDENTITY_INSERT [VEGA_TEST].dbo.F0102TBLSTOKLAR ON;
-  INSERT INTO [VEGA_TEST].dbo.F0102TBLSTOKLAR (IND, STOKKODU, MALINCINSI, STOKTIPI, ALISFIYATI)
-  VALUES (@yeniInd, N'SINAMA-KASA', N'SINAMA KASA', 34, 100);
-  SET IDENTITY_INSERT [VEGA_TEST].dbo.F0102TBLSTOKLAR OFF;
-  PRINT N'  eklendi: SINAMA KASA (IND ' + CAST(@yeniInd AS NVARCHAR(10)) + N')';
-END
+/* Kasa tipleri (PK, SBÜYÜK...) Vega'da hiç yok — eski Access programının
+   kendi kodlarıydı. Bu yüzden burada sentetik bir stok kartı eklemeye gerek
+   kalmadı: test-yazma.js kasa tipini doğrudan BD_KasaTipi'de oluşturuyor. */
 GO
 
 /* IDENTITY korundu mu? Program belge numarasini IDENTITY'den aliyor. */

@@ -114,10 +114,6 @@ async function calistir() {
   const aramaSonucu = await vega.stoklariGetir(Object.assign({ arama: 'A', limit: 5 }, secenek));
   kontrol('Stok aramasi calisiyor', Array.isArray(aramaSonucu), `${aramaSonucu.length} sonuc`);
 
-  const kasalar = await vega.kasaKartlariniGetir(secenek);
-  kontrol('Kasa karti sorgusu calisiyor (bos donebilir)', Array.isArray(kasalar),
-    kasalar.length ? kasalar.map((k) => k.kod).join(', ') : '0 kart bulundu');
-
   const seriTespit = await vega.satisSerisiTespitEt(secenek.firma, secenek.donem);
   kontrol('Fatura serisi tespiti calisiyor (bos donebilir)',
     seriTespit === null || /^[A-ZÇĞİÖŞÜ]$/.test(seriTespit),
@@ -133,8 +129,8 @@ async function calistir() {
     `SELECT CASE WHEN OBJECT_ID('[${v}].dbo.BD_Islem', 'U') IS NULL THEN 0 ELSE 1 END AS varMi`
   );
   if (Number(varMi[0].varMi) === 1) {
-    const daralar = await yardimci.kasaDaralariGetir();
-    kontrol('Dara haritasi okundu', typeof daralar === 'object');
+    const kasaTipleri = await yardimci.kasaTipleriGetir();
+    kontrol('Kasa tipleri okundu', Array.isArray(kasaTipleri), `${kasaTipleri.length} tip`);
 
     const kasaBakiye = await yardimci.kasaBakiyesi({ firma: secili.kod });
     kontrol('Kasa bakiyesi okundu', Array.isArray(kasaBakiye), `${kasaBakiye.length} kayit`);

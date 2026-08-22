@@ -206,78 +206,6 @@ async function stoklariGetir(secenek) {
   }));
 }
 
-// --- Kasa/kap kartları (depozitolu ambalaj) ---------------------------------
-//
-// Vega kurulumları arasında "bu bir kasa kartı" işareti farklı yerlerde
-// durabiliyor — bazılarında hiç yok. Tek bir sütuna güvenmek yerine iki
-// sinyali birleştiriyoruz:
-//   1. İsimde/kodda KASA ya da DEPOZİTO geçen kartlar (her kurulumda çalışır,
-//      isim serbest metin olduğu için Vega sürümünden bağımsız).
-//   2. OZELKOD1 = 'KASA' işaretli kartlar (sütun varsa) — bazı kurulumlar
-//      bunu kullanıyor olabilir.
-// İkisi UNION'lanıp aynı karttan iki kez gelmesin diye IND'e göre tekilleşir.
-//
-// Depozito bedeli: önce birim satış fiyatı (TBLBIRIMLEREX.SATISFIYATI),
-// boşsa alış fiyatı/maliyet (bu kartlarda depozito bedeli genelde oraya
-// girilmiş oluyor — kasa/şişe kartlarının "satış fiyatı yok, sadece alış
-// fiyatı dolu" olması yaygın bir örüntü).
-async function kasaKartlariniGetir(secenek) {
-  const { firma } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
-  const v = vt();
-  const stokTablosu = kart(v, firma, 'TBLSTOKLAR');
-  const birimTablosu = kart(v, firma, 'TBLBIRIMLEREX');
-  const filtre = await silinmemis(stokTablosu, 'S');
-
-  const fiyatKolonu = await kolonVarMi(birimTablosu, 'SATISFIYATI');
-  const birimFiyatIfadesi = fiyatKolonu ? 'ISNULL(B.SATISFIYATI, 0)' : '0';
-  const depozitoIfadesi = `
-    CASE WHEN ${birimFiyatIfadesi} > 0 THEN ${birimFiyatIfadesi}
-         ELSE ISNULL(S.ALISFIYATI, 0) END`;
-
-  const ozelKodVarMi = await kolonVarMi(stokTablosu, 'OZELKOD1');
-  const ozelKodIfadesi = ozelKodVarMi ? `ISNULL(S.OZELKOD1, '')` : `''`;
-
-  // OZELKOD1 satırı işaretlemişse isme hiç bakmadan güveniyoruz (birisi
-  // bilerek öyle kodlamış). İsim eşleşmesi ise LIKE '%KASA%' geniş tutuluyor
-  // (SQL tarafı basit kalsın), ama "KASAR" (kaşar peyniri), "KASAP" gibi
-  // KASA'yı içeren ama alakasız kelimeleri JS tarafında kelime sınırıyla
-  // eleyeceğiz — SQL LIKE'ta bunu ifade etmek çok daha karmaşık olurdu.
-  const satirlar = await sorgu(`
-    SELECT S.IND AS id,
-           ISNULL(S.STOKKODU, '') AS kod,
-           ISNULL(S.MALINCINSI, '') AS ad,
-           ${depozitoIfadesi} AS depozito,
-           CASE WHEN ${ozelKodIfadesi} = 'KASA' THEN 1 ELSE 0 END AS ozelKodEslesti
-    FROM ${stokTablosu} S
-    LEFT JOIN ${birimTablosu} B ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
-    WHERE (S.MALINCINSI LIKE '%KASA%' OR S.STOKKODU LIKE '%KASA%'
-           OR S.MALINCINSI LIKE '%DEPOZİTO%' OR S.STOKKODU LIKE '%DEPOZİTO%'
-           OR ${ozelKodIfadesi} = 'KASA')
-      ${filtre}
-    ORDER BY S.STOKKODU, S.IND
-  `);
-
-  // \bKASA\b / \bDEPOZİTO\b — "KASAR", "KASAP" gibi kelimeleri eler ("R"/"P"
-  // harfi hemen ardından geldiği için kelime sınırı oluşmaz, eşleşmez).
-  // "KASA" Türkçede hem "kasa/kap" hem "yazar kasası" anlamına geliyor;
-  // ikisini isimden ayırt edemeyiz. "NOT.." ile başlayan kartlar bu veride
-  // gözlemlenen bir yer tutucu/not kuralı (ör. "NOT..SANATÇILAR") — gerçek
-  // ürün/kasa kartı değil, isim eşleşmesinden eleniyor.
-  const isimDeseni = /\bKASA\b|\bDEPOZ[İI]TO\b/i;
-  const notKartiMi = (metin) => /^NOT\.\./i.test(String(metin || '').trim());
-
-  return satirlar
-    .filter((s) => !notKartiMi(s.kod) && !notKartiMi(s.ad))
-    .filter((s) => s.ozelKodEslesti || isimDeseni.test(s.kod) || isimDeseni.test(s.ad))
-    .map((s) => ({
-      id: Number(s.id),
-      kod: String(s.kod || '').trim(),
-      ad: String(s.ad || '').trim(),
-      depozito: Number(s.depozito) || 0,
-      aktif: true
-    }));
-}
-
 // --- Cari ekstre (videodaki ikinci ekran) ----------------------------------
 //
 // Yürüyen bakiye Vega'nın yaptığı gibi kendi kendine JOIN ile değil, satırlar
@@ -443,7 +371,6 @@ module.exports = {
   carileriGetir,
   cariBakiye,
   stoklariGetir,
-  kasaKartlariniGetir,
   cariEkstre,
   izahatAdi,
   kolonVarMi,

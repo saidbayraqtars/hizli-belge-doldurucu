@@ -112,18 +112,13 @@ kopyaları aynı anda çalışsa bile numara çakışmaz. (VegaWin'in kendi ekra
 tam o anda girilen bir belgeyle çakışma riski sıfırlanmaz — kullanım şeklinin
 bunu örtüşmediği varsayılıyor.)
 
-## Kasa/kap kartları nasıl bulunuyor
+## Kasa tipleri nereden geliyor
 
-Vega kurulumdan kuruluma farklı alanlar kullanabiliyor; "bu bir kasa kartı"
-işareti için tek bir sütuna güvenilmiyor:
-
-1. Stok kartının adında ya da kodunda **KASA** veya **DEPOZİTO** geçenler
-   (her kurulumda çalışır — isim serbest metin).
-2. `OZELKOD1 = 'KASA'` işaretli kartlar (sütun varsa).
-
-Depozito bedeli önce birim satış fiyatından (`TBLBIRIMLEREX.SATISFIYATI`),
-o boşsa alış fiyatından (`TBLSTOKLAR.ALISFIYATI`) okunur — kasa/kap
-kartlarında depozito bedelinin sıklıkla oraya girilmiş olduğu görüldü.
+Kasa/kap tipleri (ör. PK, SBÜYÜK, SMUZ, UP) Vega'da hiç yok — eski Access
+programının kendi kısa kodlarıydı, gerçek işletme verisiyle doğrulandı.
+Bu yüzden Vega'dan OKUNMUYOR: Ayarlar ekranından elle eklenir, her biri
+kendi kodu, adı, depozito bedeli ve darasıyla (kap boşken kaç kg) birlikte
+`BD_KasaTipi`'de tutulur.
 
 ## Kurulum
 
@@ -266,10 +261,9 @@ tabanını okumak zorlaşıyor.
 - Fatura serisi tespiti (Vega'nın gerçek harfini bulup sürdürme) yeni: önce
   DEMO ya da az önemli bir firma/dönemde denenmeli, tespit edilen harfin
   gerçekten doğru olduğu gözle de doğrulanmalı.
-- Kasa/kap kartı tespiti isim eşleşmesiyle çalışıyor (KASA/DEPOZİTO). Gerçek
-  kurulumda stok kartı adları farklıysa (ör. sadece "PK", "SBÜ" gibi kısaltma)
-  bulunamayabilir — bu durumda Ayarlar ekranındaki listede kart görünmez,
-  isimlerin genişletilmesi gerekir (`db/vega.js` → `kasaKartlariniGetir`).
+- Kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski Access
+  programının kendi kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR; Ayarlar
+  ekranından elle eklenir (kod, ad, dara, depozito).
 - Kasa iadesi cari giriş dekontu (tip 13) olarak yazılıyor. Ödeme aracı alanları
   (`IZAHAT`, `PORTNO`) bilerek boş bırakılıyor ki Vega bunu kasaya postalamasın;
   gerekçesi `BELGE-DESENI.md` §5'te.

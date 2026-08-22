@@ -132,12 +132,13 @@ durumda da ayrı birer dekont oluyor.
 | Tahsilat tutarı girilmişse (her iki tuşta) | Ayrı cari giriş dekontu (tip 13), açıklama `Tahsilat` | §5 |
 | "İadeyi Kaydet" (Kasa ekranı) | Cari giriş dekontu (tip 13), açıklama `KASA IADE` | §5 |
 
-**Kasa tutarı neden ayrı belge:** Vega'da kasa/kap için gerçek stok kartları var
-(bkz. `kasaKartlariniGetir`), ama depozito PARA hareketi olarak, ürün
-faturasından bağımsız ayrı bir dekont olarak tutulmak isteniyor — eski
-programın ekstresinde de kasa tutarı, ürün satırının **altında ayrı bir satır**
-olarak duruyor ve ikisi
-toplanıp bakiyeye işleniyor.
+**Kasa tutarı neden ayrı belge:** Kasa/kap tipleri (PK, SBÜYÜK...) Vega'da
+gerçek stok kartı DEĞİL — eski Access programının kendi kodu, `BD_KasaTipi`'de
+elle tutuluyor (bkz. §2.5 altındaki not, `db/yardimci.js` → `kasaTipleriGetir`).
+Depozito yine de PARA hareketi olarak, ürün faturasından bağımsız ayrı bir
+dekont olarak yazılıyor — eski programın ekstresinde de kasa tutarı, ürün
+satırının **altında ayrı bir satır** olarak duruyor ve ikisi toplanıp
+bakiyeye işleniyor.
 
 ---
 
