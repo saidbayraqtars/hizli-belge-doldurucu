@@ -3,6 +3,12 @@
 // Arayüzün tamamı. Çerçeve yok — Windows 7 üzerindeki eski makinelerde de
 // anında açılması için düz JavaScript. Veritabanına erişim yalnızca
 // window.api.cagir() üzerinden, preload'daki kanal listesiyle sınırlı.
+//
+// Program kendi ayrı bir veritabanı tutmuyor: "Belge Gir" ekranındaki her
+// kayıt butonu doğrudan VEGADB'ye yazar (yazma:belge / yazma:kasaIade).
+// Kasa tipleri (kod/ad/depozito) her açılışta canlı Vega'dan okunur; dara
+// ağırlığı ve son belgeler listesi VEGADB'nin içindeki küçük yardımcı
+// tablolardan gelir (bkz. db/yardimci.js).
 
 const el = (id) => document.getElementById(id);
 
@@ -70,14 +76,15 @@ function tarihYaz(t) {
   return d.toLocaleDateString('tr-TR');
 }
 
-function bugun() {
-  const d = new Date();
-  const ay = String(d.getMonth() + 1).padStart(2, '0');
-  const gun = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${ay}-${gun}`;
+function tarihSaatYaz(t) {
+  if (!t) return '';
+  const d = t instanceof Date ? t : new Date(t);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function isoTarih(d) {
+function bugun() {
+  const d = new Date();
   const ay = String(d.getMonth() + 1).padStart(2, '0');
   const gun = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${ay}-${gun}`;
@@ -100,11 +107,10 @@ const durum = {
   ayar: null,
   firmalar: [],
   depolar: [],
-  kasaTipleri: [],
+  kasaKartlari: [],   // canlı Vega'dan: {id(=stokNo), kod, ad, depozito, dara}
   stoklar: [],
   stokHaritasi: new Map(),
-  yazmaAcik: false,
-  sonBelgeId: null
+  yazmaAcik: false
 };
 
 function firmaKodu() {
@@ -131,6 +137,7 @@ function sekmeAc(ad) {
     s.classList.toggle('etkin', s.id === 'sayfa-' + ad);
   });
   if (ad === 'kasa') kasaBakiyesiniYukle();
+  if (ad === 'belgeler') belgelerYukle();
   if (ad === 'ayar') ayarSayfasiniDoldur();
 }
 
@@ -274,17 +281,17 @@ function stokListesiniDoldur() {
   }
 }
 
-function kasaTipiSecenekleri(secili) {
+function kasaKartiSecenekleri(secili) {
   const s = document.createElement('select');
   const bos = document.createElement('option');
   bos.value = '';
   bos.textContent = '—';
   s.appendChild(bos);
-  for (const t of durum.kasaTipleri) {
+  for (const k of durum.kasaKartlari) {
     const o = document.createElement('option');
-    o.value = String(t.id);
-    o.textContent = t.kod;
-    if (String(secili) === String(t.id)) o.selected = true;
+    o.value = String(k.id);
+    o.textContent = k.kod || k.ad;
+    if (String(secili) === String(k.id)) o.selected = true;
     s.appendChild(o);
   }
   return s;
@@ -314,12 +321,21 @@ function satirEkle() {
     return { td, girdi: i };
   }
 
-  const miktar = sayiHucresi('kg');
   const kasaAdedi = sayiHucresi('adet');
 
   const tipHucre = document.createElement('td');
-  const tip = kasaTipiSecenekleri('');
+  const tip = kasaKartiSecenekleri('');
   tipHucre.appendChild(tip);
+
+  const brutMiktar = sayiHucresi('kg');
+
+  const daraHucre = document.createElement('td');
+  daraHucre.className = 'hesaplanan';
+  daraHucre.textContent = '0';
+
+  const daraliMiktarHucre = document.createElement('td');
+  daraliMiktarHucre.className = 'hesaplanan';
+  daraliMiktarHucre.textContent = '0';
 
   const fiyat = sayiHucresi('TL');
 
@@ -345,23 +361,33 @@ function satirEkle() {
   silHucre.appendChild(sil);
 
   tr.append(
-    stokHucre, miktar.td, kasaAdedi.td, tipHucre, fiyat.td,
-    tutarHucre, kasaTutarHucre, silHucre
+    stokHucre, kasaAdedi.td, tipHucre, brutMiktar.td, daraHucre,
+    daraliMiktarHucre, fiyat.td, tutarHucre, kasaTutarHucre, silHucre
   );
   govde.appendChild(tr);
 
   // Satır verisini DOM'da değil burada tutuyoruz; hesaplama tek yerden geçiyor.
   tr._satir = {
     stokGirdi: stok,
-    miktarGirdi: miktar.girdi,
+    brutMiktarGirdi: brutMiktar.girdi,
     kasaAdediGirdi: kasaAdedi.girdi,
     tipSecim: tip,
     fiyatGirdi: fiyat.girdi,
+    daraHucre,
+    daraliMiktarHucre,
     tutarHucre,
     kasaTutarHucre
   };
 
-  [stok, miktar.girdi, kasaAdedi.girdi, fiyat.girdi].forEach((i) => {
+  stok.addEventListener('change', () => {
+    const kart = durum.stokHaritasi.get(stok.value.trim());
+    if (kart && kart.fiyat) {
+      fiyat.girdi.value = String(kart.fiyat).replace('.', ',');
+    }
+    toplamlariGuncelle();
+  });
+
+  [stok, brutMiktar.girdi, kasaAdedi.girdi, fiyat.girdi].forEach((i) => {
     i.addEventListener('input', toplamlariGuncelle);
   });
   tip.addEventListener('change', toplamlariGuncelle);
@@ -387,23 +413,28 @@ function satirOku(tr) {
 
   const etiket = s.stokGirdi.value.trim();
   const stok = durum.stokHaritasi.get(etiket) || null;
-  const daraliMiktar = sayiOku(s.miktarGirdi.value);
+  const brutMiktar = sayiOku(s.brutMiktarGirdi.value);
   const kasaAdedi = sayiOku(s.kasaAdediGirdi.value);
   const fiyat = sayiOku(s.fiyatGirdi.value);
-  const tipId = s.tipSecim.value ? Number(s.tipSecim.value) : null;
-  const tip = tipId ? durum.kasaTipleri.find((t) => t.id === tipId) : null;
+  const kasaStokNo = s.tipSecim.value ? Number(s.tipSecim.value) : null;
+  const kasa = kasaStokNo ? durum.kasaKartlari.find((k) => k.id === kasaStokNo) : null;
 
+  const kasaDarasi = kasa ? (kasa.dara || 0) : 0;
+  const dara = Math.round(kasaAdedi * kasaDarasi * 1000) / 1000;
+  const daraliMiktar = Math.round(Math.max(brutMiktar - dara, 0) * 1000) / 1000;
   const tutar = Math.round(daraliMiktar * fiyat * 100) / 100;
-  const kasaDepozito = tip ? tip.depozito : 0;
+  const kasaDepozito = kasa ? kasa.depozito : 0;
   const kasaTutari = Math.round(kasaAdedi * kasaDepozito * 100) / 100;
 
   return {
-    etiket, stok, daraliMiktar, kasaAdedi, fiyat, tutar,
-    kasaTipiId: tipId,
-    kasaTipiKod: tip ? tip.kod : null,
+    etiket, stok, brutMiktar, dara, daraliMiktar, kasaAdedi, fiyat, tutar,
+    kasaStokNo,
+    kasaTipiKod: kasa ? kasa.kod : null,
+    kasaTipiAdi: kasa ? kasa.ad : null,
+    kasaDarasi,
     kasaDepozito,
     kasaTutari,
-    bos: !etiket && !daraliMiktar && !kasaAdedi && !fiyat
+    bos: !etiket && !brutMiktar && !kasaAdedi && !fiyat
   };
 }
 
@@ -415,25 +446,30 @@ function toplamlariGuncelle() {
     if (!s) continue;
     s.stok ? tr._satir.stokGirdi.style.removeProperty('border-color')
            : (tr._satir.stokGirdi.style.borderColor = s.etiket ? '#f87171' : '');
+    tr._satir.daraHucre.textContent = miktarYaz(s.dara);
+    tr._satir.daraliMiktarHucre.textContent = miktarYaz(s.daraliMiktar);
     tr._satir.tutarHucre.textContent = para(s.tutar);
     tr._satir.kasaTutarHucre.textContent = para(s.kasaTutari);
     urun += s.tutar;
     kasa += s.kasaTutari;
   }
+  const tahsilat = sayiOku(el('tahsilat').value);
   el('urunToplam').textContent = para(urun);
   el('kasaToplam').textContent = para(kasa);
   el('genelToplam').textContent = para(urun + kasa);
+  el('kalanToplam').textContent = para(urun + kasa - tahsilat);
 }
 
 el('satirEkle').addEventListener('click', () => satirEkle());
+el('tahsilat').addEventListener('input', () => toplamlariGuncelle());
 
 el('formTemizle').addEventListener('click', () => {
   el('satirGovde').innerHTML = '';
   satirEkle();
   el('fisNo').value = '';
+  el('tahsilat').value = '';
   belgeCari.temizle();
   el('sonKayit').classList.add('gizli');
-  durum.sonBelgeId = null;
   toplamlariGuncelle();
   uyariKapat();
 });
@@ -459,10 +495,10 @@ async function belgeKaydet(belgeTuru) {
     if (!s.stok) {
       return bildir(`"${s.etiket}" listede yok. Ürünü açılan listeden seçin.`, 'hata');
     }
-    if (!(s.daraliMiktar > 0)) {
-      return bildir(`"${s.stok.ad}" için daralı miktar girilmedi.`, 'hata');
+    if (!(s.brutMiktar > 0)) {
+      return bildir(`"${s.stok.ad}" için brüt miktar girilmedi.`, 'hata');
     }
-    if (s.kasaAdedi > 0 && !s.kasaTipiId) {
+    if (s.kasaAdedi > 0 && !s.kasaStokNo) {
       return bildir(`"${s.stok.ad}" için kasa adedi var ama kasa tipi seçilmedi.`, 'hata');
     }
     satirlar.push({
@@ -473,8 +509,9 @@ async function belgeKaydet(belgeTuru) {
       birimEx: s.stok.birimEx,
       daraliMiktar: s.daraliMiktar,
       kasaAdedi: s.kasaAdedi,
-      kasaTipiId: s.kasaTipiId,
+      kasaStokNo: s.kasaStokNo,
       kasaTipiKod: s.kasaTipiKod,
+      kasaTipiAdi: s.kasaTipiAdi,
       kasaDepozito: s.kasaDepozito,
       kasaTutari: s.kasaTutari,
       fiyat: s.fiyat,
@@ -484,31 +521,34 @@ async function belgeKaydet(belgeTuru) {
 
   if (!satirlar.length) return bildir('Belgeye en az bir satır girilmeli.', 'hata');
 
+  const tahsilat = sayiOku(el('tahsilat').value);
+
   const dugmeler = [el('kaydetFatura'), el('kaydetCariCikis')];
   dugmeler.forEach((d) => { d.disabled = true; });
 
   try {
-    const sonuc = await cagir('belge:kaydet', {
+    const sonuc = await cagir('yazma:belge', {
       firma: firmaKodu(),
       donem: donemKodu(),
       tarih: el('belgeTarih').value || bugun(),
       cariInd: cari.cariInd,
-      cariKod: cari.kod,
       cariAd: cari.ad,
       belgeTuru,
       fisNo: el('fisNo').value.trim(),
-      satirlar
+      satirlar,
+      tahsilat
     });
 
-    durum.sonBelgeId = sonuc.belgeId;
     bildir(
-      `Belge kaydedildi. Ürün ${para(sonuc.urunTutari)} + kasa ${para(sonuc.kasaTutari)} = ` +
-      `${para(sonuc.toplam)} TL.`,
+      `Vega'ya yazıldı. Belge no: ${sonuc.belgeNo}` +
+      (sonuc.kasaBelgeNo ? ` · Kasa: ${sonuc.kasaBelgeNo}` : '') +
+      (sonuc.tahsilatBelgeNo ? ` · Tahsilat: ${sonuc.tahsilatBelgeNo}` : ''),
       'basarili'
     );
     sonKaydiGoster(sonuc, belgeTuru);
+    await belgeCari.yenile();
   } catch (e) {
-    bildir('Kaydedilemedi: ' + e.message, 'hata');
+    bildir("Vega'ya yazılamadı: " + e.message, 'hata');
   } finally {
     dugmeler.forEach((d) => { d.disabled = false; });
   }
@@ -524,38 +564,37 @@ function sonKaydiGoster(sonuc, belgeTuru) {
   const bilgi = document.createElement('p');
   bilgi.className = 'ipucu';
   bilgi.textContent =
-    `#${sonuc.belgeId} · ` +
     (belgeTuru === 'satisFaturasi' ? 'Satış Faturası' : 'Cari Çıkış') +
-    ` · ${para(sonuc.toplam)} TL`;
+    ` · Belge no: ${sonuc.belgeNo} · ${para(sonuc.toplam)} TL`;
 
   const eylem = document.createElement('div');
   eylem.className = 'eylemler sol';
 
   if (durum.yazmaAcik) {
-    const yaz = document.createElement('button');
-    yaz.type = 'button';
-    yaz.className = 'dugme birincil';
-    yaz.textContent = "Vega'ya Yaz";
-    yaz.addEventListener('click', async () => {
-      yaz.disabled = true;
+    const geri = document.createElement('button');
+    geri.type = 'button';
+    geri.className = 'dugme mini tehlike';
+    geri.textContent = 'Bu Belgeyi Geri Al';
+    geri.addEventListener('click', async () => {
+      const onay = await cagir('onay', {
+        baslik: 'Vega kaydını geri al',
+        mesaj: `Belge no ${sonuc.belgeNo} Vega'dan silinecek.`,
+        ayrinti: 'Bu belgenin satış/cari kayıtları ve stok hareketleri silinir. Müşterinin bakiyesi işlem öncesi haline döner.',
+        tamamBaslik: 'Geri al'
+      });
+      if (!onay.onaylandi) return;
+      geri.disabled = true;
       try {
-        const y = await cagir('yazma:belge', { belgeId: sonuc.belgeId });
-        bildir("Vega'ya yazıldı. Belge no: " + y.belgeNo, 'basarili');
-        yaz.remove();
+        const r = await cagir('yazma:belgeGeriAl', { islemId: sonuc.islemId });
+        bildir(`Geri alındı (${r.silinenSatir} satır silindi).`, 'basarili');
+        kutu.classList.add('gizli');
         await belgeCari.yenile();
       } catch (e) {
-        bildir("Vega'ya yazılamadı: " + e.message, 'hata');
-        yaz.disabled = false;
+        bildir('Geri alınamadı: ' + e.message, 'hata');
+        geri.disabled = false;
       }
     });
-    eylem.appendChild(yaz);
-  } else {
-    const not = document.createElement('span');
-    not.className = 'ipucu';
-    not.textContent =
-      "Vega'ya yazma kapalı — belge yalnızca bu programın veritabanına kaydedildi. " +
-      'Rapor ekranından sonradan gönderilebilir.';
-    eylem.appendChild(not);
+    eylem.appendChild(geri);
   }
 
   const yeni = document.createElement('button');
@@ -570,16 +609,16 @@ function sonKaydiGoster(sonuc, belgeTuru) {
 
 // ═══════════════════════ KASA ═══════════════════════
 
-function kasaTipiSecimDoldur(secim) {
+function kasaKartiSecimDoldur(secim) {
   secim.innerHTML = '';
   const bos = document.createElement('option');
   bos.value = '';
   bos.textContent = '— seçin —';
   secim.appendChild(bos);
-  for (const t of durum.kasaTipleri) {
+  for (const k of durum.kasaKartlari) {
     const o = document.createElement('option');
-    o.value = String(t.id);
-    o.textContent = `${t.kod} (${para(t.depozito)} TL)`;
+    o.value = String(k.id);
+    o.textContent = `${k.kod} (${para(k.depozito)} TL)`;
     secim.appendChild(o);
   }
 }
@@ -589,7 +628,7 @@ async function iadeBilgisiniGuncelle() {
   const cari = iadeCari.secili();
   if (!cari) { bilgi.textContent = ''; return; }
   try {
-    const liste = await cagir('kasa:bakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
+    const liste = await cagir('yardimci:kasaBakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
     if (!liste.length) {
       bilgi.textContent = 'Bu müşteride açık kasa görünmüyor.';
       return;
@@ -611,20 +650,24 @@ el('iadeKaydet').addEventListener('click', async () => {
   }
   const cari = iadeCari.secili();
   if (!cari) return bildir('Müşteri seçilmedi.', 'hata');
-  const tipId = el('iadeKasaTipi').value;
-  if (!tipId) return bildir('Kasa tipi seçilmedi.', 'hata');
+  const stokNo = el('iadeKasaTipi').value;
+  if (!stokNo) return bildir('Kasa tipi seçilmedi.', 'hata');
   const adet = sayiOku(el('iadeAdet').value);
   if (!(adet > 0)) return bildir('İade adedi sıfırdan büyük olmalı.', 'hata');
+  const kasa = durum.kasaKartlari.find((k) => k.id === Number(stokNo));
 
   const dugme = el('iadeKaydet');
   dugme.disabled = true;
   try {
-    const sonuc = await cagir('kasa:iade', {
+    const sonuc = await cagir('yazma:kasaIade', {
       firma: firmaKodu(),
       donem: donemKodu(),
       cariInd: cari.cariInd,
       cariAd: cari.ad,
-      kasaTipiId: Number(tipId),
+      stokNo: Number(stokNo),
+      stokKodu: kasa ? kasa.kod : null,
+      stokAdi: kasa ? kasa.ad : null,
+      depozito: kasa ? kasa.depozito : 0,
       adet,
       tarih: el('iadeTarih').value || bugun()
     });
@@ -632,20 +675,7 @@ el('iadeKaydet').addEventListener('click', async () => {
     let mesaj =
       `İade kaydedildi: ${miktarYaz(sonuc.adet)} adet, ${para(sonuc.tutar)} TL. ` +
       `Müşteride kalan: ${miktarYaz(sonuc.kalanAdet)} adet.`;
-
-    if (durum.yazmaAcik && sonuc.tutar > 0) {
-      try {
-        const y = await cagir('yazma:kasaIade', { kasaHareketId: sonuc.kasaHareketId });
-        mesaj += ` Vega'ya yazıldı, belge no: ${y.belgeNo}.`;
-      } catch (e) {
-        mesaj += ` Ancak Vega'ya yazılamadı: ${e.message}`;
-        bildir(mesaj, 'hata');
-        el('iadeAdet').value = '';
-        await iadeBilgisiniGuncelle();
-        kasaBakiyesiniYukle();
-        return;
-      }
-    }
+    if (sonuc.belgeNo) mesaj += ` Vega belge no: ${sonuc.belgeNo}.`;
 
     bildir(mesaj, 'basarili');
     el('iadeAdet').value = '';
@@ -653,7 +683,7 @@ el('iadeKaydet').addEventListener('click', async () => {
     await iadeCari.yenile();
     kasaBakiyesiniYukle();
   } catch (e) {
-    bildir('İade kaydedilemedi: ' + e.message, 'hata');
+    bildir("Vega'ya yazılamadı: " + e.message, 'hata');
   } finally {
     dugme.disabled = false;
   }
@@ -667,7 +697,7 @@ async function kasaBakiyesiniYukle() {
     return boslukTemizle(govde, 4, 'Önce Ayarlar ekranından firma ve dönem seçin.');
   }
   try {
-    const liste = await cagir('kasa:bakiye', { firma: firmaKodu() });
+    const liste = await cagir('yardimci:kasaBakiye', { firma: firmaKodu() });
     if (!liste.length) {
       return boslukTemizle(govde, 4, 'Müşterilerde açık kasa yok.');
     }
@@ -695,7 +725,6 @@ async function kasaBakiyesiniYukle() {
     bos.colSpan = 3;
     const t = document.createElement('td');
     t.className = 'sayi';
-    t.innerHTML = '';
     const b = document.createElement('b');
     b.textContent = para(toplamTutar) + ' TL';
     t.appendChild(b);
@@ -706,62 +735,34 @@ async function kasaBakiyesiniYukle() {
   }
 }
 
-// ═══════════════════════ RAPOR ═══════════════════════
+// ═══════════════════════ SON BELGELER ═══════════════════════
+//
+// Yazılan her belge tek adımda VEGADB'ye gittiği için burada "gönder" diye
+// bir işlem yok — yalnızca ne yazıldığının kısa günlüğü ve gerektiğinde
+// tek tuşla geri alma.
 
-el('raporBuHafta').addEventListener('click', () => {
-  const d = new Date();
-  // Pazartesi haftanın ilk günü.
-  const gun = (d.getDay() + 6) % 7;
-  const pazartesi = new Date(d);
-  pazartesi.setDate(d.getDate() - gun);
-  const pazar = new Date(pazartesi);
-  pazar.setDate(pazartesi.getDate() + 6);
-  el('raporBaslangic').value = isoTarih(pazartesi);
-  el('raporBitis').value = isoTarih(pazar);
-  raporYukle();
-});
+el('belgelerYenile').addEventListener('click', () => belgelerYukle());
 
-el('raporGetir').addEventListener('click', () => raporYukle());
-
-async function raporYukle() {
-  const govde = el('raporGovde');
-  const ozet = el('raporOzet');
-  ozet.textContent = '';
-
+async function belgelerYukle() {
+  const govde = el('belgelerGovde');
   if (!firmaSecildiMi()) {
-    return boslukTemizle(govde, 11, 'Önce Ayarlar ekranından firma ve dönem seçin.');
+    return boslukTemizle(govde, 7, 'Önce Ayarlar ekranından firma ve dönem seçin.');
   }
-
   try {
-    const satirlar = await cagir('belge:rapor', {
-      firma: firmaKodu(),
-      baslangic: el('raporBaslangic').value || null,
-      bitis: el('raporBitis').value || null
-    });
-
-    if (!satirlar.length) {
-      return boslukTemizle(govde, 11, 'Bu aralıkta kayıt yok.');
+    const liste = await cagir('yardimci:sonIslemler', { firma: firmaKodu(), limit: 200 });
+    if (!liste.length) {
+      return boslukTemizle(govde, 7, 'Henüz belge yazılmamış.');
     }
-
     govde.innerHTML = '';
-    let toplam = 0;
-    let oncekiBelge = null;
-
-    for (const s of satirlar) {
+    for (const k of liste) {
       const tr = document.createElement('tr');
-      const ilkSatir = s.belgeId !== oncekiBelge;
-      oncekiBelge = s.belgeId;
-
       const hucreler = [
-        [tarihYaz(s.tarih), ''],
-        [s.cinsi, ''],
-        [miktarYaz(s.daraliMiktar), 'sayi'],
-        [miktarYaz(s.kasaAdedi), 'sayi'],
-        [s.kasaTipi, ''],
-        [para(s.fiyat), 'sayi'],
-        [para(s.tutar), 'sayi'],
-        [s.fisNo, ''],
-        [ilkSatir ? s.cariAd : '', '']
+        [tarihSaatYaz(k.Tarih), ''],
+        [k.Konu === 'satisFaturasi' ? 'Satış Faturası' : k.Konu === 'cariCikis' ? 'Cari Çıkış' : k.Konu, ''],
+        [k.CariAd || '', ''],
+        [k.BelgeNo || '', ''],
+        [k.Tutar != null ? para(k.Tutar) : '', 'sayi'],
+        [k.Kullanici || '', '']
       ];
       for (const [metin, sinif] of hucreler) {
         const td = document.createElement('td');
@@ -770,84 +771,44 @@ async function raporYukle() {
         tr.appendChild(td);
       }
 
-      const durumHucre = document.createElement('td');
-      if (ilkSatir) {
-        const isaret = document.createElement('span');
-        isaret.className = 'isaret ' + (s.vegayaYazildi ? 'yazildi' : 'bekliyor');
-        isaret.textContent = s.vegayaYazildi ? s.vegaBelgeNo || 'yazıldı' : 'bekliyor';
-        durumHucre.appendChild(isaret);
-      }
-      tr.appendChild(durumHucre);
-
       const eylemHucre = document.createElement('td');
-      if (ilkSatir) eylemHucre.appendChild(raporEylemi(s));
+      if (k.GeriAlindi) {
+        const isaret = document.createElement('span');
+        isaret.className = 'ipucu';
+        isaret.textContent = 'geri alındı';
+        eylemHucre.appendChild(isaret);
+      } else if (durum.yazmaAcik) {
+        const geri = document.createElement('button');
+        geri.type = 'button';
+        geri.className = 'dugme mini tehlike';
+        geri.textContent = 'Geri Al';
+        geri.addEventListener('click', async () => {
+          const onay = await cagir('onay', {
+            baslik: 'Vega kaydını geri al',
+            mesaj: `Belge no ${k.BelgeNo || '—'} Vega'dan silinecek.`,
+            ayrinti: 'Bu belgenin satış/cari kayıtları ve stok hareketleri silinir. Müşterinin bakiyesi işlem öncesi haline döner.',
+            tamamBaslik: 'Geri al'
+          });
+          if (!onay.onaylandi) return;
+          geri.disabled = true;
+          try {
+            const r = await cagir('yazma:belgeGeriAl', { islemId: k.Id });
+            bildir(`Geri alındı (${r.silinenSatir} satır silindi).`, 'basarili');
+            belgelerYukle();
+          } catch (e) {
+            bildir('Geri alınamadı: ' + e.message, 'hata');
+            geri.disabled = false;
+          }
+        });
+        eylemHucre.appendChild(geri);
+      }
       tr.appendChild(eylemHucre);
 
       govde.appendChild(tr);
-      toplam += s.tutar;
     }
-
-    ozet.textContent = `${satirlar.length} satır · ürün toplamı ${para(toplam)} TL`;
   } catch (e) {
-    boslukTemizle(govde, 11, 'Okunamadı: ' + e.message);
+    boslukTemizle(govde, 7, 'Okunamadı: ' + e.message);
   }
-}
-
-function raporEylemi(s) {
-  const sarmal = document.createElement('div');
-  sarmal.className = 'eylemler sol';
-
-  if (!durum.yazmaAcik) return sarmal;
-
-  if (!s.vegayaYazildi) {
-    const yaz = document.createElement('button');
-    yaz.type = 'button';
-    yaz.className = 'dugme mini birincil';
-    yaz.textContent = "Vega'ya Yaz";
-    yaz.addEventListener('click', async () => {
-      yaz.disabled = true;
-      try {
-        const y = await cagir('yazma:belge', { belgeId: s.belgeId });
-        bildir(`Belge #${s.belgeId} Vega'ya yazıldı. Belge no: ${y.belgeNo}`, 'basarili');
-        raporYukle();
-      } catch (e) {
-        bildir("Vega'ya yazılamadı: " + e.message, 'hata');
-        yaz.disabled = false;
-      }
-    });
-    sarmal.appendChild(yaz);
-  } else {
-    const geri = document.createElement('button');
-    geri.type = 'button';
-    geri.className = 'dugme mini tehlike';
-    geri.textContent = 'Geri Al';
-    geri.addEventListener('click', async () => {
-      const onay = await cagir('onay', {
-        baslik: 'Vega kaydını geri al',
-        mesaj: `Belge #${s.belgeId} Vega'dan silinecek.`,
-        ayrinti:
-          `Belge no: ${s.vegaBelgeNo || '—'}\n\n` +
-          'Bu belgenin Vega\'daki satış/cari kayıtları ve stok hareketleri silinir. ' +
-          'Müşterinin bakiyesi işlem öncesi haline döner. ' +
-          'Programın kendi kaydı silinmez; belge yeniden gönderilebilir.',
-        tamamBaslik: 'Geri al'
-      });
-      if (!onay.onaylandi) return;
-
-      geri.disabled = true;
-      try {
-        const r = await cagir('yazma:belgeGeriAl', { belgeId: s.belgeId });
-        bildir(`Geri alındı (${r.silinenSatir} satır silindi).`, 'basarili');
-        raporYukle();
-      } catch (e) {
-        bildir('Geri alınamadı: ' + e.message, 'hata');
-        geri.disabled = false;
-      }
-    });
-    sarmal.appendChild(geri);
-  }
-
-  return sarmal;
 }
 
 // ═══════════════════════ EKSTRE ═══════════════════════
@@ -877,7 +838,6 @@ async function ekstreYukle() {
       const tr = document.createElement('tr');
       const bos = document.createElement('td');
       bos.colSpan = 6;
-      bos.innerHTML = '';
       const b = document.createElement('b');
       b.textContent = 'Devir bakiyesi';
       bos.appendChild(b);
@@ -916,10 +876,8 @@ async function ekstreYukle() {
 
     let metin = `${sonuc.satirlar.length} hareket · son bakiye ${para(sonuc.sonBakiye)} TL`;
 
-    // Kasa depozitosu Vega'ya ayrı satır olarak yazılıyor; yine de programın
-    // kendi defterindeki açık kasa adedi burada gösteriliyor.
     try {
-      const kasalar = await cagir('kasa:bakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
+      const kasalar = await cagir('yardimci:kasaBakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
       if (kasalar.length) {
         metin +=
           ' · müşteride duran kasa: ' +
@@ -944,13 +902,12 @@ function ayarSayfasiniDoldur() {
   el('aySifre').value = '';
   el('aySifre').placeholder = a.sifreGirildi ? '(kayıtlı — değiştirmek için yazın)' : '';
   el('ayVegaDb').value = a.vegaVeritabani || '';
-  el('ayKendiDb').value = a.kendiVeritabani || '';
   el('ayKdv').value = a.varsayilanKdv != null ? a.varsayilanKdv : 0;
   el('ayOnek').value = a.belgeOneki || 'H';
   el('ayYazmaAktif').checked = !!a.vegayaYazmaAktif;
   firmaSecimDoldur();
   depoSecimDoldur();
-  kasaTipiTablosunuDoldur();
+  kasaKartlariTablosunuDoldur();
 }
 
 function firmaSecimDoldur() {
@@ -1045,20 +1002,6 @@ el('ayBaglantiTest').addEventListener('click', async () => {
   }
 });
 
-el('ayVeritabaniKur').addEventListener('click', async () => {
-  const sonuc = el('ayBaglantiSonuc');
-  sonuc.textContent = 'Kuruluyor…';
-  try {
-    await ayarlariKaydet(true);
-    await cagir('kayit:hazirla', {});
-    durum.kasaTipleri = await cagir('kasaTipi:liste', { hepsi: true });
-    kasaTipiTablosunuDoldur();
-    sonuc.textContent = `"${el('ayKendiDb').value}" veritabanı hazır.`;
-  } catch (e) {
-    sonuc.textContent = 'Kurulamadı: ' + e.message;
-  }
-});
-
 el('ayKaydet').addEventListener('click', async () => {
   try {
     await ayarlariKaydet(false);
@@ -1077,7 +1020,6 @@ async function ayarlariKaydet(sessiz) {
     port: Number(el('ayPort').value) || 1433,
     kullanici: el('ayKullanici').value.trim(),
     vegaVeritabani: el('ayVegaDb').value.trim() || 'VEGADB',
-    kendiVeritabani: el('ayKendiDb').value.trim() || 'BELGE_DOLDURUCU',
     // windowsGirisi arayüzde yok: msnodesqlv8 sürücüsü kurulum dosyasına
     // paketlenmiyor, o yüzden kurulu programda çalışamaz. Ayar dosyasında
     // duruyor; sürücüyü kurup yeniden derleyen biri elle açabilir.
@@ -1101,46 +1043,35 @@ async function ayarlariKaydet(sessiz) {
   return durum.ayar;
 }
 
-// --- Kasa tipleri tablosu ---
+// --- Kasa kartları (Vega'dan salt okunur + dara) ----------------------------
 
-function kasaTipiTablosunuDoldur() {
+function kasaKartlariTablosunuDoldur() {
   const govde = el('kasaTipiGovde');
   govde.innerHTML = '';
-  if (!durum.kasaTipleri.length) {
-    return boslukTemizle(govde, 5, 'Kasa tipi tanımlı değil.');
+  if (!durum.kasaKartlari.length) {
+    return boslukTemizle(govde, 5, 'Bu firmada kasa/kap kartı bulunamadı (Vega stok kartlarında adında "KASA" ya da "DEPOZİTO" geçen kart yok).');
   }
-  for (const t of durum.kasaTipleri) govde.appendChild(kasaTipiSatiri(t));
+  for (const k of durum.kasaKartlari) govde.appendChild(kasaKartiSatiri(k));
 }
 
-function kasaTipiSatiri(tip) {
+function kasaKartiSatiri(kasa) {
   const tr = document.createElement('tr');
 
-  function girdiHucresi(deger, sinif, yerTutucu) {
-    const td = document.createElement('td');
-    const i = document.createElement('input');
-    i.type = 'text';
-    i.value = deger == null ? '' : String(deger);
-    if (sinif) i.className = sinif;
-    if (yerTutucu) i.placeholder = yerTutucu;
-    i.autocomplete = 'off';
-    td.appendChild(i);
-    return { td, girdi: i };
-  }
+  const kod = document.createElement('td');
+  kod.textContent = kasa.kod;
+  const ad = document.createElement('td');
+  ad.textContent = kasa.ad;
+  const depozito = document.createElement('td');
+  depozito.className = 'sayi';
+  depozito.textContent = para(kasa.depozito) + ' TL';
 
-  const kod = girdiHucresi(tip.kod, '', 'SBÜ');
-  const ad = girdiHucresi(tip.ad, '', 'açıklama');
-  const depozito = girdiHucresi(
-    tip.id ? String(tip.depozito).replace('.', ',') : '',
-    'sayi',
-    '0,00'
-  );
-  depozito.girdi.inputMode = 'decimal';
-
-  const aktifHucre = document.createElement('td');
-  const aktif = document.createElement('input');
-  aktif.type = 'checkbox';
-  aktif.checked = tip.aktif !== false;
-  aktifHucre.appendChild(aktif);
+  const daraHucre = document.createElement('td');
+  const daraGirdi = document.createElement('input');
+  daraGirdi.type = 'text';
+  daraGirdi.className = 'sayi';
+  daraGirdi.inputMode = 'decimal';
+  daraGirdi.value = String(kasa.dara || 0).replace('.', ',');
+  daraHucre.appendChild(daraGirdi);
 
   const eylemHucre = document.createElement('td');
   const kaydet = document.createElement('button');
@@ -1150,33 +1081,21 @@ function kasaTipiSatiri(tip) {
   kaydet.addEventListener('click', async () => {
     kaydet.disabled = true;
     try {
-      await cagir('kasaTipi:kaydet', {
-        id: tip.id || null,
-        kod: kod.girdi.value.trim(),
-        ad: ad.girdi.value.trim(),
-        depozito: sayiOku(depozito.girdi.value),
-        aktif: aktif.checked
-      });
-      durum.kasaTipleri = await cagir('kasaTipi:liste', { hepsi: true });
-      kasaTipiTablosunuDoldur();
-      kasaTipiSecimDoldur(el('iadeKasaTipi'));
-      bildir('Kasa tipi kaydedildi.', 'basarili');
+      const dara = sayiOku(daraGirdi.value);
+      await cagir('yardimci:kasaDarasiKaydet', { stokNo: kasa.id, dara });
+      kasa.dara = dara;
+      bildir('Dara kaydedildi.', 'basarili');
     } catch (e) {
       bildir('Kaydedilemedi: ' + e.message, 'hata');
+    } finally {
       kaydet.disabled = false;
     }
   });
   eylemHucre.appendChild(kaydet);
 
-  tr.append(kod.td, ad.td, depozito.td, aktifHucre, eylemHucre);
+  tr.append(kod, ad, depozito, daraHucre, eylemHucre);
   return tr;
 }
-
-el('kasaTipiEkle').addEventListener('click', () => {
-  const govde = el('kasaTipiGovde');
-  if (govde.querySelector('.bosSatir')) govde.innerHTML = '';
-  govde.appendChild(kasaTipiSatiri({ id: null, kod: '', ad: '', depozito: 0, aktif: true }));
-});
 
 // ═══════════════════════ Açılış ═══════════════════════
 
@@ -1194,6 +1113,24 @@ function ustCubugunuGuncelle() {
     ? "Vega'ya yazma: AÇIK"
     : "Vega'ya yazma: kapalı";
   yazmaEt.className = 'etiket ' + (durum.yazmaAcik ? 'acik' : 'kapali');
+}
+
+async function kasaKartlariniYukle() {
+  try {
+    const kartlar = await cagir('vega:kasaKartlari', { firma: firmaKodu(), donem: donemKodu() });
+    let daralar = {};
+    try {
+      daralar = await cagir('yardimci:kasaDaralari', {});
+    } catch (e) {
+      // Yardımcı tablolar henüz kurulmamış olabilir (ör. SQL yetkisi
+      // henüz verilmedi) — dara bilgisi olmadan da devam edilebilir.
+    }
+    durum.kasaKartlari = kartlar.map((k) => Object.assign({}, k, { dara: daralar[k.id] || 0 }));
+  } catch (e) {
+    durum.kasaKartlari = [];
+    bildir('Kasa/kap kartları okunamadı: ' + e.message, 'hata');
+  }
+  kasaKartiSecimDoldur(el('iadeKasaTipi'));
 }
 
 async function baslangicVerisiniYukle() {
@@ -1227,19 +1164,7 @@ async function baslangicVerisiniYukle() {
     return;
   }
 
-  try {
-    durum.kasaTipleri = await cagir('kasaTipi:liste', { hepsi: true });
-  } catch (e) {
-    durum.kasaTipleri = [];
-    bildir(
-      'Programın kendi veritabanı hazır değil: ' + e.message +
-      ' — Ayarlar ekranındaki "Kendi Veritabanını Kur" düğmesine basın.',
-      'hata'
-    );
-    sekmeAc('ayar');
-    return;
-  }
-  kasaTipiSecimDoldur(el('iadeKasaTipi'));
+  await kasaKartlariniYukle();
 
   try {
     durum.stoklar = await cagir('vega:stoklar', {
@@ -1258,11 +1183,6 @@ async function baslat() {
   const bugunMetni = bugun();
   el('belgeTarih').value = bugunMetni;
   el('iadeTarih').value = bugunMetni;
-  el('raporBitis').value = bugunMetni;
-
-  const birHaftaOnce = new Date();
-  birHaftaOnce.setDate(birHaftaOnce.getDate() - 7);
-  el('raporBaslangic').value = isoTarih(birHaftaOnce);
 
   satirEkle();
   toplamlariGuncelle();

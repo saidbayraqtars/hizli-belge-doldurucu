@@ -9,7 +9,7 @@
   "_sifreNotu": "kurulum/sql-kullanici-olustur.sql içinde belirlediğiniz şifreyi buraya yazın.",
 
   "vegaVeritabani": "VEGADB",
-  "kendiVeritabani": "BELGE_DOLDURUCU",
+  "_vegaVeritabaniNotu": "Program kendi ayrı bir veritabanı tutmuyor; belge doğrudan bu veritabanına yazılır. Üç küçük yardımcı tablo (dara, kasa defteri, yazma günlüğü) da bunun İÇİNE kurulur.",
 
   "varsayilanFirma": "",
   "varsayilanDonem": "",
@@ -19,8 +19,8 @@
   "varsayilanKdv": 0,
 
   "belgeOneki": "H",
-  "_belgeOnekiNotu": "Bu programın ürettiği belge numaralarının öneki. Vega kendi belgelerinde A/S/Z kullanıyor; ayrı bir harf seçildiği için numaralar asla çakışmaz.",
+  "_belgeOnekiNotu": "Yalnızca yedek: program önce o firma/dönemde Vega'nın kendi satış faturası serisini bulup sürdürmeye çalışır; hiç fatura yoksa bu öneğe düşülür.",
 
   "vegayaYazmaAktif": false,
-  "_vegayaYazmaNotu": "true yapılana kadar program VEGADB'ye tek satır yazmaz. Kayıtlar yine kendi veritabanında tutulur."
+  "_vegayaYazmaNotu": "true yapılana kadar program VEGADB'ye tek satır yazmaz; yalnızca okuma ekranları çalışır."
 }

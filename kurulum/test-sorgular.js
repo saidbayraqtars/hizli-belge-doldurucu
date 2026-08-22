@@ -4,16 +4,16 @@
 //
 //     npm run test:db
 //
-// Yalnızca OKUR. VEGADB'ye tek satır yazmaz; programın kendi veritabanında
-// şema kurar (yoksa) ve orada okuma yapar. Yazma yolları bilerek sınanmıyor:
-// bunun için yapısı kopyalanmış ayrı bir veritabanı gerekiyor (bkz.
-// kurulum/BELGE-DESENI.md).
+// Yalnızca OKUR (yardımcı tablo kontrolü hariç — o da VEGADB'ye INSERT
+// atmaz, yalnızca CREATE TABLE IF NOT EXISTS yapar). Yazma yolları bilerek
+// sınanmıyor: bunun için yapısı kopyalanmış ayrı bir veritabanı gerekiyor
+// (bkz. kurulum/BELGE-DESENI.md, npm run test:yazma).
 
 const { ayarOku, ayarYolu } = require('../db/ayar');
 const sql = require('../db/sql');
 const firma = require('../db/firma');
 const vega = require('../db/vega');
-const kayit = require('../db/kayit');
+const yardimci = require('../db/yardimci');
 const yazma = require('../db/yazma');
 
 let gecen = 0;
@@ -38,7 +38,7 @@ async function calistir() {
   console.log('Ayar dosyasi: ' + ayarYolu());
 
   const a = ayarOku();
-  console.log(`Sunucu: ${a.sunucu}  ·  Vega: ${a.vegaVeritabani}  ·  Kendi: ${a.kendiVeritabani}`);
+  console.log(`Sunucu: ${a.sunucu}  ·  Vega: ${a.vegaVeritabani}`);
 
   bolum('Baglanti');
   const t = await sql.baglantiTesti();
@@ -114,20 +114,36 @@ async function calistir() {
   const aramaSonucu = await vega.stoklariGetir(Object.assign({ arama: 'A', limit: 5 }, secenek));
   kontrol('Stok aramasi calisiyor', Array.isArray(aramaSonucu), `${aramaSonucu.length} sonuc`);
 
-  bolum('Programin kendi veritabani');
+  const kasalar = await vega.kasaKartlariniGetir(secenek);
+  kontrol('Kasa karti sorgusu calisiyor (bos donebilir)', Array.isArray(kasalar),
+    kasalar.length ? kasalar.map((k) => k.kod).join(', ') : '0 kart bulundu');
 
-  await kayit.hazirla(true);
-  kontrol('Sema kuruldu', true, kayit.p());
+  const seriTespit = await vega.satisSerisiTespitEt(secenek.firma, secenek.donem);
+  kontrol('Fatura serisi tespiti calisiyor (bos donebilir)',
+    seriTespit === null || /^[A-ZÇĞİÖŞÜ]$/.test(seriTespit),
+    seriTespit || '(bu donemde fatura yok)');
 
-  const tipler = await kayit.kasaTipleriGetir(true);
-  kontrol('Kasa tipleri okundu', Array.isArray(tipler) && tipler.length > 0,
-    tipler.map((x) => x.kod).join(', '));
+  bolum('VEGADB icindeki yardimci tablolar (dara / kasa defteri / gunluk)');
 
-  const rapor = await kayit.raporGetir({ firma: secili.kod });
-  kontrol('Rapor okundu', Array.isArray(rapor), `${rapor.length} satir`);
+  // Bu sinama SALT OKUNUR kalsin diye tabloyu BURADA kurdurmuyoruz — sadece
+  // zaten var mi diye bakiyoruz. Kurulum ilk yazma anında kendiliğinden olur
+  // (db/yazma.js → yardimci.hazirla()), ya da elle: npm run test:yazma.
+  const v = ayarOku().vegaVeritabani;
+  const varMi = await sql.sorgu(
+    `SELECT CASE WHEN OBJECT_ID('[${v}].dbo.BD_Islem', 'U') IS NULL THEN 0 ELSE 1 END AS varMi`
+  );
+  if (Number(varMi[0].varMi) === 1) {
+    const daralar = await yardimci.kasaDaralariGetir();
+    kontrol('Dara haritasi okundu', typeof daralar === 'object');
 
-  const kasalar = await kayit.kasaBakiyesi({ firma: secili.kod });
-  kontrol('Kasa bakiyesi okundu', Array.isArray(kasalar), `${kasalar.length} kayit`);
+    const kasaBakiye = await yardimci.kasaBakiyesi({ firma: secili.kod });
+    kontrol('Kasa bakiyesi okundu', Array.isArray(kasaBakiye), `${kasaBakiye.length} kayit`);
+
+    const gunluk = await yardimci.sonIslemleriGetir({ firma: secili.kod, limit: 20 });
+    kontrol('Islem gunlugu okundu', Array.isArray(gunluk), `${gunluk.length} kayit`);
+  } else {
+    console.log('  (yardimci tablolar henuz kurulmamis — ilk yazmada kendiliginden kurulur, atlandi)');
+  }
 
   bolum('Yazma kilidi');
 
@@ -138,7 +154,7 @@ async function calistir() {
   let kilitTuttu = false;
   let kilitKodu = null;
   try {
-    await yazma.belgeyiVegayaYaz({ belgeId: 999999999 });
+    await yazma.belgeYaz({ cariInd: 1, belgeTuru: 'cariCikis', satirlar: [{ stokNo: 1, tutar: 1 }] });
   } catch (e) {
     kilitTuttu = true;
     kilitKodu = e.kod;

@@ -10,7 +10,6 @@ const VARSAYILAN = {
   kullanici: 'belge_doldurucu',
   sifre: '',
   vegaVeritabani: 'VEGADB',
-  kendiVeritabani: 'BELGE_DOLDURUCU',
 
   // Firma ve dönem bir kez seçilir, buraya yazılır ve kullanıcı değiştirmedikçe
   // aynı kalır. Boşken program açılışta Ayarlar ekranına yönlendirir.
@@ -20,8 +19,10 @@ const VARSAYILAN = {
   varsayilanDepo: 1,
   varsayilanKdv: 0,
 
-  // Ürettiğimiz belge numaralarının öneki. Vega kendi serilerinde A/S/Z
-  // kullanıyor; ayrı bir harf seçtiğimiz için numaralar çakışamaz.
+  // Belge numarası öneki — yalnızca YEDEK: program önce o firma/dönemde
+  // Vega'nın kendi satış faturası serisini (ör. "A") bulup onu sürdürmeye
+  // çalışır (db/vega.js → satisSerisiTespitEt). Hiç fatura yoksa (yeni
+  // firma/dönem) bu öneğe düşülür.
   belgeOneki: 'H',
 
   vegayaYazmaAktif: false

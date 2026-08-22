@@ -7,7 +7,7 @@ const { ayarOku, ayarYaz, ayarYolu } = require('./db/ayar');
 const sql = require('./db/sql');
 const firma = require('./db/firma');
 const vega = require('./db/vega');
-const kayit = require('./db/kayit');
+const yardimci = require('./db/yardimci');
 const yazma = require('./db/yazma');
 const guncelleme = require('./db/guncelleme');
 
@@ -108,32 +108,23 @@ uc('firma:depolar', async () => firma.depolariGetir());
 
 uc('vega:cariler', async (girdi) => vega.carileriGetir(girdi));
 uc('vega:stoklar', async (girdi) => vega.stoklariGetir(girdi));
+uc('vega:kasaKartlari', async (girdi) => vega.kasaKartlariniGetir(girdi));
 uc('vega:bakiye', async (girdi) => vega.cariBakiye(girdi));
 uc('vega:ekstre', async (girdi) => vega.cariEkstre(girdi));
 
-// --- Kendi veritabanı ------------------------------------------------------
+// --- Yardımcı (VEGADB içindeki küçük tablolar — dara, kasa defteri, günlük) -
 
-uc('kayit:hazirla', async () => kayit.hazirla(true));
-uc('kasaTipi:liste', async (girdi) => kayit.kasaTipleriGetir(!!girdi.hepsi));
-uc('kasaTipi:kaydet', async (girdi) => kayit.kasaTipiKaydet(girdi));
+uc('yardimci:kasaDaralari', async () => yardimci.kasaDaralariGetir());
+uc('yardimci:kasaDarasiKaydet', async (girdi) => yardimci.kasaDarasiKaydet(girdi.stokNo, girdi.dara));
+uc('yardimci:kasaBakiye', async (girdi) => yardimci.kasaBakiyesi(girdi));
+uc('yardimci:sonIslemler', async (girdi) => yardimci.sonIslemleriGetir(girdi));
 
-uc('belge:kaydet', async (girdi) => kayit.belgeKaydet(girdi));
-uc('belge:getir', async (girdi) => kayit.belgeGetir(girdi.belgeId));
-uc('belge:sil', async (girdi) => kayit.belgeSil(girdi.belgeId, girdi.kullanici));
-uc('belge:rapor', async (girdi) => kayit.raporGetir(girdi));
+// --- VEGADB yazma (belge doğrudan buraya yazılır, ara veritabanı yok) ------
 
-uc('kasa:bakiye', async (girdi) => kayit.kasaBakiyesi(girdi));
-uc('kasa:iade', async (girdi) => kayit.kasaIadeKaydet(girdi));
-
-uc('islem:gunluk', async (girdi) => kayit.islemGunlugu(girdi.limit));
-
-// --- VEGADB yazma ----------------------------------------------------------
-
-uc('yazma:durum', async () => ({ acik: yazma.yazmaAcikMi(), onek: yazma.belgeOneki() }));
-uc('yazma:belge', async (girdi) => yazma.belgeyiVegayaYaz(girdi));
-uc('yazma:belgeGeriAl', async (girdi) => yazma.belgeVegaGeriAl(girdi));
-uc('yazma:kasaIade', async (girdi) => yazma.kasaIadesiniVegayaYaz(girdi));
-uc('yazma:kasaIadeGeriAl', async (girdi) => yazma.kasaIadeVegaGeriAl(girdi));
+uc('yazma:durum', async () => ({ acik: yazma.yazmaAcikMi() }));
+uc('yazma:belge', async (girdi) => yazma.belgeYaz(girdi));
+uc('yazma:belgeGeriAl', async (girdi) => yazma.belgeGeriAl(girdi));
+uc('yazma:kasaIade', async (girdi) => yazma.kasaIadesiYaz(girdi));
 
 // --- Otomatik güncelleme ---------------------------------------------------
 

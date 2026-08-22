@@ -7,14 +7,21 @@
        sqlcmd -S localhost -E -C -i kurulum\sql-kullanici-olustur.sql
 
    Ne yapar:
-     * programın kendi veritabanını (BELGE_DOLDURUCU) oluşturur,
      * belge_doldurucu adlı SQL kullanıcısını oluşturur,
-     * VEGADB üzerinde SADECE OKUMA yetkisi verir,
-     * kullanıcıyı programın kendi veritabanında sahip yapar.
+     * VEGADB üzerinde TAM YETKİ (db_owner) verir.
 
-   Yani bu betik çalıştıktan sonra program VEGADB'yi okuyabilir ama
-   YAZAMAZ. Yazma yetkisi dosyanın en altındaki bölümde, ayrıca ve
-   bilerek verilir.
+   NEDEN db_owner VE NEDEN TEK ADIM: Program kendi ayrı bir veritabanı
+   tutmuyor — belge doğrudan VEGADB'nin gerçek tablolarına yazılıyor, ve
+   üç küçük yardımcı tablo da (dara ağırlığı, kasa depozito defteri, yazma
+   günlüğü) VEGADB'nin İÇİNE kuruluyor (db/yardimci.js). Bunun için salt
+   okuma yetmiyor; CREATE TABLE + INSERT/UPDATE/DELETE gerekiyor. Program
+   basit bir belge girme aracı olarak kullanılacağı için ayrı bir "yazma
+   yetkisini sonradan aç" betiği yerine tek adımda tam yetki veriliyor.
+
+   Yazılabilirlik programın kendi tarafında da bir anahtarla korunuyor:
+   ayarlar.json → vegayaYazmaAktif false olduğu sürece program VEGADB'ye
+   tek satır yazmaz (bkz. db/yazma.js). Bu betik SQL tarafını açar; o
+   anahtar YAZILABİLİR olup olmadığını, program tarafında, ayrıca kapatır.
 
    Betik yeniden çalıştırılabilir: var olanı bozmaz, eksik olanı ekler.
 
@@ -31,20 +38,7 @@
 SET NOCOUNT ON;
 GO
 
-/* ---- 1. Programın kendi veritabanı -----------------------------------
-   Girişten önce oluşturuluyor: kullanıcının varsayılan veritabanı
-   olarak gösterilebilsin.                                            */
-
-IF DB_ID(N'BELGE_DOLDURUCU') IS NULL
-BEGIN
-  CREATE DATABASE [BELGE_DOLDURUCU];
-  PRINT N'Veritabani olusturuldu: BELGE_DOLDURUCU';
-END
-ELSE
-  PRINT N'Veritabani zaten var: BELGE_DOLDURUCU';
-GO
-
-/* ---- 2. Şifre ve giriş (login) ---------------------------------------
+/* ---- 1. Şifre ve giriş (login) ----------------------------------------
 
    AŞAĞIDAKİ ŞİFREYİ DEĞİŞTİRİN ve aynısını programın Ayarlar ekranına
    girin. Bu dosyaya gerçek şifre yazıp depoya göndermeyin.
@@ -76,7 +70,7 @@ BEGIN
   SET @sql = N'CREATE LOGIN ' + QUOTENAME(@kul) +
              N' WITH PASSWORD = ' + QUOTENAME(@sifre, '''') +
              N', CHECK_POLICY = OFF' +
-             N', DEFAULT_DATABASE = [BELGE_DOLDURUCU];';
+             N', DEFAULT_DATABASE = [VEGADB];';
   EXEC sp_executesql @sql;
   PRINT N'Giris olusturuldu: ' + @kul;
 END
@@ -84,10 +78,9 @@ ELSE
   PRINT N'Giris zaten var: ' + @kul;
 GO
 
-/* ---- 3. Kendi veritabanında tam yetki --------------------------------
-   Program şemayı (tablo, indeks) kendisi kuruyor.                    */
+/* ---- 2. VEGADB — tam yetki (db_owner) ---------------------------------- */
 
-USE [BELGE_DOLDURUCU];
+USE [VEGADB];
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'belge_doldurucu')
@@ -97,51 +90,20 @@ GO
 EXEC sp_addrolemember N'db_owner', N'belge_doldurucu';
 GO
 
-/* ---- 4. VEGADB — yalnızca okuma -------------------------------------- */
-
-USE [VEGADB];
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'belge_doldurucu')
-  CREATE USER [belge_doldurucu] FOR LOGIN [belge_doldurucu];
-GO
-
-EXEC sp_addrolemember N'db_datareader', N'belge_doldurucu';
-GO
-
-/* Program firma ve dönem listesini sys.tables tarayarak buluyor. */
-GRANT VIEW DEFINITION TO [belge_doldurucu];
-GO
-
 PRINT N'';
-PRINT N'TAMAM. Program VEGADB uzerinde SADECE OKUYABILIR.';
-PRINT N'Sifreyi programin Ayarlar ekranina girin ve "Baglantiyi Dene" ile dogrulayin.';
+PRINT N'TAMAM. belge_doldurucu VEGADB uzerinde tam yetkili (db_owner).';
+PRINT N'Sifreyi programin Ayarlar ekranina girin, "Baglantiyi Dene" ile dogrulayin,';
+PRINT N've Vega''ya yazmayi ayni ekrandan acin.';
 GO
-
 
 /* ============================================================
-   5. YAZMA YETKİSİ — BİLEREK AYRI TUTULDU
-   ============================================================
+   GERİ ALMA — yalnızca okumaya döndürmek için:
 
-   Aşağıdaki bölüm YORUM içindedir. Program VEGADB'ye ancak
-   (a) ayarlar.json içindeki vegayaYazmaAktif true yapıldığında VE
-   (b) aşağıdaki yetki verildiğinde yazabilir.
+   USE [VEGADB];
+   EXEC sp_droprolemember N'db_owner', N'belge_doldurucu';
+   EXEC sp_addrolemember N'db_datareader', N'belge_doldurucu';
+   GRANT VIEW DEFINITION TO [belge_doldurucu];
 
-   İki katmanı da açmadan önce:
-     1. kurulum/BELGE-DESENI.md okunmalı,
-     2. VEGADB'nin yedeği alınmalı,
-     3. İşlem önce DEMO firmasında (ya da yapısı kopyalanmış boş bir
-        veritabanında) denenmeli.
-
-   -- USE [VEGADB];
-   -- GO
-   -- EXEC sp_addrolemember N'db_datawriter', N'belge_doldurucu';
-   -- GO
-
-   Yazma yetkisini geri almak için:
-
-   -- USE [VEGADB];
-   -- GO
-   -- EXEC sp_droprolemember N'db_datawriter', N'belge_doldurucu';
-   -- GO
+   NOT: db_owner geri alınırsa program VEGADB'ye hiçbir şey yazamaz —
+   yalnızca okuma ekranları (müşteri/stok listesi, ekstre) çalışır.
    ============================================================ */

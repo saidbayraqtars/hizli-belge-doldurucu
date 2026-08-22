@@ -79,23 +79,64 @@ Başlangıçta cari harekete `ACIKLAMA` yazılmaya çalışılmıştı; sorgu
 | 83 / 84 | Banka Giriş (havale) / Çıkış | ALACAK / BORÇ |
 | 103 / 104 | Devir Giriş / Çıkış (yıl başı) | belge değil, hariç tutulur |
 
+### 22.08.2026 düzeltmesi — gerçek kayıttan çıkan alanlar ⚠️
+
+Kullanıcının gerçek Vega geçmişinden aktardığı alan değerleriyle karşılaştırılıp
+düzeltildi (Vega'nın kendi ekranında henüz açılıp teyit edilmedi, bu yüzden ⚠️):
+
+- **`ISLEMTARIHI`, `SIRALAMATARIHI`** artık `GETDATE()` ile (gerçek girilme anı,
+  saat dahil) doluyor — önceden hiç yazılmıyordu / yalnızca kullanıcının seçtiği
+  gün-başı tarihiyle dolduruluyordu.
+- **`ODEMETARIHI`** artık belge tarihiyle (`TARIH` ile aynı) doluyor.
+- **`OZELKOD`** artık `'MERKEZ'` yazıyor — `TBLSATFATBASLIK.OZELKOD1/OZELKOD2`
+  ile aynı sabit değer, gerçek kayıtlarda tutarlı görülüyor. `'KREDIHESABI'`
+  ile karışmaz (bakiye hesabı yalnız o değeri dışlıyor).
+
+### TBLCARIGENELHAREKET — artık yazılıyor ⚠️
+
+Bu tabloya hiç yazmıyorduk; kullanıcının gerçek kaydından bu tablonun **her**
+cari harekete (satış faturası, cari çıkış, cari giriş/tahsilat) eşlik ettiği,
+yalnızca satış faturasına özgü olmadığı ortaya çıktı. `db/yazma.js` →
+`cariHareketEkle`'nin İÇİNDEN, `TBLCARIHAREKETLERI`'ye yazılan HER satır için
+bir kez daha çağrılıyor (`cariGenelHareketEkle`).
+
+24 sütun: `IND, FIRMANO, TARIH, VADE, BELGEIND, ISLEMIND, BELGEIZAHAT,
+ISLEMIZAHAT, BELGELINK, BORC, ALACAK, AYLIKVADE, BELGENO, ISLEMNO, CONVERTED,
+IPTAL, SIRALAMATARIHI, TAHSILLINK, GECIKMEHESAPLA, PARABIRIMI, KUR,
+BASLIKPARABIRIMI, BASLIKKURU, ACIKLAMA, SIRALAMATARIHIEX`.
+
+Gerçek örnekten çıkarılan desen:
+
+| Alan | Satış / cari çıkış (BORÇ) | Tahsilat / cari giriş (ALACAK) |
+|---|---|---|
+| `BELGEIZAHAT` = `ISLEMIZAHAT` | izahat kodu (21 / 11) | izahat kodu (13) |
+| `BELGEIND` = `ISLEMIND` = `ISLEMNO` | ilgili başlığın `IND`'i / `BELGENO`'su | aynı |
+| `BELGELINK` | `NULL` | `-1` |
+| `GECIKMEHESAPLA` | `0` | `1` |
+
+Tablo bazı kurulumlarda olmayabilir (`tabloVarMi` ile önce kontrol edilir);
+yoksa sessizce atlanır.
+
 ---
 
 ## 3. Bu programın yazdığı belgeler
 
-Kullanıcı **iki tuştan** birine basıyor; kasa depozitosu her iki durumda da
-ayrı bir dekont oluyor.
+Kullanıcı **iki tuştan** birine basıyor; kasa depozitosu ve tahsilat her iki
+durumda da ayrı birer dekont oluyor.
 
 | Kullanıcı eylemi | Vega'da oluşan | Bölüm |
 |---|---|---|
 | "Satış Faturası Olarak Kaydet" | Satış faturası (tip 21) | §4 |
 | "Cari Çıkış Olarak Kaydet" | Cari çıkış dekontu (tip 11) | §5 |
 | Kasa adedi girilmişse (her iki tuşta) | Ayrı cari çıkış dekontu (tip 11), açıklama `KASA TUTARI` | §5 |
+| Tahsilat tutarı girilmişse (her iki tuşta) | Ayrı cari giriş dekontu (tip 13), açıklama `Tahsilat` | §5 |
 | "İadeyi Kaydet" (Kasa ekranı) | Cari giriş dekontu (tip 13), açıklama `KASA IADE` | §5 |
 
-**Kasa tutarı neden ayrı belge:** Vega'da kasa/kap için stok kartı yok, dolayısıyla
-fatura satırı olamaz. Zaten istenen davranış da bu — eski programın ekstresinde
-kasa tutarı, ürün satırının **altında ayrı bir satır** olarak duruyor ve ikisi
+**Kasa tutarı neden ayrı belge:** Vega'da kasa/kap için gerçek stok kartları var
+(bkz. `kasaKartlariniGetir`), ama depozito PARA hareketi olarak, ürün
+faturasından bağımsız ayrı bir dekont olarak tutulmak isteniyor — eski
+programın ekstresinde de kasa tutarı, ürün satırının **altında ayrı bir satır**
+olarak duruyor ve ikisi
 toplanıp bakiyeye işleniyor.
 
 ---
@@ -139,7 +180,6 @@ Desenden beklenip **gerçekte var olmayan** alanlar (ilk yazımda kullanılmış
 
 | Beklenen | Gerçek | Tablo |
 |---|---|---|
-| `SIRANO` | **`SATIRNO`** | `TBLSATFATHAREKET` |
 | `TOPLAM` | yok (`GERCEKTOPLAM` var) | `TBLSATFATHAREKET` |
 | `ARATOPLAM`, `KDV`, `EKBELGETIPI` | yok | `TBLCARCIKBASLIK` |
 | `STOKHAREKETEYAZ`, `CARIHAREKETEYAZ`, `SUCCESS` | yok (yalnız fatura başlığında var) | `TBLCARCIKBASLIK` |
@@ -149,6 +189,32 @@ Desenden beklenip **gerçekte var olmayan** alanlar (ilk yazımda kullanılmış
 `db/yazma.js` → `ekle()` bu yüzden INSERT'i hedef tabloda **gerçekten bulunan**
 sütunlardan kuruyor: yanlış alan adı belgenin tamamını düşürmüyor, ama olmazsa
 olmaz bir alan eksikse net bir hata veriyor.
+
+### 22.08.2026 düzeltmesi — başlık ve satır alanları ⚠️
+
+Kullanıcının gerçek Vega kaydından karşılaştırılıp düzeltildi:
+
+**`TBLSATFATBASLIK`** (başlık):
+- `FIRMAADI` artık **hiç yazılmıyor** (`NULL`) — önceden cari adı yazılıyordu.
+- `KDV` sütunu **`BIT`** tipinde — tutar değil! Artık "KDV var mı" bayrağı
+  (`kdvToplam > 0 ? 1 : 0`) yazıyor. Önceden yanlışlıkla KDV tutarı yazılıyordu.
+- `ENVANTERUPDATE` artık `0` (önceden `1`), `SUCCESS` artık **hiç yazılmıyor**
+  (önceden `1` zorlanıyordu).
+- `AK` artık `0` yazıyor (önceden hiç yazılmıyordu).
+- `USERNO` artık **sabit `100`** — kullanıcının gerçek kaydında bu değer sabit
+  görülmüş; `secenek.userNo` artık bu tabloda kullanılmıyor.
+- Yeni sabit alanlar: `OZELKOD1='MERKEZ'`, `OZELKOD2='MERKEZ'`, `YUVARLAMA=0`,
+  `ALLOWYUVARLAMA=0`, `ODENEN=0`, `ENTEGRE=0`, `SATISSEKLI=0`, `YURTDISI=0`,
+  `MUHASEBELESMEYECEK=0`, `KAYNAK=0`, `EFATURA=0`.
+
+**`TBLSATFATHAREKET`** (satır):
+- `KDVTUTARI` artık **hiç yazılmıyor** (`NULL`) — önceden hesaplanan tutar
+  yazılıyordu. Dikkat: bu tabloda ayrıca `KDVTUTAR` (sonunda "I" yok) diye
+  **ayrı bir sütun daha** var, karıştırılmamalı — ona da dokunulmuyor.
+- `SATIRNO` artık **hiç yazılmıyor** (önceden `0, 1, 2...` sırayla yazılıyordu).
+- Yeni sabit alanlar: `ISK1..ISK6=0`, `PERSONEL=0`, `PIRIM=0`, `OPSIYON=0`,
+  `PROMOSYON=0`, `SATISKOSULU=1`, `SERIMIKTAR=1`, `MASRAF=0`, `OIV=0`,
+  `INDIRIM=0`, `OTV=0`, `GRUPMIKTAR=1`.
 
 ---
 
@@ -191,10 +257,12 @@ sınıyor.
 Başlık tablolarının `IND` alanı **IDENTITY**'dir. Numarayı SQL Server üretir;
 dışarıdan `MAX(IND)+1` **hesaplanmaz**.
 
-Belge numarası metni (`BELGENO`) için Vega kendi serilerinde `A`, `S` ve `Z`
-öneklerini kullanıyor. Bu program **ayrı bir önek** kullanır (varsayılan `H`,
-Ayarlar'dan değiştirilir) — ürettiğimiz numara Vega'nın kendi sayacıyla asla
-çakışmaz.
+Belge numarası metni (`BELGENO`) için program önce o firma/dönemde Vega'nın
+KENDİ satış faturası serisini bulmaya çalışır (`TBLSATFATBASLIK.BELGENO`'daki
+en sık kullanılan tek harf önek, `db/vega.js` → `satisSerisiTespitEt`) ve
+numarayı **o seriden devam ettirir** — vergi dairesine bildirilmiş gerçek
+seriyle aynı kalsın diye. O firma/dönemde hiç fatura yoksa Ayarlar'daki öneğe
+(varsayılan `H`) düşülür.
 
 > **Yarış tehlikesi.** Program ağdaki birkaç bilgisayara kurulacak. `BELGENO`
 > IDENTITY değil; iki bilgisayar aynı anda kaydederse ikisi de aynı `MAX + 1`
@@ -208,16 +276,17 @@ Ayarlar'dan değiştirilir) — ürettiğimiz numara Vega'nın kendi sayacıyla 
 - **Tek işlem.** Bir belgenin tüm satırları tek transaction içinde yazılır. Bir
   adım hata verirse hiçbiri kalmaz; yarım belge oluşmaz.
 - **Yazılan her satır kaydedilir.** Hangi tabloya hangi `IND`'in yazıldığı
-  `BELGE_DOLDURUCU.dbo.Belge.VegaKayit` alanında JSON olarak durur. Geri alma tam
-  o satırları, ters sırada siler.
+  `VEGADB.dbo.BD_Islem.Yazilan` alanında JSON olarak durur (`db/yardimci.js`).
+  Geri alma tam o satırları, ters sırada siler.
 - **Var olmayan sütuna yazılmaz.** Her INSERT hedef tabloda gerçekten bulunan
   sütunlardan kurulur (`db/yazma.js` → `ekle`). Olmazsa olmaz bir sütun eksikse
   işlem net bir hatayla durur — sessizce yanlış belge yazmaz.
-- **İki katmanlı kilit.** `ayarlar.json` → `vegayaYazmaAktif` **ve** SQL
-  tarafında `db_datawriter` yetkisi. İkisi de açılmadan VEGADB'ye tek satır
-  gitmez.
-- **Günlük.** Her yazma `BELGE_DOLDURUCU.dbo.Islem` tablosuna kullanıcı,
-  bilgisayar ve satır kimlikleriyle yazılır.
+- **Program kendi ayrı bir veritabanı tutmaz.** Belge doğrudan VEGADB'nin
+  gerçek tablolarına yazılır. `ayarlar.json` → `vegayaYazmaAktif` kapalıyken
+  program tek satır yazmaz; SQL tarafında da `belge_doldurucu` VEGADB üzerinde
+  tam yetkilidir (`kurulum/sql-kullanici-olustur.sql`).
+- **Günlük.** Her yazma `VEGADB.dbo.BD_Islem` tablosuna kullanıcı, bilgisayar
+  ve satır kimlikleriyle yazılır.
 
 ### Dört sert kural ✅
 

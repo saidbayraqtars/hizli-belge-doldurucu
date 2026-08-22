@@ -14,7 +14,7 @@
   <nav class="sekmeler">
     <button class="sekme etkin" data-sekme="belge">Belge Gir</button>
     <button class="sekme" data-sekme="kasa">Kasa</button>
-    <button class="sekme" data-sekme="rapor">Rapor</button>
+    <button class="sekme" data-sekme="belgeler">Son Belgeler</button>
     <button class="sekme" data-sekme="ekstre">Ekstre</button>
     <button class="sekme" data-sekme="ayar">Ayarlar</button>
   </nav>
@@ -46,6 +46,10 @@
           <label for="fisNo">Fiş No</label>
           <input type="text" id="fisNo" placeholder="(boş bırakılabilir)" autocomplete="off">
         </div>
+        <div class="alan">
+          <label for="tahsilat">Tahsilat (alınan ödeme)</label>
+          <input type="text" id="tahsilat" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        </div>
       </div>
     </div>
 
@@ -54,9 +58,11 @@
         <thead>
           <tr>
             <th class="genis">Cinsi</th>
-            <th class="sayi">Daralı Miktar</th>
             <th class="sayi">Kasa Adedi</th>
             <th>Kasa Tipi</th>
+            <th class="sayi">Brüt Miktar</th>
+            <th class="sayi">Dara</th>
+            <th class="sayi">Daralı Miktar</th>
             <th class="sayi">Fiyat</th>
             <th class="sayi">Tutar</th>
             <th class="sayi">Kasa Tutarı</th>
@@ -73,6 +79,7 @@
       <div class="toplam"><span>Ürün toplamı</span><b id="urunToplam">0,00</b></div>
       <div class="toplam"><span>Kasa tutarı</span><b id="kasaToplam">0,00</b></div>
       <div class="toplam genel"><span>Genel toplam</span><b id="genelToplam">0,00</b></div>
+      <div class="toplam"><span>Tahsilat sonrası kalan</span><b id="kalanToplam">0,00</b></div>
     </div>
 
     <div class="kutu eylemler">
@@ -137,45 +144,31 @@
     </div>
   </section>
 
-  <!-- ══════════════════ RAPOR ══════════════════ -->
-  <section class="sayfa" id="sayfa-rapor">
+  <!-- ══════════════════ SON BELGELER ══════════════════ -->
+  <section class="sayfa" id="sayfa-belgeler">
     <div class="kutu">
-      <div class="satirlar-ust">
-        <div class="alan">
-          <label for="raporBaslangic">Başlangıç</label>
-          <input type="date" id="raporBaslangic">
-        </div>
-        <div class="alan">
-          <label for="raporBitis">Bitiş</label>
-          <input type="date" id="raporBitis">
-        </div>
-        <div class="alan dugmeAlani">
-          <button class="dugme ikincil" id="raporBuHafta">Bu Hafta</button>
-          <button class="dugme birincil" id="raporGetir">Getir</button>
-        </div>
+      <div class="baslikSatir">
+        <h2>Son Belgeler</h2>
+        <button class="dugme ikincil" id="belgelerYenile">Yenile</button>
       </div>
-    </div>
-
-    <div class="kutu">
-      <table class="veri" id="raporTablo">
+      <p class="ipucu">
+        Her kayıt doğrudan Vega'ya yazılır — burada bekleyen belge olmaz, yalnızca
+        yazılanların günlüğü ve gerektiğinde geri alma durur.
+      </p>
+      <table class="veri" id="belgelerTablo">
         <thead>
           <tr>
             <th>Tarih</th>
-            <th class="genis">Cinsi</th>
-            <th class="sayi">Daralı Miktar</th>
-            <th class="sayi">Kasa Adedi</th>
-            <th>Kasa Tipi</th>
-            <th class="sayi">Fiyat</th>
+            <th>Tür</th>
+            <th class="genis">Müşteri</th>
+            <th>Belge No</th>
             <th class="sayi">Tutar</th>
-            <th>Fiş No</th>
-            <th>Müşteri</th>
-            <th>Vega</th>
+            <th>Kullanıcı</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="raporGovde"></tbody>
+        <tbody id="belgelerGovde"></tbody>
       </table>
-      <div id="raporOzet" class="ipucu"></div>
     </div>
   </section>
 
@@ -247,14 +240,9 @@
           <label for="ayVegaDb">Vega veritabanı</label>
           <input type="text" id="ayVegaDb">
         </div>
-        <div class="alan">
-          <label for="ayKendiDb">Kendi veritabanımız</label>
-          <input type="text" id="ayKendiDb">
-        </div>
       </div>
       <div class="eylemler sol">
         <button class="dugme ikincil" id="ayBaglantiTest">Bağlantıyı Dene</button>
-        <button class="dugme ikincil" id="ayVeritabaniKur">Kendi Veritabanını Kur</button>
       </div>
       <div id="ayBaglantiSonuc" class="ipucu"></div>
     </div>
@@ -283,20 +271,27 @@
           <input type="text" id="ayKdv" inputmode="decimal">
         </div>
         <div class="alan kucuk">
-          <label for="ayOnek">Belge Öneki</label>
+          <label for="ayOnek">Belge Öneki (yedek)</label>
           <input type="text" id="ayOnek" maxlength="3">
         </div>
       </div>
+      <p class="ipucu">
+        Belge numarası önce o firma/dönemde Vega'nın kendi satış faturası
+        serisini (ör. "A") bulup sürdürmeye çalışır. Hiç fatura yoksa bu
+        öneğe (varsayılan "H") düşülür.
+      </p>
       <div class="eylemler sol">
         <button class="dugme ikincil" id="ayFirmaYenile">Listeyi Yenile</button>
       </div>
     </div>
 
     <div class="kutu">
-      <h2>Kasa Tipleri ve Depozito Bedelleri</h2>
+      <h2>Kasa/Kap Kartları</h2>
       <p class="ipucu">
-        Kasa bedeli Vega'da tanımlı değil; burada tutuluyor. Bedel girilmemiş bir
-        kasa tipi için kasa tutarı sıfır hesaplanır.
+        Kod, ad ve depozito bedeli Vega'dan canlı okunur (stok kartlarında
+        adında "KASA" ya da "DEPOZİTO" geçenler). Dara (kap boşken kaç kg)
+        Vega'da tutulmadığı için yalnızca burada, VEGADB içindeki küçük bir
+        yardımcı tabloda saklanır.
       </p>
       <table class="veri" id="kasaTipiTablo">
         <thead>
@@ -304,21 +299,20 @@
             <th>Kod</th>
             <th class="genis">Ad</th>
             <th class="sayi">Depozito (TL)</th>
-            <th>Aktif</th>
+            <th class="sayi">Dara (kg)</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="kasaTipiGovde"></tbody>
       </table>
-      <button class="dugme ikincil" id="kasaTipiEkle">+ Kasa Tipi Ekle</button>
     </div>
 
     <div class="kutu">
       <h2>Vega'ya Yazma</h2>
       <p class="ipucu">
-        Kapalıyken program tam çalışır; belgeler yalnızca kendi veritabanımızda
-        tutulur. Açmadan önce VEGADB yedeği alınmalı ve işlem önce DEMO
-        firmasında denenmeli.
+        Program kendi ayrı bir veritabanı tutmuyor — kapalıyken hiçbir belge
+        kaydedilemez, yalnızca okuma ekranları (müşteri/stok/ekstre) çalışır.
+        Açmadan önce VEGADB yedeği alınmalı.
       </p>
       <div class="alan onay">
         <label><input type="checkbox" id="ayYazmaAktif"> Vega'ya yazmayı aç</label>
