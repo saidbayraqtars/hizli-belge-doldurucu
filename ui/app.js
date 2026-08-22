@@ -905,6 +905,7 @@ function ayarSayfasiniDoldur() {
   el('ayKdv').value = a.varsayilanKdv != null ? a.varsayilanKdv : 0;
   el('ayOnek').value = a.belgeOneki || 'H';
   el('ayYazmaAktif').checked = !!a.vegayaYazmaAktif;
+  el('surumBilgi').textContent = a.surum ? `Kurulu sürüm: ${a.surum}` : '';
   firmaSecimDoldur();
   depoSecimDoldur();
   kasaKartlariTablosunuDoldur();
@@ -1043,12 +1044,81 @@ async function ayarlariKaydet(sessiz) {
   return durum.ayar;
 }
 
-// --- Kasa tipleri (elle tutulan liste — Vega'da karşılığı yok) --------------
+// --- Sürüm ve otomatik güncelleme -------------------------------------------
 //
-// PK, SBÜYÜK, SMUZ, UP gibi kodlar eski Access programının kendi kısa
-// kodlarıydı, Vega'da hiç yok. Bu yüzden liste tamamen burada, elle
-// tutuluyor: kod, ad, dara (kap boşken kaç kg) ve depozito bedeli hepsi
-// düzenlenebilir. İlk satır her zaman yeni kasa tipi eklemek için boş kalır.
+// db/guncelleme.js açılışta (ve sonra 4 saatte bir) GitHub Releases'i
+// kontrol edip arka planda indiriyor; durum değiştikçe 'guncelleme:durum'
+// kanalından ana süreçten buraya PUSH ediliyor (preload.js → dinle()).
+// Üst çubukta yalnızca kullanıcının bilmesi/bekleyebileceği durumlar
+// gösteriliyor (iniyor/hazır/hata) — "güncel" ya da "kontrol ediliyor" sessiz
+// kalıyor, arayüz gereksiz yere kirlenmesin. Ayarlar sayfasındaki ipucu
+// her durumu (kısaltmadan) gösteriyor.
+function guncellemeDurumunuGoster(bilgi) {
+  if (!bilgi) return;
+  // Ayarlar sayfasındaki ipucu ayrıntılı, üst çubuktaki etiket kısa —
+  // `.etiket` nowrap olduğu için uzun metin üst çubuğu taşırır.
+  const ayrintiliMetinler = {
+    bakiliyor: 'Güncelleme kontrol ediliyor…',
+    guncel: 'Program güncel.',
+    bulundu: bilgi.surum ? `Yeni sürüm bulundu: ${bilgi.surum}` : 'Yeni sürüm bulundu.',
+    iniyor: bilgi.mesaj || 'Yeni sürüm iniyor…',
+    hazir: bilgi.surum
+      ? `Yeni sürüm hazır: ${bilgi.surum} — program kapanıp yeniden açılınca kurulacak.`
+      : 'Yeni sürüm hazır — program kapanıp yeniden açılınca kurulacak.',
+    hata: bilgi.mesaj || 'Güncelleme kontrol edilemedi.',
+    kapali: 'Otomatik güncelleme bu sürümde kapalı.'
+  };
+  const kisaMetinler = {
+    iniyor: bilgi.mesaj && /%\d/.test(bilgi.mesaj) ? 'Güncelleme ' + bilgi.mesaj.match(/%\d+/)[0] + ' iniyor' : 'Güncelleme iniyor…',
+    hazir: 'Güncelleme hazır — yeniden başlatınca kurulacak',
+    hata: 'Güncelleme kontrol edilemedi'
+  };
+
+  const sonucKutusu = el('guncellemeSonuc');
+  if (sonucKutusu) {
+    sonucKutusu.textContent = ayrintiliMetinler[bilgi.durum] != null
+      ? ayrintiliMetinler[bilgi.durum]
+      : (bilgi.mesaj || '');
+  }
+
+  const ustEtiket = el('guncellemeEtiketi');
+  if (kisaMetinler[bilgi.durum]) {
+    ustEtiket.textContent = kisaMetinler[bilgi.durum];
+    ustEtiket.className = 'etiket ' + (bilgi.durum === 'hata' ? 'kapali' : 'acik');
+    ustEtiket.classList.remove('gizli');
+  } else {
+    ustEtiket.classList.add('gizli');
+  }
+}
+
+if (window.api.dinle) {
+  // Açılışta (baslat() bitmeden) gelebilecek bir push kaçmasın diye üst
+  // seviyede, en baştan dinleniyor.
+  window.api.dinle('guncelleme:durum', guncellemeDurumunuGoster);
+}
+
+el('guncellemeKontrol').addEventListener('click', async () => {
+  const dugme = el('guncellemeKontrol');
+  dugme.disabled = true;
+  try {
+    const bilgi = await cagir('guncelleme:kontrol', {});
+    guncellemeDurumunuGoster(bilgi);
+  } catch (e) {
+    el('guncellemeSonuc').textContent = 'Kontrol edilemedi: ' + e.message;
+  } finally {
+    dugme.disabled = false;
+  }
+});
+
+// --- Kasa tipleri (Vega'dan otomatik + elle eklenen) ------------------------
+//
+// Vega'da stok kartında KOD1 = 'KASA' işaretli olanlar her açılışta
+// otomatik BD_KasaTipi'ye eklenir (db/yardimci.js → vegaKasaKartlariniSenkronizeEt).
+// Eski Access programının kendi kısa kodları (PK, SBÜYÜK, SMUZ, UP gibi —
+// Vega'da hiç karşılığı yok) ve Vega'da işaretli olmayan kasa tipleri elle
+// eklenir. Kaynağı ne olursa olsun hepsi aynı listede, aynı şekilde
+// düzenlenebilir/silinebilir. İlk satır her zaman yeni kasa tipi eklemek
+// için boş kalır.
 
 function kasaKartlariTablosunuDoldur() {
   const govde = el('kasaTipiGovde');
@@ -1309,6 +1379,14 @@ async function baslat() {
   toplamlariGuncelle();
 
   await baslangicVerisiniYukle();
+
+  // Ana süreçteki guncelleme.baslat() pencere açılır açılmaz (bu betik
+  // yüklenmeden önce) tetiklenebiliyor; ilk push kaçmış olabilir diye
+  // mevcut durum bir kere de burada çekiliyor (yeni kontrol başlatmaz,
+  // yalnızca son bilineni okur — ucuz ve zararsız).
+  try {
+    guncellemeDurumunuGoster(await cagir('guncelleme:durum', {}));
+  } catch (e) { /* güncelleme bilgisi olmasa da program çalışır */ }
 }
 
 baslat();

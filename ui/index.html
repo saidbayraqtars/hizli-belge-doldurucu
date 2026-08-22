@@ -19,6 +19,7 @@
     <button class="sekme" data-sekme="ayar">Ayarlar</button>
   </nav>
   <div class="durum">
+    <span id="guncellemeEtiketi" class="etiket gizli"></span>
     <span id="firmaEtiketi" class="etiket">—</span>
     <span id="yazmaEtiketi" class="etiket kapali">Vega'ya yazma: kapalı</span>
   </div>
@@ -318,6 +319,15 @@
       <div class="alan onay">
         <label><input type="checkbox" id="ayYazmaAktif"> Vega'ya yazmayı aç</label>
       </div>
+    </div>
+
+    <div class="kutu">
+      <h2>Sürüm ve Güncelleme</h2>
+      <p class="ipucu" id="surumBilgi">—</p>
+      <div class="eylemler sol">
+        <button class="dugme ikincil" id="guncellemeKontrol">Güncellemeleri Kontrol Et</button>
+      </div>
+      <div id="guncellemeSonuc" class="ipucu"></div>
     </div>
 
     <div class="kutu">

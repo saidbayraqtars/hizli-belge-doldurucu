@@ -113,9 +113,11 @@ uc('vega:ekstre', async (girdi) => vega.cariEkstre(girdi));
 
 // --- Yardımcı (VEGADB içindeki küçük tablolar — kasa tipi, kasa defteri, günlük) -
 //
-// Kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski Access
-// programının kendi kısa kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR, tamamen
-// BD_KasaTipi'de elle tutuluyor.
+// Kasa tipleri iki kaynaktan besleniyor: Vega'da KOD1='KASA' işaretli stok
+// kartlarından otomatik (depozito ile), ve eski Access programının kendi
+// kısa kodları (PK, SBÜYÜK, SMUZ, UP... Vega'da hiç karşılığı yok) elle.
+// Dara (kap boşken kaç kg) Vega'da hiç tutulmadığı için ikisinde de elle
+// girilir. Hepsi tek listede BD_KasaTipi'de durur (db/yardimci.js).
 
 uc('yardimci:kasaTipleri', async (girdi) => yardimci.kasaTipleriGetir(girdi));
 uc('yardimci:kasaTipiKaydet', async (girdi) => yardimci.kasaTipiKaydet(girdi));
