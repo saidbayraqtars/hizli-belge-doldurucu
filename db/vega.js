@@ -392,19 +392,36 @@ async function cariEkstre(secenek) {
 // bildirilmiş BİR seri altında kesiliyor olabilir (ör. hep "A"); o zaman
 // program kendi ayrı serisini değil, o gerçek seriyi sürdürmeli.
 //
-// TBLSATFATBASLIK.BELGENO'daki en sık kullanılan tek-harf öneki bulunur; o
-// dönemde hiç fatura yoksa null döner (çağıran taraf o zaman ayarlardaki
+// TBLSATFATBASLIK.BELGENO'daki en sık kullanılan öneği buluyoruz — öneğin
+// TEK HARF olacağı varsayılamaz. Canlı veride görüldü: bir firma "A0000005"
+// (tek harf) kullanırken başka bir firma "MSA2026000000001" (üç harfli sabit
+// önek + yıl + sayaç) kullanıyor. Önek, BELGENO'daki İLK RAKAMA kadar olan
+// baştaki bölüm — PATINDEX ile bulunuyor (SQL Server'da regex yok). "MSA2026"
+// içindeki "2026" sayaç değil önekin parçası: sayaç yalnızca EN SONDAKİ rakam
+// dizisi, PATINDEX ilk rakamı bulduğu için önek doğru ayrılıyor. Eskiden
+// LEFT(BELGENO,1) kullanılıyordu; bu "MSA2026..." için yalnızca "M" öneğini
+// çıkarıp "M0000001" gibi gerçek formatla eşleşmeyen bir numara üretiyordu —
+// canlı F0101 verisiyle karşılaştırılıp düzeltildi (22.08.2026).
+//
+// O dönemde hiç fatura yoksa null döner (çağıran taraf o zaman ayarlardaki
 // varsayılan öneğe düşer).
 async function satisSerisiTespitEt(firma, donem) {
   const v = vt();
   if (!(await tabloVarMi(firma, donem, 'TBLSATFATBASLIK'))) return null;
 
+  // BELGENO + '0' garantisi: BELGENO'da hiç rakam yoksa PATINDEX 0 döner ve
+  // LEFT negatif uzunlukla hata verirdi; eklenen '0' en azından bir rakam
+  // bulunmasını garanti eder, o zaman önek BELGENO'nun tamamı olur.
   const satirlar = await sorgu(`
-    SELECT LEFT(BELGENO, 1) AS onek, COUNT(*) AS adet
-    FROM ${tablo(v, firma, donem, 'TBLSATFATBASLIK')}
-    WHERE BELGENO IS NOT NULL AND LEN(LTRIM(RTRIM(BELGENO))) > 1
-      AND LEFT(BELGENO, 1) LIKE '[A-ZÇĞİÖŞÜ]'
-    GROUP BY LEFT(BELGENO, 1)
+    SELECT onek, COUNT(*) AS adet
+    FROM (
+      SELECT LEFT(BELGENO, PATINDEX('%[0-9]%', BELGENO + '0') - 1) AS onek
+      FROM ${tablo(v, firma, donem, 'TBLSATFATBASLIK')}
+      WHERE BELGENO IS NOT NULL AND LEN(LTRIM(RTRIM(BELGENO))) > 1
+        AND LEFT(BELGENO, 1) LIKE '[A-ZÇĞİÖŞÜ]'
+    ) x
+    WHERE LEN(onek) > 0
+    GROUP BY onek
     ORDER BY COUNT(*) DESC
   `);
   if (!satirlar.length) return null;

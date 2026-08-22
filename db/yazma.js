@@ -65,12 +65,23 @@ const TIP_CARI_GIRIS = 13;
 
 const sutunOnbellek = new Map();
 
+// Her sütun için { varMi, maxKarakter } tutuyoruz. maxKarakter yalnızca
+// sabit-genişlikli metin sütunlarında (nvarchar/varchar/nchar/char) dolu;
+// ntext/nvarchar(MAX) gibi sınırsız tiplerde null.
+//
+// ÖNEMLİ: sys.columns.max_length BAYT cinsinden — nvarchar/nchar İKİ BAYT/
+// karakter kullanır (Unicode). Bunu karakter sanıp doğrudan kullanmak (ör.
+// "nvarchar(100)" için 100 karakter var sanmak) YANLIŞ: gerçekte 50 karakter.
+// Bu yüzden n-tipler için /2 yapılıyor. Bu hatayla canlıda "String or binary
+// data would be truncated" alındı: TBLCARIGENELHAREKET.ACIKLAMA aslında
+// nvarchar(100) = 50 karakter, yazılan açıklama 52 karakterdi (22.08.2026).
 async function sutunlariGetir(tamTabloAdi) {
   if (sutunOnbellek.has(tamTabloAdi)) return sutunOnbellek.get(tamTabloAdi);
   const bekleyen = (async () => {
     const r = await sorgu(
-      `SELECT c.name AS ad
+      `SELECT c.name AS ad, ty.name AS tip, c.max_length AS uzunlukBayt
        FROM sys.columns c
+       JOIN sys.types ty ON ty.user_type_id = c.user_type_id
        WHERE c.object_id = OBJECT_ID(@tablo)
          AND c.is_identity = 0
          AND c.is_computed = 0`,
@@ -79,9 +90,20 @@ async function sutunlariGetir(tamTabloAdi) {
     if (!r.length) {
       throw new Error(`Tablo bulunamadı ya da okunamadı: ${tamTabloAdi}`);
     }
-    const kume = new Set(r.map((s) => String(s.ad).toUpperCase()));
-    sutunOnbellek.set(tamTabloAdi, kume);
-    return kume;
+    const harita = new Map();
+    for (const s of r) {
+      const ad = String(s.ad).toUpperCase();
+      const tip = String(s.tip).toLowerCase();
+      const bayt = Number(s.uzunlukBayt);
+      let maxKarakter = null;
+      if (bayt > 0) {
+        if (tip === 'nvarchar' || tip === 'nchar') maxKarakter = bayt / 2;
+        else if (tip === 'varchar' || tip === 'char') maxKarakter = bayt;
+      }
+      harita.set(ad, { maxKarakter });
+    }
+    sutunOnbellek.set(tamTabloAdi, harita);
+    return harita;
   })();
   sutunOnbellek.set(tamTabloAdi, bekleyen);
   return bekleyen;
@@ -109,11 +131,23 @@ async function ekle(t, tamTabloAdi, alanlar, secenek) {
   let sira = 0;
 
   for (const ad of Object.keys(alanlar)) {
-    if (!mevcut.has(ad.toUpperCase())) continue;
+    const anahtar = ad.toUpperCase();
+    if (!mevcut.has(anahtar)) continue;
     const p = 'p' + sira++;
     sutunlar.push(`[${ad}]`);
     degerler.push('@' + p);
-    parametreler[p] = alanlar[ad];
+    let deger = alanlar[ad];
+    // Sütun genişliği müşteriden müşteriye değişebiliyor; sabit bir yerde
+    // kırpmak yerine gerçek sütun sınırına göre kırpıyoruz — INSERT'in
+    // "String or binary data would be truncated" ile tüm belgeyi
+    // düşürmesindense metnin sonu kesilsin.
+    if (typeof deger === 'string') {
+      const bilgi = mevcut.get(anahtar);
+      if (bilgi && bilgi.maxKarakter && deger.length > bilgi.maxKarakter) {
+        deger = deger.slice(0, bilgi.maxKarakter);
+      }
+    }
+    parametreler[p] = deger;
   }
 
   for (const ad of Object.keys(ayar.ozel || {})) {
@@ -182,14 +216,21 @@ async function onekTespitEt(firma, donem) {
   return belgeOneki();
 }
 
+// Sayaç basamak sayısı sabit 7 DEĞİL — gerçek seride görülen genişlik
+// kullanılıyor. "A0000005" gibi seriler 7 basamaklı ama "MSA2026000000001"
+// gibi (önek+yıl'dan sonra) 9 basamaklı seriler de var; sabit 7 kullanılırsa
+// üretilen numara gerçek seriyle aynı uzunlukta olmaz. Eşleşen gerçek belge
+// yoksa (yeni seri / "H" öneği) 7'ye düşülür — önceki davranışla aynı.
 async function siradakiBelgeNo(t, v, firma, donem, onek) {
   const basla = onek.length + 1;
   let enBuyuk = 0;
+  let genislik = 0;
 
   for (const ad of BELGE_NO_TABLOLARI) {
     if (!(await tabloVarMi(firma, donem, ad))) continue;
     const r = await t.sorgu(
-      `SELECT MAX(CAST(SUBSTRING(BELGENO, ${basla}, 20) AS INT)) AS sonNo
+      `SELECT MAX(CAST(SUBSTRING(BELGENO, ${basla}, 20) AS INT)) AS sonNo,
+              MAX(LEN(SUBSTRING(BELGENO, ${basla}, 20))) AS genislik
        FROM ${tablo(v, firma, donem, ad)} WITH (UPDLOCK, HOLDLOCK)
        WHERE BELGENO LIKE @desen
          AND ISNUMERIC(SUBSTRING(BELGENO, ${basla}, 20)) = 1`,
@@ -197,9 +238,11 @@ async function siradakiBelgeNo(t, v, firma, donem, onek) {
     );
     const no = r[0] && r[0].sonNo ? Number(r[0].sonNo) : 0;
     if (no > enBuyuk) enBuyuk = no;
+    const g = r[0] && r[0].genislik ? Number(r[0].genislik) : 0;
+    if (g > genislik) genislik = g;
   }
 
-  return onek + String(enBuyuk + 1).padStart(7, '0');
+  return onek + String(enBuyuk + 1).padStart(genislik || 7, '0');
 }
 
 // ================================================================
@@ -433,11 +476,13 @@ async function satisFaturasiYaz(t, ayrinti) {
     {
       BELGENO: belgeNo,
       TARIH: tarih,
+      ODEMETARIHI: tarih,
       FIRMANO: Number(cariInd),
       FIRMAADI: null,
       BELGETIPI: TIP_SATIS_FATURASI,
       EKBELGETIPI: 0,
-      DEPO: Number(depo),
+      // DEPO (başlık) BİLEREK yazılmıyor — 5/5 gerçek faturada NULL. Depo
+      // numarası yalnızca HAREKETDEPOSU'nda tutuluyor.
       HAREKETDEPOSU: Number(depo),
       TUTAR: genelToplam,
       ARATOPLAM: araToplam,
@@ -445,7 +490,7 @@ async function satisFaturasiYaz(t, ayrinti) {
       AK: 0,
       STOKHAREKETEYAZ: 1,
       CARIHAREKETEYAZ: 1,
-      ENVANTERUPDATE: 0,
+      // ENVANTERUPDATE BİLEREK yazılmıyor — 5/5 gerçek faturada NULL (0 değil).
       IPTAL: 0,
       IADE: 0,
       CONVERTED: 0,

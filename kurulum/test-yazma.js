@@ -42,7 +42,7 @@ const sinamaAyari = Object.assign({}, canli, {
   vegaVeritabani: VEGA_TEST,
   vegayaYazmaAktif: true,
   varsayilanFirma: 'F0102',
-  varsayilanDonem: 'D0002',
+  varsayilanDonem: 'D0001',
   varsayilanDepo: 1,
   varsayilanKdv: 0,
   belgeOneki: 'H'
@@ -77,7 +77,7 @@ function bolum(ad) {
 }
 
 const FIRMA = 'F0102';
-const DONEM = 'D0002';
+const DONEM = 'D0001';
 
 function vtAdi(ad, donemli) {
   return `[${VEGA_TEST}].dbo.${FIRMA}${donemli ? DONEM : ''}${ad}`;

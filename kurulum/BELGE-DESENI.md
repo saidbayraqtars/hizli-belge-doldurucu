@@ -11,10 +11,11 @@ desenden çıkarılmış olan karışmasın.
 | ✅ | Canlı şemada ve `kurulum/test-yazma.js` ile doğrulandı |
 | ⚠️ | Kod yazılıp sınandı ama Vega'nın KENDİ arayüzünde görüldüğü teyit edilmedi |
 
-Doğrulama durumu: şema `F0102` / `D0002` (GALYA YENİ, 1.646 stok kartı)
-üzerinde okundu; yazma yolu yapısı kopyalanmış `VEGA_TEST` veritabanında
-**62 sınamayla** uçtan uca çalıştırıldı — beş tablonun bağ alanları, cari
-bakiye değişimi ve geri almanın iz bırakmaması dahil.
+Doğrulama durumu: şema `F0102` / `D0001` (gerçek üretim dönemi — bkz. §10,
+`D0002` hiç var olmayan bir dönemdi) üzerinde okundu; yazma yolu yapısı
+kopyalanmış `VEGA_TEST` veritabanında **67 sınamayla** uçtan uca çalıştırıldı
+— beş tablonun bağ alanları, cari bakiye değişimi ve geri almanın iz
+bırakmaması dahil.
 
 Kalan ⚠️: yazdığımız belgenin VegaWin'in kendi fatura/dekont ekranında
 açıldığında doğru göründüğü. Bunu yalnızca Vega'yı çalıştırarak görebiliriz
@@ -361,3 +362,104 @@ CREATE DATABASE [VEGA_TEST];
 `SELECT * INTO ... WHERE 1=0` kalıbı IDENTITY özelliğini korur; bu yüzden
 seçildi. Sonra `ayarlar.json` içindeki `vegaVeritabani` geçici olarak
 `VEGA_TEST` yapılır, yazma açılır, belge yazılıp geri alınır.
+
+---
+
+## 10. 22.08.2026 — "faturaları görüntüleyemiyoruz" kök nedeni ✅
+
+Canlı VEGADB'de A-serisi (Vega'nın kendi ekranından girilmiş) ile bu
+programın yazdığı belgeler karşılaştırılmak istendiğinde ortaya çıktı:
+**`VEGADB.dbo.BD_Islem` günlüğü tamamen boştu** — program o ana kadar tek
+bir belgeyi bile gerçek VEGADB'ye yazamamıştı. Sebep koddaki bir mantık
+hatası değil, **yapılandırma hatasıydı**:
+
+```
+ayarlar.json  →  "varsayilanDonem": "D0002"
+```
+
+Ama `F0102` firmasında (ve tek firma olan `F0101`'de de) VEGADB'de **yalnızca
+`D0001` dönemi var** — `D0002` hiç var olmadı. `db/firma.js` → `dogrula()`
+her çağrıda dönemi `firma.donemler` listesine karşı doğruluyor; `D0002` o
+listede olmadığı için her `belgeYaz()` çağrısı **hiçbir INSERT çalışmadan**,
+en baştaki doğrulama adımında `Dönem bulunamadı: F0102 / D0002` hatasıyla
+düşüyordu. Bu yüzden Vega'da hiçbir zaman görülecek bir fatura oluşmadı —
+görüntüleme sorunu değil, yazmanın hiç başlamamasıydı.
+
+Ayarlar ekranındaki dönem seçici yalnızca gerçekten var olan dönemleri
+listeler (`firmalariGetir()`), yani bu değer arayüzden asla seçilemezdi;
+muhtemelen ilk kurulumda elle ya da geliştirme sırasında örnek bir değerle
+yazılmıştı — aynı yanlış değer `kurulum/test-yazma.js` ve
+`kurulum/vega-test-olustur.sql` içinde de vardı (üçü birlikte düzeltildi).
+`VEGA_TEST` de bu yüzden önceden eksik kuruluyordu: `SELECT * INTO` var
+olmayan `F0102D0002...` kaynak tablolarını bulamayıp o tabloları sessizce
+atlıyordu (`atlandi (VEGADB icinde yok)`).
+
+**Düzeltilen 3 dosya:** `ayarlar.json`, `kurulum/test-yazma.js`,
+`kurulum/vega-test-olustur.sql` — hepsi `D0001`. `vega-test-olustur.sql`
+yeniden çalıştırıldı, artık 16/16 tablo kopyalanıyor (önceden çoğu
+atlanıyordu); `test-yazma.js` 67/67 geçiyor.
+
+### Belge serisi tespiti — tek harf varsayımı yanlıştı ✅
+
+Aynı karşılaştırmada ikinci bir gerçek hata bulundu: `F0101` firmasının
+gerçek fatura serisi `MSA2026000000001` — üç harfli sabit önek + yıl + 9
+haneli sayaç. `db/vega.js` → `satisSerisiTespitEt` öneği `LEFT(BELGENO, 1)`
+ile tek harfe kesiyordu ("M"); bu hem yanlış önekle numara üretirdi
+("M0000001", gerçek formatla eşleşmez) hem de sayaç genişliği
+`db/yazma.js` → `siradakiBelgeNo` içinde sabit 7 basamak varsayıyordu (gerçek
+seri 9 basamaklı). İkisi de düzeltildi: önek artık `PATINDEX` ile BELGENO'daki
+ilk rakama kadar olan tüm baştaki harfleri alıyor (`F0102` için hâlâ "A",
+`F0101` için artık doğru "MSA"), sayaç genişliği de o seride görülen gerçek
+basamak sayısından okunuyor (bulunamazsa 7'ye düşülüyor — eski davranış).
+
+### Fatura başlığında 3 alan daha düzeltildi ⚠️
+
+5 gerçek faturanın (`A0000001..5`) tamamı karşılaştırıldı, tutarlı 3 fark
+bulundu:
+
+- **`DEPO`** (başlık) hiç yazılmamalı — 5/5 gerçek faturada `NULL`. Depo
+  numarası yalnızca `HAREKETDEPOSU`'nda tutuluyor. Önceden ikisine de aynı
+  değer yazılıyordu.
+- **`ENVANTERUPDATE`** hiç yazılmamalı — 5/5 gerçek faturada `NULL`, `0`
+  değil. Önceden `0` zorlanıyordu.
+- **`ODEMETARIHI`** artık `TARIH` ile aynı değeri alıyor (3/5 gerçek
+  faturada dolu, hep `TARIH` ile aynı) — önceden bu tabloda hiç yazılmıyordu.
+
+### Canlı VEGADB'de tek belge yazıp geri alma ✅
+
+Kullanıcı onayıyla gerçek VEGADB'de (F0102/D0001, cari 296, 1 TL'lik sembolik
+satır) `belgeYaz()` çalıştırıldı: 6 tablonun tümüne yazıldı (`TBLSATFATBASLIK`
+IND 117, `TBLSATFATHAREKET`, `TBLSTOKHAREKETLERI`, `TBLDEPOENVANTER`,
+`TBLCARIHAREKETLERI`, `TBLCARIGENELHAREKET`), cari bakiye 35→36 oldu, yazılan
+başlık satırı A0000001-5 ile aynı desende çıktı (DEPO=NULL, ENVANTERUPDATE=
+NULL, ODEMETARIHI dolu, USERNO=100, OZELKOD1/2='MERKEZ'). Sonra `belgeGeriAl()`
+6 satırı sildi, bakiye 36→35'e döndü, hiçbir iz kalmadı.
+
+Bu sırada üçüncü bir gerçek bug bulundu ve düzeltildi:
+
+#### `sys.columns.max_length` BAYT'tır, KARAKTER değil ✅
+
+İlk canlı deneme `String or binary data would be truncated` hatasıyla düştü
+(transaction düzgün geri sarıldı, iz kalmadı). Kaynağı:
+`TBLCARIGENELHAREKET.ACIKLAMA` sütunu `nvarchar(100)` — ama `nvarchar` iki
+bayt/karakter kullandığı için bu **50 karakter** demek, 100 değil. Yazılan
+açıklama (`"Hizli Belge Doldurucu - fis ..."`) 52 karakterdi, taştı. Şemayı
+okuyan kodda (`db/vega.js` → `kolonVarMi` ile ilgisiz, burada
+`db/yazma.js` → `sutunlariGetir`) bu ayrım hiç yapılmıyordu.
+
+Kalıcı çözüm sabit bir yerde `.substring(N)` değil — `ekle()` artık her
+tablonun HER metin sütununun gerçek karakter sınırını (`nvarchar`/`nchar` için
+`max_length/2`, `varchar`/`char` için `max_length`) şemadan okuyup, o sütuna
+yazılan her string değeri otomatik kırpıyor. Müşteriden müşteriye sütun
+genişliği değişebildiği için (bkz. §"Şema uyumu") sabit bir kırpma boyu güvenli
+değil — gerçek sınır neyse ona göre kırpılıyor.
+
+`VEGA_TEST`'te 67/67, canlıda ikinci deneme (bu düzeltmeyle) 6/6 tablo temiz
+yazıldı ve geri alındı.
+
+### Hâlâ doğrulanamayan ⚠️
+
+Vega'nın KENDİ ekranında bir faturanın açılıp doğru göründüğü henüz
+görülmedi — bu yalnızca VegaWin çalıştırılarak, insan gözüyle teyit
+edilebilir (§8). Yazma yolu artık canlıda kanıtlanmış durumda; kalan tek
+belirsizlik görüntüleme, veri bütünlüğü değil.
