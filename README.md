@@ -114,11 +114,19 @@ bunu örtüşmediği varsayılıyor.)
 
 ## Kasa tipleri nereden geliyor
 
-Kasa/kap tipleri (ör. PK, SBÜYÜK, SMUZ, UP) Vega'da hiç yok — eski Access
-programının kendi kısa kodlarıydı, gerçek işletme verisiyle doğrulandı.
-Bu yüzden Vega'dan OKUNMUYOR: Ayarlar ekranından elle eklenir, her biri
-kendi kodu, adı, depozito bedeli ve darasıyla (kap boşken kaç kg) birlikte
-`BD_KasaTipi`'de tutulur.
+İki kaynaktan besleniyor, ikisi de tek listede (`BD_KasaTipi`) birleşiyor:
+
+1. **Vega'dan otomatik:** stok kartında `KOD1 = 'KASA'` işaretli olanlar
+   (gerçek işletme verisiyle doğrulandı), kod/ad/depozito ile birlikte her
+   okumada otomatik eklenir.
+2. **Elle eklenen:** Vega'da işareti olmayan tipler (ör. eski Access
+   programından kalan PK, SBÜYÜK, SMUZ, UP gibi kodlar) Ayarlar ekranından
+   elle eklenir.
+
+Dara (kap boşken kaç kg) Vega'da hiçbir şekilde tutulmuyor — kaynağı ne
+olursa olsun her kasa tipi için elle girilir. Senkronizasyon yalnızca EKLER;
+var olan bir satırın adını/depozitosunu/darasını değiştirmez, elle
+düzeltilmiş bir değer ezilmesin diye.
 
 ## Kurulum
 

@@ -206,6 +206,50 @@ async function stoklariGetir(secenek) {
   }));
 }
 
+// --- Kasa/kap kartları (KOD1 = 'KASA' işaretli stok kartları) ---------------
+//
+// Gerçek işletme verisinde doğrulandı: kasa/kap kartları TBLSTOKLAR'da
+// KOD1 = 'KASA' ile işaretleniyor (OZELKOD1 DEĞİL — bu sütun bu iş yerinde
+// yok/farklı anlam taşıyor). Sütun her kurulumda olmayabilir; yoksa boş
+// liste döner, `db/yardimci.js` → `kasaTipleriGetir` yine de kendi elle
+// tutulan listesiyle çalışmaya devam eder.
+//
+// Dara (kap boşken kaç kg) Vega'da hiç yok; bu yüzden burada dönmüyor —
+// eşleşen kartlar `db/yardimci.js` tarafından BD_KasaTipi'ye Kod ile
+// aktarılıp dara orada elle girilir.
+async function kasaKartlariniGetir(secenek) {
+  const { firma } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
+  const v = vt();
+  const stokTablosu = kart(v, firma, 'TBLSTOKLAR');
+  const birimTablosu = kart(v, firma, 'TBLBIRIMLEREX');
+
+  const kod1VarMi = await kolonVarMi(stokTablosu, 'KOD1');
+  if (!kod1VarMi) return [];
+
+  const filtre = await silinmemis(stokTablosu, 'S');
+  const fiyatKolonu = await kolonVarMi(birimTablosu, 'SATISFIYATI');
+  const birimFiyatIfadesi = fiyatKolonu ? 'ISNULL(B.SATISFIYATI, 0)' : '0';
+  const depozitoIfadesi = `
+    CASE WHEN ${birimFiyatIfadesi} > 0 THEN ${birimFiyatIfadesi}
+         ELSE ISNULL(S.ALISFIYATI, 0) END`;
+
+  const satirlar = await sorgu(`
+    SELECT S.IND AS id, ISNULL(S.STOKKODU, '') AS kod, ISNULL(S.MALINCINSI, '') AS ad,
+           ${depozitoIfadesi} AS depozito
+    FROM ${stokTablosu} S
+    LEFT JOIN ${birimTablosu} B ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
+    WHERE LTRIM(RTRIM(ISNULL(S.KOD1, ''))) = 'KASA' ${filtre}
+    ORDER BY S.STOKKODU, S.IND
+  `);
+
+  return satirlar.map((s) => ({
+    id: Number(s.id),
+    kod: String(s.kod || '').trim(),
+    ad: String(s.ad || '').trim(),
+    depozito: Number(s.depozito) || 0
+  }));
+}
+
 // --- Cari ekstre (videodaki ikinci ekran) ----------------------------------
 //
 // Yürüyen bakiye Vega'nın yaptığı gibi kendi kendine JOIN ile değil, satırlar
@@ -371,6 +415,7 @@ module.exports = {
   carileriGetir,
   cariBakiye,
   stoklariGetir,
+  kasaKartlariniGetir,
   cariEkstre,
   izahatAdi,
   kolonVarMi,

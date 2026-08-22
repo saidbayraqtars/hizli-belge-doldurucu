@@ -117,7 +117,7 @@ uc('vega:ekstre', async (girdi) => vega.cariEkstre(girdi));
 // programının kendi kısa kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR, tamamen
 // BD_KasaTipi'de elle tutuluyor.
 
-uc('yardimci:kasaTipleri', async (girdi) => yardimci.kasaTipleriGetir(girdi && girdi.sadeceAktif));
+uc('yardimci:kasaTipleri', async (girdi) => yardimci.kasaTipleriGetir(girdi));
 uc('yardimci:kasaTipiKaydet', async (girdi) => yardimci.kasaTipiKaydet(girdi));
 uc('yardimci:kasaTipiSil', async (girdi) => yardimci.kasaTipiSil(girdi.id));
 uc('yardimci:kasaBakiye', async (girdi) => yardimci.kasaBakiyesi(girdi));

@@ -1225,7 +1225,9 @@ function ustCubugunuGuncelle() {
 
 async function kasaKartlariniYukle() {
   try {
-    durum.kasaKartlari = await cagir('yardimci:kasaTipleri', { sadeceAktif: true });
+    durum.kasaKartlari = await cagir('yardimci:kasaTipleri', {
+      sadeceAktif: true, firma: firmaKodu(), donem: donemKodu()
+    });
   } catch (e) {
     durum.kasaKartlari = [];
     bildir('Kasa tipleri okunamadı: ' + e.message, 'hata');
