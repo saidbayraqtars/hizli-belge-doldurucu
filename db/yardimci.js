@@ -125,61 +125,77 @@ function kimlik(kullanici) {
 //   2. Vega'da KOD1 = 'KASA' işaretli stok kartları (gerçek veriyle
 //      doğrulandı) — her okumada BD_KasaTipi'de yoksa otomatik eklenir.
 // Tek liste BD_KasaTipi'de birleşiyor: BD_KasaHareket hep aynı Id'ye
-// referans verir, kaynağı Vega mı elle mi olduğu fark etmez. Senkronizasyon
-// yalnızca EKLER — var olan bir satırın Ad/Depozito/Dara'sını değiştirmez,
-// kullanıcı elle düzelttiyse ezilmesin diye.
+// referans verir, kaynağı Vega mı elle mi olduğu fark etmez.
+//
+// 24.08.2026: Dara VE Depozito artık Vega eşleşmesi olan kodlarda HER
+// okumada canlı Vega değerleriyle GÜNCELLENİYOR (TBLBIRIMLEREX.AGIRLIK /
+// SATISFIYATI1 — bkz. db/vega.js → kasaKartlariniGetir). Önceden ikisi de
+// yalnızca ilk görüldüğünde INSERT ediliyordu (Dara hep 0 ile), sonrasında
+// elle düzeltilmesi gerekiyordu — artık gerekmiyor. BD_KasaTipi satırı yine
+// de duruyor (Id sabit kalsın, BD_KasaHareket ona referans veriyor), sadece
+// Ad/Dara/Depozito'su artık "canlı ayna". Vega'da karşılığı OLMAYAN gerçekten
+// elle eklenmiş kodlar (KOD1='KASA' değil) bu güncellemeden etkilenmez,
+// kendi elle girilmiş değerleriyle kalır.
 //
 // Silme YUMUŞAK (Aktif=0) — geçmiş BD_KasaHareket satırları bu Id'ye
 // referans veriyor, silinirse geçmiş hareketlerin adı/kodu kaybolur.
 
 async function vegaKasaKartlariniSenkronizeEt(firma, donem) {
-  if (!firma) return;
+  if (!firma) return new Map();
   let vegaKartlari = [];
   try {
     vegaKartlari = await vega.kasaKartlariniGetir({ firma, donem });
   } catch (e) {
-    return; // KOD1 sütunu yok ya da firma geçersiz — sessizce atla.
+    return new Map(); // KOD1 sütunu yok ya da firma geçersiz — sessizce atla.
   }
-  if (!vegaKartlari.length) return;
+  if (!vegaKartlari.length) return new Map();
 
   const db = vt();
   const mevcut = await sorgu(`SELECT Kod FROM [${db}].dbo.BD_KasaTipi`);
   const mevcutKodlar = new Set(mevcut.map((s) => String(s.Kod || '').trim().toUpperCase()));
+  const vegaHaritasi = new Map();
 
   for (const k of vegaKartlari) {
     const kod = k.kod || ('KASA-' + k.id);
+    vegaHaritasi.set(kod.toUpperCase(), k);
+
     if (mevcutKodlar.has(kod.toUpperCase())) continue;
     try {
       await calistir(
         `IF NOT EXISTS (SELECT 1 FROM [${db}].dbo.BD_KasaTipi WHERE Kod = @kod)
            INSERT INTO [${db}].dbo.BD_KasaTipi (Kod, Ad, Dara, Depozito)
-           VALUES (@kod, @ad, 0, @depozito)`,
-        { kod, ad: k.ad || kod, depozito: k.depozito || 0 }
+           VALUES (@kod, @ad, @dara, @depozito)`,
+        { kod, ad: k.ad || kod, dara: k.dara || 0, depozito: k.depozito || 0 }
       );
       mevcutKodlar.add(kod.toUpperCase());
     } catch (e) {
       // Yarış durumunda UNIQUE hatası olabilir — sorun değil, satır zaten var.
     }
   }
+  return vegaHaritasi;
 }
 
 async function kasaTipleriGetir(secenek) {
   await hazirla();
   const ayrinti = typeof secenek === 'object' && secenek ? secenek : { sadeceAktif: secenek };
-  await vegaKasaKartlariniSenkronizeEt(ayrinti.firma, ayrinti.donem);
+  const vegaHaritasi = await vegaKasaKartlariniSenkronizeEt(ayrinti.firma, ayrinti.donem);
 
   const filtre = ayrinti.sadeceAktif ? 'WHERE Aktif = 1' : '';
   const satirlar = await sorgu(
     `SELECT Id, Kod, Ad, Dara, Depozito, Aktif FROM [${vt()}].dbo.BD_KasaTipi ${filtre} ORDER BY Kod`
   );
-  return satirlar.map((s) => ({
-    id: Number(s.Id),
-    kod: String(s.Kod || '').trim(),
-    ad: String(s.Ad || '').trim(),
-    dara: Number(s.Dara) || 0,
-    depozito: Number(s.Depozito) || 0,
-    aktif: !!s.Aktif
-  }));
+  return satirlar.map((s) => {
+    const kod = String(s.Kod || '').trim();
+    const canli = vegaHaritasi.get(kod.toUpperCase());
+    return {
+      id: Number(s.Id),
+      kod,
+      ad: (canli ? canli.ad : '') || String(s.Ad || '').trim(),
+      dara: canli ? Number(canli.dara) || 0 : Number(s.Dara) || 0,
+      depozito: canli ? Number(canli.depozito) || 0 : Number(s.Depozito) || 0,
+      aktif: !!s.Aktif
+    };
+  });
 }
 
 async function kasaTipiKaydet(ayrinti) {

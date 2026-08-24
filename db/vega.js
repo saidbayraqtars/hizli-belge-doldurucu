@@ -214,9 +214,16 @@ async function stoklariGetir(secenek) {
 // liste döner, `db/yardimci.js` → `kasaTipleriGetir` yine de kendi elle
 // tutulan listesiyle çalışmaya devam eder.
 //
-// Dara (kap boşken kaç kg) Vega'da hiç yok; bu yüzden burada dönmüyor —
-// eşleşen kartlar `db/yardimci.js` tarafından BD_KasaTipi'ye Kod ile
-// aktarılıp dara orada elle girilir.
+// Dara (kap boşken kaç kg) 24.08.2026'ya kadar "Vega'da yok" sanılıyordu —
+// YANLIŞ: TBLBIRIMLEREX.AGIRLIK sütununda duruyormuş, gerçek veriyle
+// doğrulandı (PK=1.5, SB=1, UP=1 — BD_KasaTipi'ye o ana kadar ELLE girilmiş
+// değerlerle birebir aynı). Artık buradan okunuyor, elle girmeye gerek yok.
+//
+// Fiyat/depozito da aynı şekilde yanlış sütundan okunuyordu: bare
+// `SATISFIYATI` bu kurulumda hep 0 — gerçek fiyat `SATISFIYATI1`'de
+// duruyor (gerçek veriyle doğrulandı: PK=100, SB=20, UP=100 — yine
+// BD_KasaTipi'deki elle girilmiş Depozito değerleriyle birebir aynı).
+// Öncelik: SATISFIYATI1 → SATISFIYATI → TBLSTOKLAR.ALISFIYATI (en son çare).
 async function kasaKartlariniGetir(secenek) {
   const { firma } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
   const v = vt();
@@ -227,15 +234,21 @@ async function kasaKartlariniGetir(secenek) {
   if (!kod1VarMi) return [];
 
   const filtre = await silinmemis(stokTablosu, 'S');
-  const fiyatKolonu = await kolonVarMi(birimTablosu, 'SATISFIYATI');
-  const birimFiyatIfadesi = fiyatKolonu ? 'ISNULL(B.SATISFIYATI, 0)' : '0';
+  const satisfiyati1VarMi = await kolonVarMi(birimTablosu, 'SATISFIYATI1');
+  const satisfiyatiVarMi = await kolonVarMi(birimTablosu, 'SATISFIYATI');
+  const agirlikVarMi = await kolonVarMi(birimTablosu, 'AGIRLIK');
+
+  const f1 = satisfiyati1VarMi ? 'ISNULL(B.SATISFIYATI1, 0)' : '0';
+  const f0 = satisfiyatiVarMi ? 'ISNULL(B.SATISFIYATI, 0)' : '0';
   const depozitoIfadesi = `
-    CASE WHEN ${birimFiyatIfadesi} > 0 THEN ${birimFiyatIfadesi}
+    CASE WHEN ${f1} > 0 THEN ${f1}
+         WHEN ${f0} > 0 THEN ${f0}
          ELSE ISNULL(S.ALISFIYATI, 0) END`;
+  const daraIfadesi = agirlikVarMi ? 'ISNULL(B.AGIRLIK, 0)' : '0';
 
   const satirlar = await sorgu(`
     SELECT S.IND AS id, ISNULL(S.STOKKODU, '') AS kod, ISNULL(S.MALINCINSI, '') AS ad,
-           ${depozitoIfadesi} AS depozito
+           ${depozitoIfadesi} AS depozito, ${daraIfadesi} AS dara
     FROM ${stokTablosu} S
     LEFT JOIN ${birimTablosu} B ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
     WHERE LTRIM(RTRIM(ISNULL(S.KOD1, ''))) = 'KASA' ${filtre}
@@ -246,7 +259,8 @@ async function kasaKartlariniGetir(secenek) {
     id: Number(s.id),
     kod: String(s.kod || '').trim(),
     ad: String(s.ad || '').trim(),
-    depozito: Number(s.depozito) || 0
+    depozito: Number(s.depozito) || 0,
+    dara: Number(s.dara) || 0
   }));
 }
 
