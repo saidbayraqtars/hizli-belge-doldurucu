@@ -122,35 +122,52 @@ yoksa sessizce atlanır.
 
 ## 3. Bu programın yazdığı belgeler
 
-Kullanıcı **iki tuştan** birine basıyor. Tahsilat her iki durumda da ayrı bir
-dekont. Kasa depozitosu ise **24.08.2026'dan itibaren** tuşa göre değişiyor:
+Kullanıcı **iki tuştan** birine basıyor. Kasa depozitosu **hiçbir zaman ayrı
+belge açmaz** — hangi tuşa basılırsa basılsın ürünle aynı belgenin içinde
+(2. kalem). Tahsilat tek istisna: o hep ayrı bir dekont (farklı bir olay,
+ödeme geldiği an).
 
 | Kullanıcı eylemi | Vega'da oluşan | Bölüm |
 |---|---|---|
-| "Satış Faturası Olarak Kaydet" | Satış faturası (tip 21) | §4 |
-| … kasa adedi de girilmişse | Kasa, faturanın **2. (3., ...) kalemi** olur — ayrı belge AÇMAZ, KDV'siz satır | §4 |
-| "Cari Çıkış Olarak Kaydet" | Cari çıkış dekontu (tip 11), BORÇ | §5 |
-| … kasa adedi de girilmişse | Ayrı **Cari GİRİŞ** dekontu (tip 13), açıklama `KASA TUTARI`, yine de BORÇ | §5 |
+| "Satış Faturası Olarak Kaydet" | Satış faturası (tip 21); kasa varsa faturanın **2. (3., ...) kalemi**, KDV'siz | §4 |
+| "Cari Giriş Olarak Kaydet" (faturasız) | **Tek** Cari Giriş dekontu (tip 13), BORÇ; ürün ve kasa aynı başlık altında **2 ayrı hareket satırı** | §5 |
 | Tahsilat tutarı girilmişse (her iki tuşta) | Ayrı cari giriş dekontu (tip 13), ALACAK, açıklama `Tahsilat` | §5 |
 | "İadeyi Kaydet" (Kasa ekranı) | Cari **ÇIKIŞ** dekontu (tip 11), ALACAK, açıklama `KASA IADE` | §5 |
+
+Eskiden (24.08.2026'dan önce) ürün ve kasa hep 2 ayrı belgeydi, faturasız
+akış da "Cari Çıkış" idi; kullanıcı ikisini de tek belgede ve Cari Giriş
+yönünde istedi — "bize para girer, mal/kasa çıkar" (kendi tarifi). Buton
+metni de buna göre "Cari Giriş Olarak Kaydet" oldu (iç kod adı hâlâ
+`cariCikis` — sadece görünen isim değişti, bkz. `ui/index.html` /
+`ui/app.js`).
 
 **Kasa artık satış faturasının içinde:** Kasa/kap kartları artık gerçek
 `TBLSTOKLAR` kartları (canlı Vega'dan geliyor, bkz. `ui/app.js` →
 `durum.kasaKartlari`, id = STOKNO) — eski `BD_KasaTipi` elle-liste dönemi
-bitti (bkz. [[vegadb-direkt-yazma-mimarisi]]). Bu yüzden fatura kesilirken
-kasa artık gerçek bir fatura satırı olarak yazılabiliyor
-(`db/yazma.js` → `belgeYaz`, `kasaSatirlari` → `fatSatirlari`'na ekleniyor,
-KDV oranı bilerek 0). Yalnızca "Cari Çıkış" akışında (biçimsel fatura kesilmediğinde) kasa hâlâ ayrı bir dekont — o zaman birleştirilecek bir
-fatura satırı yok.
+bitti (bkz. [[vegadb-direkt-yazma-mimarisi]]). Fatura kesilirken kasa
+gerçek bir fatura satırı (`db/yazma.js` → `belgeYaz`, `kasaSatirlari` →
+`fatSatirlari`'na ekleniyor, KDV oranı bilerek 0); faturasız akışta ise
+`cariDekontuYaz`'ın `kalemler` parametresiyle AYNI başlık altında 2. hareket
+satırı olarak yazılıyor (satış faturasındaki çoklu-satır deseniyle aynı
+mantık).
 
 **Cari Giriş / Çıkış yönü ile Borç / Alacak yönü BAĞIMSIZ:** `giris`
 (hangi Vega tablosuna/ekranına yazılsın — "para bize mi geldi, biz mi
 verdik" sorusu) ile borç/alacak (müşterinin bakiyesi ne yönde değişsin)
 eskiden tek bayrakla (`giris`) birlikte belirleniyordu; artık
-`cariDekontuYaz(..., giris, borcMu)` olarak ayrı. Kasa depozitosu alınırken
-tutar "bize girmiş" sayılır (Cari Giriş) ama müşteri yine de BORÇLANIR
-(kasayı iade edene kadar); kasa iade edilince tutar müşteriye "geri
-verilmiş" sayılır (Cari Çıkış) ve müşterinin borcu o kadar AZALIR (ALACAK).
+`cariDekontuYaz(..., giris, borcMu)` olarak ayrı. Ürün satışı/kasa
+depozitosu alınırken tutar "bize girmiş" sayılır (Cari Giriş) ama müşteri
+yine de BORÇLANIR; kasa iade edilince tutar müşteriye "geri verilmiş"
+sayılır (Cari Çıkış) ve müşterinin borcu o kadar AZALIR (ALACAK).
+
+**"Girilen fiyatlara KDV dahil" kutusu (Belge Gir ekranı):** İşaretlenirse
+kullanıcının yazdığı Fiyat BRÜT kabul edilir, KDV oranına bölünerek NET
+fiyata çevrilir (`ui/app.js` → `satirOku`) — Vega'ya her zaman NET
+fiyat/tutar yazılır, tıpkı önceden olduğu gibi. Bu, Vega'nın kendi Satış
+Faturası ekranındaki "Kdv Dahil" kutusuyla aynı mantık; kullanıcı canlı
+ortamda doğruladı (kutu kapatılınca 60 TL/11.880 TL → 50 TL/9.900 TL'ye
+dönüyor, yani Vega'da kalıcı bir "KDV dahil" sütunu YOK, salt o ekranın
+gösterim tercihi).
 
 ---
 

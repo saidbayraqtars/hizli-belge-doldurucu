@@ -355,7 +355,7 @@ async function calistir() {
   kontrol('Ayni islem ikinci kez geri alinamiyor', ciftGeriAlmaReddedildi);
 
   // ======================================================================
-  bolum('B — Cari cikis olarak yazma');
+  bolum('B — Cari giris olarak yazma (faturasiz)');
 
   await hareketleriTemizle();
   await yardimciTablolariTemizle();
@@ -373,23 +373,16 @@ async function calistir() {
   kontrol('Stok hareketi olusmadi (cari cikista stok etkilenmez)',
     sB.TBLSTOKHAREKETLERI === 0, String(sB.TBLSTOKHAREKETLERI));
   kontrol('Depo envanteri etkilenmedi', sB.TBLDEPOENVANTER === 0, String(sB.TBLDEPOENVANTER));
-  // Urun → Cari CIKIS (borc), kasa depozitosu → Cari GIRIS (borc, ama "bize
-  // girdi" sayilan tablo) — bkz. db/yazma.js cariDekontuYaz giris/borcMu ayrimi.
-  kontrol('Bir cari cikis basligi (urun)', sB.TBLCARCIKBASLIK === 1, String(sB.TBLCARCIKBASLIK));
-  kontrol('Bir cari giris basligi (kasa depozitosu)', sB.TBLCARGIRBASLIK === 1, String(sB.TBLCARGIRBASLIK));
-  kontrol('Cari hareketi 2 satir', sB.TBLCARIHAREKETLERI === 2, String(sB.TBLCARIHAREKETLERI));
-
-  // İki belge farklı numara almalı — sayaç çalışıyor mu? (biri cikis, biri girisde)
-  const numaralar = await sql.sorgu(`
-    SELECT BELGENO FROM ${vtAdi('TBLCARCIKBASLIK', true)}
-    UNION ALL
-    SELECT BELGENO FROM ${vtAdi('TBLCARGIRBASLIK', true)}`);
-  const farkli = new Set(numaralar.map((x) => x.BELGENO)).size === numaralar.length;
-  kontrol('Iki belge farkli numara aldi', farkli,
-    numaralar.map((x) => x.BELGENO).join(', '));
+  // Urun VE kasa artik TEK Cari Giris belgesinde birlesik — "bize para
+  // girer, mal/kasa cikar" (kullanicinin tarifi, 24.08.2026). Cari CIKIS
+  // hic olusmaz.
+  kontrol('Cari cikis basligi olusmadi (hepsi girise tasindi)', sB.TBLCARCIKBASLIK === 0, String(sB.TBLCARCIKBASLIK));
+  kontrol('Tek cari giris basligi (urun + kasa birlesik)', sB.TBLCARGIRBASLIK === 1, String(sB.TBLCARGIRBASLIK));
+  kontrol('Giris hareketinde 2 kalem (urun + kasa)', sB.TBLCARGIRHAREKET === 2, String(sB.TBLCARGIRHAREKET));
+  kontrol('Cari hareketi 1 satir (tek belge, tek borc)', sB.TBLCARIHAREKETLERI === 1, String(sB.TBLCARIHAREKETLERI));
 
   // Ödeme aracı alanları boş kalmalı: nakit işaretlenirse Vega kasa raporunda
-  // karşılığı olmayan para görünür. Hem cikis hem giris hareket tablosunda.
+  // karşılığı olmayan para görünür.
   const arac = await sql.sorgu(`
     SELECT
       (SELECT COUNT(*) FROM ${vtAdi('TBLCARCIKHAREKET', true)}
@@ -427,7 +420,7 @@ async function calistir() {
       kasaDepozito: 100, kasaTutari: 300
     }]
   });
-  kontrol('Belge yazildi', belgeC.tamam, belgeC.kasaBelgeNo);
+  kontrol('Belge yazildi', belgeC.tamam, belgeC.belgeNo);
 
   const acik = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
   kontrol('Musteride 3 kasa acik gorunuyor',
@@ -456,11 +449,10 @@ async function calistir() {
   kontrol('Kalan acik adet 1', iade.kalanAdet === 1, String(iade.kalanAdet));
 
   const sC = await tumSayilar();
-  // sC.TBLCARGIRBASLIK: belgeC'nin kasa depozitosu (Cari Giris, borc).
-  // sC.TBLCARCIKBASLIK: belgeC'nin urunu (100 TL, Cari Cikis, borc) + az
-  // sonraki iade (Cari Cikis, alacak — yon artik ters) = 2.
-  kontrol('Cari giris basligi (kasa depozitosu) olustu', sC.TBLCARGIRBASLIK === 1, String(sC.TBLCARGIRBASLIK));
-  kontrol('Iki cari cikis basligi (belgeC urunu + iade)', sC.TBLCARCIKBASLIK === 2, String(sC.TBLCARCIKBASLIK));
+  // sC.TBLCARGIRBASLIK: belgeC'nin urun+kasa'si TEK belgede birlesik (Cari
+  // Giris, borc). sC.TBLCARCIKBASLIK: az sonraki iade (Cari Cikis, alacak).
+  kontrol('Tek cari giris basligi (belgeC: urun + kasa birlesik)', sC.TBLCARGIRBASLIK === 1, String(sC.TBLCARGIRBASLIK));
+  kontrol('Bir cari cikis basligi (iade)', sC.TBLCARCIKBASLIK === 1, String(sC.TBLCARCIKBASLIK));
 
   const alacak = await sql.sorgu(`
     SELECT SUM(ISNULL(ALACAK,0)) AS alacak FROM ${vtAdi('TBLCARIHAREKETLERI', true)}`);

@@ -407,6 +407,10 @@ function satirEkle() {
   return tr;
 }
 
+function kdvOraniOku() {
+  return Number(durum.ayar && durum.ayar.varsayilanKdv) || 0;
+}
+
 function satirOku(tr) {
   const s = tr._satir;
   if (!s) return null;
@@ -415,15 +419,25 @@ function satirOku(tr) {
   const stok = durum.stokHaritasi.get(etiket) || null;
   const brutMiktar = sayiOku(s.brutMiktarGirdi.value);
   const kasaAdedi = sayiOku(s.kasaAdediGirdi.value);
-  const fiyat = sayiOku(s.fiyatGirdi.value);
+  const fiyatGirilen = sayiOku(s.fiyatGirdi.value);
   const kasaStokNo = s.tipSecim.value ? Number(s.tipSecim.value) : null;
   const kasa = kasaStokNo ? durum.kasaKartlari.find((k) => k.id === kasaStokNo) : null;
+
+  // "Girilen fiyatlara KDV dahil" işaretliyse kullanıcının yazdığı fiyat
+  // BRÜT kabul edilir, KDV oranına bölünerek NET fiyata çevrilir — Vega'nın
+  // kendi "Kdv Dahil" kutusuyla aynı mantık (24.08.2026, kullanıcının canlı
+  // ortamda doğruladığı davranış: kutu kapalıyken 60 TL → 50 TL/9.900 TL
+  // görünüyor). Vega'ya her zaman NET fiyat/tutar yazılır, KDV oradan ayrıca
+  // hesaplanır (bkz. db/yazma.js → belgeYaz).
+  const kdvOrani = kdvOraniOku();
+  const kdvDahil = !!(el('kdvDahil') && el('kdvDahil').checked);
+  const fiyat = (kdvDahil && kdvOrani) ? fiyatGirilen / (1 + kdvOrani / 100) : fiyatGirilen;
 
   const kasaDarasi = kasa ? (kasa.dara || 0) : 0;
   const dara = Math.round(kasaAdedi * kasaDarasi * 1000) / 1000;
   const daraliMiktar = Math.round(Math.max(brutMiktar - dara, 0) * 1000) / 1000;
   const tutar = Math.round(daraliMiktar * fiyat * 100) / 100;
-  const kasaDepozito = kasa ? kasa.depozito : 0;
+  const kasaDepozito = kasa ? kasa.depozito : 0; // depozito KDV'siz, kdvDahil'den etkilenmez
   const kasaTutari = Math.round(kasaAdedi * kasaDepozito * 100) / 100;
 
   return {
@@ -434,21 +448,22 @@ function satirOku(tr) {
     kasaDarasi,
     kasaDepozito,
     kasaTutari,
-    bos: !etiket && !brutMiktar && !kasaAdedi && !fiyat
+    bos: !etiket && !brutMiktar && !kasaAdedi && !fiyatGirilen
   };
 }
 
 // KDV, yazma.js → belgeYaz'ın satış faturası dalında satır başına aynı
 // formülle uygulanıyor (kdvOrani ? Math.round(tutar*kdvOrani)/100 : 0) ama
-// "Cari Çıkış Olarak Kaydet" ile hiç eklenmiyor — o yüzden burada iki ayrı
-// genel toplam hesaplanıp kullanıcıya hangi tuşun ne tutar geçireceği
-// gösteriliyor. Önceden bu ekran KDV'yi hiç saymıyordu; kaydedilen belgedeki
-// gerçek tutar (Vega'daki) burada gösterilenden farklı çıkıyordu.
+// "Cari Giriş Olarak Kaydet" (faturasız) ile hiç eklenmiyor — o yüzden
+// burada iki ayrı genel toplam hesaplanıp kullanıcıya hangi tuşun ne tutar
+// geçireceği gösteriliyor. `s.tutar` her zaman NET'tir (satirOku KDV Dahil
+// kutusunu zaten hesaba katıp fiyatı NET'e çevirir), o yüzden burada tekrar
+// bölme yapılmıyor, sadece KDV üstüne EKLENİYOR.
 function toplamlariGuncelle() {
   let urun = 0;
   let kasa = 0;
   let kdv = 0;
-  const kdvOrani = Number(durum.ayar && durum.ayar.varsayilanKdv) || 0;
+  const kdvOrani = kdvOraniOku();
   for (const tr of el('satirGovde').children) {
     const s = satirOku(tr);
     if (!s) continue;
@@ -464,7 +479,7 @@ function toplamlariGuncelle() {
   }
   const tahsilat = sayiOku(el('tahsilat').value);
   const genelFatura = urun + kdv + kasa; // Satış Faturası Olarak Kaydet
-  const genelCariCikis = urun + kasa;    // Cari Çıkış Olarak Kaydet (KDV eklenmez)
+  const genelCariGiris = urun + kasa;    // Cari Giriş Olarak Kaydet (KDV eklenmez)
 
   el('urunToplam').textContent = para(urun);
   el('kdvToplam').textContent = para(kdv);
@@ -473,7 +488,7 @@ function toplamlariGuncelle() {
   const not = el('genelToplamNot');
   if (not) {
     not.textContent = kdv > 0
-      ? `Cari Çıkış ile: ${para(genelCariCikis)} (KDV'siz)`
+      ? `Cari Giriş ile: ${para(genelCariGiris)} (KDV'siz)`
       : '';
   }
   el('kalanToplam').textContent = para(genelFatura - tahsilat);
@@ -481,6 +496,7 @@ function toplamlariGuncelle() {
 
 el('satirEkle').addEventListener('click', () => satirEkle());
 el('tahsilat').addEventListener('input', () => toplamlariGuncelle());
+el('kdvDahil').addEventListener('change', () => toplamlariGuncelle());
 
 el('formTemizle').addEventListener('click', () => {
   el('satirGovde').innerHTML = '';
@@ -583,7 +599,7 @@ function sonKaydiGoster(sonuc, belgeTuru) {
   const bilgi = document.createElement('p');
   bilgi.className = 'ipucu';
   bilgi.textContent =
-    (belgeTuru === 'satisFaturasi' ? 'Satış Faturası' : 'Cari Çıkış') +
+    (belgeTuru === 'satisFaturasi' ? 'Satış Faturası' : 'Cari Giriş') +
     ` · Belge no: ${sonuc.belgeNo} · ${para(sonuc.toplam)} TL`;
 
   const eylem = document.createElement('div');
@@ -777,7 +793,7 @@ async function belgelerYukle() {
       const tr = document.createElement('tr');
       const hucreler = [
         [tarihSaatYaz(k.Tarih), ''],
-        [k.Konu === 'satisFaturasi' ? 'Satış Faturası' : k.Konu === 'cariCikis' ? 'Cari Çıkış' : k.Konu, ''],
+        [k.Konu === 'satisFaturasi' ? 'Satış Faturası' : k.Konu === 'cariCikis' ? 'Cari Giriş' : k.Konu, ''],
         [k.CariAd || '', ''],
         [k.BelgeNo || '', ''],
         [k.Tutar != null ? para(k.Tutar) : '', 'sayi'],
