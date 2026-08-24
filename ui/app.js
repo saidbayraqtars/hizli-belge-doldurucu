@@ -438,9 +438,17 @@ function satirOku(tr) {
   };
 }
 
+// KDV, yazma.js → belgeYaz'ın satış faturası dalında satır başına aynı
+// formülle uygulanıyor (kdvOrani ? Math.round(tutar*kdvOrani)/100 : 0) ama
+// "Cari Çıkış Olarak Kaydet" ile hiç eklenmiyor — o yüzden burada iki ayrı
+// genel toplam hesaplanıp kullanıcıya hangi tuşun ne tutar geçireceği
+// gösteriliyor. Önceden bu ekran KDV'yi hiç saymıyordu; kaydedilen belgedeki
+// gerçek tutar (Vega'daki) burada gösterilenden farklı çıkıyordu.
 function toplamlariGuncelle() {
   let urun = 0;
   let kasa = 0;
+  let kdv = 0;
+  const kdvOrani = Number(durum.ayar && durum.ayar.varsayilanKdv) || 0;
   for (const tr of el('satirGovde').children) {
     const s = satirOku(tr);
     if (!s) continue;
@@ -452,12 +460,23 @@ function toplamlariGuncelle() {
     tr._satir.kasaTutarHucre.textContent = para(s.kasaTutari);
     urun += s.tutar;
     kasa += s.kasaTutari;
+    kdv += kdvOrani ? Math.round(s.tutar * kdvOrani) / 100 : 0;
   }
   const tahsilat = sayiOku(el('tahsilat').value);
+  const genelFatura = urun + kdv + kasa; // Satış Faturası Olarak Kaydet
+  const genelCariCikis = urun + kasa;    // Cari Çıkış Olarak Kaydet (KDV eklenmez)
+
   el('urunToplam').textContent = para(urun);
+  el('kdvToplam').textContent = para(kdv);
   el('kasaToplam').textContent = para(kasa);
-  el('genelToplam').textContent = para(urun + kasa);
-  el('kalanToplam').textContent = para(urun + kasa - tahsilat);
+  el('genelToplam').textContent = para(genelFatura);
+  const not = el('genelToplamNot');
+  if (not) {
+    not.textContent = kdv > 0
+      ? `Cari Çıkış ile: ${para(genelCariCikis)} (KDV'siz)`
+      : '';
+  }
+  el('kalanToplam').textContent = para(genelFatura - tahsilat);
 }
 
 el('satirEkle').addEventListener('click', () => satirEkle());

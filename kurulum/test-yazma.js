@@ -222,35 +222,35 @@ async function calistir() {
   kontrol('Urun toplami dogru', yazmaA.urunTutari === URUN_TOPLAM, String(yazmaA.urunTutari));
   kontrol('Kasa tutari dogru', yazmaA.kasaTutari === KASA_TOPLAM, String(yazmaA.kasaTutari));
   kontrol('Belge numarasi H onekli', /^H\d{7}/.test(yazmaA.belgeNo), yazmaA.belgeNo);
-  kontrol('Kasa dekontu ayri belge no aldi',
-    !!yazmaA.kasaBelgeNo && yazmaA.kasaBelgeNo !== yazmaA.belgeNo, yazmaA.kasaBelgeNo);
+  kontrol('Kasa artik ayri belge acmiyor (fatura icine 2. kalem oldu)',
+    yazmaA.kasaBelgeNo === null, String(yazmaA.kasaBelgeNo));
   kontrol('Tahsilat ayri belge no aldi',
     !!yazmaA.tahsilatBelgeNo && yazmaA.tahsilatBelgeNo !== yazmaA.belgeNo, yazmaA.tahsilatBelgeNo);
 
   const sA = await tumSayilar();
   kontrol('Satis faturasi basligi 1 satir', sA.TBLSATFATBASLIK === 1, String(sA.TBLSATFATBASLIK));
-  kontrol('Fatura satirlari 2 satir', sA.TBLSATFATHAREKET === 2, String(sA.TBLSATFATHAREKET));
-  kontrol('Stok hareketi 2 satir', sA.TBLSTOKHAREKETLERI === 2, String(sA.TBLSTOKHAREKETLERI));
-  kontrol('Depo envanteri 2 satir', sA.TBLDEPOENVANTER === 2, String(sA.TBLDEPOENVANTER));
-  kontrol('Kasa dekontu basligi 1 satir (cikis)', sA.TBLCARCIKBASLIK === 1, String(sA.TBLCARCIKBASLIK));
+  kontrol('Fatura satirlari 3 satir (2 urun + 1 kasa)', sA.TBLSATFATHAREKET === 3, String(sA.TBLSATFATHAREKET));
+  kontrol('Stok hareketi 3 satir', sA.TBLSTOKHAREKETLERI === 3, String(sA.TBLSTOKHAREKETLERI));
+  kontrol('Depo envanteri 3 satir', sA.TBLDEPOENVANTER === 3, String(sA.TBLDEPOENVANTER));
+  kontrol('Kasa icin ayri cikis dekontu YOK (fatura icine girdi)', sA.TBLCARCIKBASLIK === 0, String(sA.TBLCARCIKBASLIK));
   kontrol('Tahsilat basligi 1 satir (giris)', sA.TBLCARGIRBASLIK === 1, String(sA.TBLCARGIRBASLIK));
-  kontrol('Cari hareketi 3 satir (fatura + kasa + tahsilat)', sA.TBLCARIHAREKETLERI === 3,
+  kontrol('Cari hareketi 2 satir (fatura[+kasa birlesik] + tahsilat)', sA.TBLCARIHAREKETLERI === 2,
     String(sA.TBLCARIHAREKETLERI));
-  kontrol('Cari genel hareketi de 3 satir (her cari harekete eslik ediyor)',
-    sA.TBLCARIGENELHAREKET === 3, String(sA.TBLCARIGENELHAREKET));
+  kontrol('Cari genel hareketi de 2 satir (her cari harekete eslik ediyor)',
+    sA.TBLCARIGENELHAREKET === 2, String(sA.TBLCARIGENELHAREKET));
 
-  // TBLCARIGENELHAREKET: satis/kasa BORC (belgelink NULL), tahsilat ALACAK
-  // (belgelink -1) yazmali; izahat kodlari fatura=21, cikis=11, giris=13.
+  // TBLCARIGENELHAREKET: fatura(kasa dahil) BORC (belgelink NULL), tahsilat
+  // ALACAK (belgelink -1) yazmali; izahat kodlari fatura=21, giris=13.
   const genelHareket = await sql.sorgu(`
     SELECT BELGEIZAHAT, ISLEMIZAHAT, BORC, ALACAK, BELGELINK
     FROM ${vtAdi('TBLCARIGENELHAREKET', true)} ORDER BY IND`);
-  kontrol('Genel hareket izahat kodlari dogru (21, 11, 13)',
-    genelHareket.map((r) => Number(r.BELGEIZAHAT)).join(',') === '21,11,13',
+  kontrol('Genel hareket izahat kodlari dogru (21, 13)',
+    genelHareket.map((r) => Number(r.BELGEIZAHAT)).join(',') === '21,13',
     genelHareket.map((r) => r.BELGEIZAHAT).join(','));
   kontrol('Genel hareket BELGEIZAHAT = ISLEMIZAHAT her satirda',
     genelHareket.every((r) => Number(r.BELGEIZAHAT) === Number(r.ISLEMIZAHAT)));
-  kontrol('Tahsilat satiri BELGELINK=-1, digerleri NULL',
-    genelHareket[2].BELGELINK === -1 && genelHareket[0].BELGELINK === null && genelHareket[1].BELGELINK === null,
+  kontrol('Tahsilat satiri BELGELINK=-1, fatura satiri NULL',
+    genelHareket[1] && genelHareket[1].BELGELINK === -1 && genelHareket[0].BELGELINK === null,
     genelHareket.map((r) => r.BELGELINK).join(','));
 
   // Bağ alanları: fatura satırı başlığın IND'ine, stok hareketi hem başlığa
@@ -271,42 +271,48 @@ async function calistir() {
         JOIN ${vtAdi('TBLCARCIKBASLIK', true)} B ON B.IND = K.EVRAKNO)          AS dekontBasligaBagli
   `);
   const b = bag[0];
-  kontrol('Fatura satiri basliga bagli', Number(b.satirBasligaBagli) === 2, String(b.satirBasligaBagli));
+  kontrol('Fatura satiri basliga bagli', Number(b.satirBasligaBagli) === 3, String(b.satirBasligaBagli));
   kontrol('Stok hareketi basliga bagli (BELGENO = baslik IND)',
-    Number(b.stokBasligaBagli) === 2, String(b.stokBasligaBagli));
+    Number(b.stokBasligaBagli) === 3, String(b.stokBasligaBagli));
   kontrol('Stok hareketi satira bagli (LN = satir IND)',
-    Number(b.stokSatiraBagli) === 2, String(b.stokSatiraBagli));
-  kontrol('Envanter basliga bagli', Number(b.envanterBasligaBagli) === 2,
+    Number(b.stokSatiraBagli) === 3, String(b.stokSatiraBagli));
+  kontrol('Envanter basliga bagli', Number(b.envanterBasligaBagli) === 3,
     String(b.envanterBasligaBagli));
-  kontrol('Envanter satira bagli', Number(b.envanterSatiraBagli) === 2,
+  kontrol('Envanter satira bagli', Number(b.envanterSatiraBagli) === 3,
     String(b.envanterSatiraBagli));
-  kontrol('Kasa dekontu satiri basliga bagli', Number(b.dekontBasligaBagli) === 1,
+  kontrol('Kasa icin ayri dekont satiri yok', Number(b.dekontBasligaBagli) === 0,
     String(b.dekontBasligaBagli));
 
-  // Envanter farkı satışta eksi olmalı — artı yazılsa stok satışta ARTAR.
+  // Envanter farkı satışta eksi olmalı (10,8 + 5 kg ürün + 1 kasa/adet) —
+  // artı yazılsa stok satışta ARTAR.
   const env = await sql.sorgu(`SELECT SUM(ENVANTER) AS toplam FROM ${vtAdi('TBLDEPOENVANTER', true)}`);
   kontrol('Envanter farki eksi (satista stok duser)',
-    Number(env[0].toplam) === -(10.8 + 5), String(env[0].toplam));
+    Number(env[0].toplam) === -(10.8 + 5 + 1), String(env[0].toplam));
 
   const cikan = await sql.sorgu(`
     SELECT SUM(CIKAN) AS cikan, SUM(GIREN) AS giren FROM ${vtAdi('TBLSTOKHAREKETLERI', true)}`);
   kontrol('Stok hareketi cikis yonunde',
-    Number(cikan[0].cikan) === 15.8 && Number(cikan[0].giren) === 0,
+    Number(cikan[0].cikan) === 15.8 + 1 && Number(cikan[0].giren) === 0,
     `cikan ${cikan[0].cikan} · giren ${cikan[0].giren}`);
 
   const bakiyeA = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
   kontrol('Cari bakiyesi urun + kasa - tahsilat kadar artti',
     Math.abs(bakiyeA - BEKLENEN_BORC) < 0.01, `${bakiyeA} (beklenen ${BEKLENEN_BORC})`);
 
-  // Ekstrede kasa satırı ayrı görünmeli ve "KASA TUTARI" yazmalı.
+  // Ekstrede artik kasa icin ayri satir yok — fatura+kasa tek satirda
+  // birlesik (524 TL), tahsilat ayri.
   const ekstreA = await vega.cariEkstre({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
-  kontrol('Ekstrede uc ayri satir var (fatura + kasa + tahsilat)', ekstreA.satirlar.length === 3,
+  kontrol('Ekstrede iki ayri satir var (fatura[+kasa] + tahsilat)', ekstreA.satirlar.length === 2,
     `${ekstreA.satirlar.length} satir`);
-  const kasaSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf('KASA TUTARI') >= 0);
-  kontrol('Kasa satiri "KASA TUTARI" aciklamasiyla gorunuyor', !!kasaSatiri,
-    kasaSatiri ? `${kasaSatiri.aciklama} · ${kasaSatiri.borc} TL` : 'bulunamadi');
-  if (kasaSatiri) {
-    kontrol('Kasa satirinin tutari 100 TL', Number(kasaSatiri.borc) === 100, String(kasaSatiri.borc));
+
+  // Kasa artik fatura satirinda ("KASA" aciklamali) — TBLSATFATHAREKET'te.
+  const faturaKasaSatiri = await sql.sorgu(
+    `SELECT GERCEKTOPLAM FROM ${vtAdi('TBLSATFATHAREKET', true)} WHERE ACIKLAMA='KASA'`);
+  kontrol('Fatura icinde "KASA" aciklamali satir var', faturaKasaSatiri.length === 1,
+    faturaKasaSatiri.length ? `${faturaKasaSatiri.length} satir` : 'bulunamadi');
+  if (faturaKasaSatiri.length) {
+    kontrol('Kasa satirinin tutari 100 TL', Number(faturaKasaSatiri[0].GERCEKTOPLAM) === 100,
+      String(faturaKasaSatiri[0].GERCEKTOPLAM));
   }
   const tahsilatSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf('Tahsilat') >= 0);
   kontrol('Tahsilat satiri ALACAK olarak gorunuyor', !!tahsilatSatiri && tahsilatSatiri.alacak === TAHSILAT,
@@ -322,7 +328,7 @@ async function calistir() {
 
   // İşlem günlüğü — geri alma bilgisi burada durmalı.
   const gunlukA = await yardimci.sonIslemleriGetir({ firma: FIRMA, limit: 10 });
-  kontrol('Islem gunluge yazildi', gunlukA.length > 0 && gunlukA[0].BelgeNo === yazmaA.belgeNo + ' / ' + yazmaA.kasaBelgeNo + ' / ' + yazmaA.tahsilatBelgeNo,
+  kontrol('Islem gunluge yazildi', gunlukA.length > 0 && gunlukA[0].BelgeNo === yazmaA.belgeNo + ' / ' + yazmaA.tahsilatBelgeNo,
     gunlukA.length ? gunlukA[0].BelgeNo : '—');
 
   // --- Geri alma ---
@@ -367,22 +373,29 @@ async function calistir() {
   kontrol('Stok hareketi olusmadi (cari cikista stok etkilenmez)',
     sB.TBLSTOKHAREKETLERI === 0, String(sB.TBLSTOKHAREKETLERI));
   kontrol('Depo envanteri etkilenmedi', sB.TBLDEPOENVANTER === 0, String(sB.TBLDEPOENVANTER));
-  kontrol('Iki cari cikis basligi (urun + kasa)', sB.TBLCARCIKBASLIK === 2,
-    String(sB.TBLCARCIKBASLIK));
+  // Urun → Cari CIKIS (borc), kasa depozitosu → Cari GIRIS (borc, ama "bize
+  // girdi" sayilan tablo) — bkz. db/yazma.js cariDekontuYaz giris/borcMu ayrimi.
+  kontrol('Bir cari cikis basligi (urun)', sB.TBLCARCIKBASLIK === 1, String(sB.TBLCARCIKBASLIK));
+  kontrol('Bir cari giris basligi (kasa depozitosu)', sB.TBLCARGIRBASLIK === 1, String(sB.TBLCARGIRBASLIK));
   kontrol('Cari hareketi 2 satir', sB.TBLCARIHAREKETLERI === 2, String(sB.TBLCARIHAREKETLERI));
 
-  // İki belge farklı numara almalı — sayaç çalışıyor mu?
+  // İki belge farklı numara almalı — sayaç çalışıyor mu? (biri cikis, biri girisde)
   const numaralar = await sql.sorgu(`
-    SELECT BELGENO FROM ${vtAdi('TBLCARCIKBASLIK', true)} ORDER BY IND`);
+    SELECT BELGENO FROM ${vtAdi('TBLCARCIKBASLIK', true)}
+    UNION ALL
+    SELECT BELGENO FROM ${vtAdi('TBLCARGIRBASLIK', true)}`);
   const farkli = new Set(numaralar.map((x) => x.BELGENO)).size === numaralar.length;
   kontrol('Iki belge farkli numara aldi', farkli,
     numaralar.map((x) => x.BELGENO).join(', '));
 
   // Ödeme aracı alanları boş kalmalı: nakit işaretlenirse Vega kasa raporunda
-  // karşılığı olmayan para görünür.
+  // karşılığı olmayan para görünür. Hem cikis hem giris hareket tablosunda.
   const arac = await sql.sorgu(`
-    SELECT COUNT(*) AS adet FROM ${vtAdi('TBLCARCIKHAREKET', true)}
-    WHERE ISNULL(IZAHAT, 0) <> 0 OR ISNULL(PORTNO, 0) <> 0`);
+    SELECT
+      (SELECT COUNT(*) FROM ${vtAdi('TBLCARCIKHAREKET', true)}
+        WHERE ISNULL(IZAHAT, 0) <> 0 OR ISNULL(PORTNO, 0) <> 0) +
+      (SELECT COUNT(*) FROM ${vtAdi('TBLCARGIRHAREKET', true)}
+        WHERE ISNULL(IZAHAT, 0) <> 0 OR ISNULL(PORTNO, 0) <> 0) AS adet`);
   kontrol('Odeme araci alanlari bos (kasaya postalanmiyor)',
     Number(arac[0].adet) === 0, `${arac[0].adet} satirda dolu`);
 
@@ -443,7 +456,11 @@ async function calistir() {
   kontrol('Kalan acik adet 1', iade.kalanAdet === 1, String(iade.kalanAdet));
 
   const sC = await tumSayilar();
-  kontrol('Cari giris basligi olustu', sC.TBLCARGIRBASLIK === 1, String(sC.TBLCARGIRBASLIK));
+  // sC.TBLCARGIRBASLIK: belgeC'nin kasa depozitosu (Cari Giris, borc).
+  // sC.TBLCARCIKBASLIK: belgeC'nin urunu (100 TL, Cari Cikis, borc) + az
+  // sonraki iade (Cari Cikis, alacak — yon artik ters) = 2.
+  kontrol('Cari giris basligi (kasa depozitosu) olustu', sC.TBLCARGIRBASLIK === 1, String(sC.TBLCARGIRBASLIK));
+  kontrol('Iki cari cikis basligi (belgeC urunu + iade)', sC.TBLCARCIKBASLIK === 2, String(sC.TBLCARCIKBASLIK));
 
   const alacak = await sql.sorgu(`
     SELECT SUM(ISNULL(ALACAK,0)) AS alacak FROM ${vtAdi('TBLCARIHAREKETLERI', true)}`);

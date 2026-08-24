@@ -122,24 +122,35 @@ yoksa sessizce atlanır.
 
 ## 3. Bu programın yazdığı belgeler
 
-Kullanıcı **iki tuştan** birine basıyor; kasa depozitosu ve tahsilat her iki
-durumda da ayrı birer dekont oluyor.
+Kullanıcı **iki tuştan** birine basıyor. Tahsilat her iki durumda da ayrı bir
+dekont. Kasa depozitosu ise **24.08.2026'dan itibaren** tuşa göre değişiyor:
 
 | Kullanıcı eylemi | Vega'da oluşan | Bölüm |
 |---|---|---|
 | "Satış Faturası Olarak Kaydet" | Satış faturası (tip 21) | §4 |
-| "Cari Çıkış Olarak Kaydet" | Cari çıkış dekontu (tip 11) | §5 |
-| Kasa adedi girilmişse (her iki tuşta) | Ayrı cari çıkış dekontu (tip 11), açıklama `KASA TUTARI` | §5 |
-| Tahsilat tutarı girilmişse (her iki tuşta) | Ayrı cari giriş dekontu (tip 13), açıklama `Tahsilat` | §5 |
-| "İadeyi Kaydet" (Kasa ekranı) | Cari giriş dekontu (tip 13), açıklama `KASA IADE` | §5 |
+| … kasa adedi de girilmişse | Kasa, faturanın **2. (3., ...) kalemi** olur — ayrı belge AÇMAZ, KDV'siz satır | §4 |
+| "Cari Çıkış Olarak Kaydet" | Cari çıkış dekontu (tip 11), BORÇ | §5 |
+| … kasa adedi de girilmişse | Ayrı **Cari GİRİŞ** dekontu (tip 13), açıklama `KASA TUTARI`, yine de BORÇ | §5 |
+| Tahsilat tutarı girilmişse (her iki tuşta) | Ayrı cari giriş dekontu (tip 13), ALACAK, açıklama `Tahsilat` | §5 |
+| "İadeyi Kaydet" (Kasa ekranı) | Cari **ÇIKIŞ** dekontu (tip 11), ALACAK, açıklama `KASA IADE` | §5 |
 
-**Kasa tutarı neden ayrı belge:** Kasa/kap tipleri (PK, SBÜYÜK...) Vega'da
-gerçek stok kartı DEĞİL — eski Access programının kendi kodu, `BD_KasaTipi`'de
-elle tutuluyor (bkz. §2.5 altındaki not, `db/yardimci.js` → `kasaTipleriGetir`).
-Depozito yine de PARA hareketi olarak, ürün faturasından bağımsız ayrı bir
-dekont olarak yazılıyor — eski programın ekstresinde de kasa tutarı, ürün
-satırının **altında ayrı bir satır** olarak duruyor ve ikisi toplanıp
-bakiyeye işleniyor.
+**Kasa artık satış faturasının içinde:** Kasa/kap kartları artık gerçek
+`TBLSTOKLAR` kartları (canlı Vega'dan geliyor, bkz. `ui/app.js` →
+`durum.kasaKartlari`, id = STOKNO) — eski `BD_KasaTipi` elle-liste dönemi
+bitti (bkz. [[vegadb-direkt-yazma-mimarisi]]). Bu yüzden fatura kesilirken
+kasa artık gerçek bir fatura satırı olarak yazılabiliyor
+(`db/yazma.js` → `belgeYaz`, `kasaSatirlari` → `fatSatirlari`'na ekleniyor,
+KDV oranı bilerek 0). Yalnızca "Cari Çıkış" akışında (biçimsel fatura kesilmediğinde) kasa hâlâ ayrı bir dekont — o zaman birleştirilecek bir
+fatura satırı yok.
+
+**Cari Giriş / Çıkış yönü ile Borç / Alacak yönü BAĞIMSIZ:** `giris`
+(hangi Vega tablosuna/ekranına yazılsın — "para bize mi geldi, biz mi
+verdik" sorusu) ile borç/alacak (müşterinin bakiyesi ne yönde değişsin)
+eskiden tek bayrakla (`giris`) birlikte belirleniyordu; artık
+`cariDekontuYaz(..., giris, borcMu)` olarak ayrı. Kasa depozitosu alınırken
+tutar "bize girmiş" sayılır (Cari Giriş) ama müşteri yine de BORÇLANIR
+(kasayı iade edene kadar); kasa iade edilince tutar müşteriye "geri
+verilmiş" sayılır (Cari Çıkış) ve müşterinin borcu o kadar AZALIR (ALACAK).
 
 ---
 
@@ -230,8 +241,9 @@ TBLCARCIKBASLIK  (çıkış)  /  TBLCARGIRBASLIK  (giriş)
    BELGENO, TARIH, FIRMANO (cari IND), BELGETIPI (11 / 13), TUTAR,
    ACIKLAMA ("KASA TUTARI" / "KASA IADE"), GIRIS (0 / 1), CREDATE
 TBLCARIHAREKETLERI
-   IZAHAT '11' → BORC        (müşteriyi borçlandırır)
-   IZAHAT '13' → ALACAK      (borcunu düşürür)
+   BORC/ALACAK ←── `borcMu` parametresi (bkz. §3) — IZAHAT'tan (11/13)
+                   BAĞIMSIZ, hangi tabloya yazıldığından değil çağıranın
+                   niyetinden gelir
 ```
 
 ### Ödeme aracı alanları bilerek boş bırakılıyor ✅

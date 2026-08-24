@@ -382,8 +382,23 @@ async function cariGenelHareketEkle(t, ayrinti) {
 // değil, cari defter düzeltmesi — nakit işaretlersek kasa raporunda karşılığı
 // olmayan bir para görünür ve kasa bakiyesi gerçeği tutmaz. Bu yüzden IZAHAT,
 // PORTNO, BANKANO alanlarına dokunulmuyor.
+//
+// `giris` VE `borcMu` KASITLI OLARAK AYRI PARAMETRE — biri para akış YÖNÜNÜ
+// (hangi Vega ekranında görünsün: Cari Giriş mi Cari Çıkış mı — "para bize mi
+// geldi, biz mi verdik" sorusu), diğeri müşterinin BORÇ/ALACAK durumunu
+// belirler. İkisi Vega'da bağımsız: TBLCARGIRBASLIK/TBLCARCIKBASLIK sadece
+// hangi tabloya yazıldığını gösterir, cari bakiyeyi TBLCARIHAREKETLERI'ndeki
+// BORC/ALACAK belirler. Eskiden `giris` tek başına ikisini birden
+// belirliyordu (giris=true → hep ALACAK) — bu, kasa depozitosu gibi "içeri
+// giren ama müşteriyi borçlandıran" işlemlerde yanlıştı; kullanıcı örnekle
+// düzeltti (24.08.2026): kasa depozitosu alınırken tutar kasaya/bize girmiş
+// sayılır (Cari GİRİŞ) ama müşteri hâlâ o kadar BORÇLANIR; kasa iade
+// edildiğinde tutar müşteriye geri verilir (Cari ÇIKIŞ) ve müşterinin borcu
+// o kadar AZALIR (ALACAK). Bkz. kasaIadesiYaz ve belgeYaz'daki çağrılar.
 async function cariDekontuYaz(t, ayrinti) {
-  const { v, firma, donem, cariInd, tutar, aciklama, tarih, userNo, giris, onek } = ayrinti;
+  const { v, firma, donem, cariInd, tutar, aciklama, tarih, userNo, giris, borcMu, onek } = ayrinti;
+  // borcMu verilmezse eski davranış korunur (giris=false→borç, true→alacak).
+  const alacakYaz = borcMu != null ? !borcMu : !!giris;
 
   const baslikAdi = giris ? 'TBLCARGIRBASLIK' : 'TBLCARCIKBASLIK';
   const hareketAdi = giris ? 'TBLCARGIRHAREKET' : 'TBLCARCIKHAREKET';
@@ -437,8 +452,8 @@ async function cariDekontuYaz(t, ayrinti) {
     donem,
     cariInd,
     izahat: belgeTipi,
-    borc: giris ? 0 : Number(tutar),
-    alacak: giris ? Number(tutar) : 0,
+    borc: alacakYaz ? 0 : Number(tutar),
+    alacak: alacakYaz ? Number(tutar) : 0,
     belgeNo,
     tarih,
     aciklama,
@@ -657,10 +672,13 @@ async function satisFaturasiYaz(t, ayrinti) {
 //
 // Arayüzden gelen belge, hiçbir ara adım olmadan tek işlemde VEGADB'ye
 // yazılır. Ürün kısmı kullanıcının bastığı tuşa göre satış faturası ya da
-// cari çıkış olarak yazılır. Kasa depozitosu HER İKİ durumda da ayrı bir cari
-// çıkış dekontu olur; ayrıca müşteride kaç kasa durduğunun sayılabilmesi için
-// BD_KasaHareket defterine de düşer. Ürün satıp aynı anda ödeme alındıysa
-// (tahsilat), ayrı bir cari giriş dekontu daha yazılır.
+// cari çıkış olarak yazılır. Kasa depozitosu satış faturasında faturanın 2.
+// kalemi olarak yazılır (ayrı belge açmaz); "Cari Çıkış" akışında (fatura
+// yoksa) hâlâ ayrı bir Cari Giriş dekontu olur — "para kasaya girdi" gibi
+// (bkz. cariDekontuYaz'daki giris/borcMu ayrımı). Müşteride kaç kasa
+// durduğunun sayılabilmesi için ayrıca BD_KasaHareket defterine de düşer.
+// Ürün satıp aynı anda ödeme alındıysa (tahsilat), ayrı bir cari giriş
+// dekontu daha yazılır.
 async function belgeYaz(secenek) {
   kilitKontrol();
   await yardimci.hazirla();
@@ -702,9 +720,14 @@ async function belgeYaz(secenek) {
   }
 
   // Stok kartlarının güncel maliyet ve birim bilgisi — fatura satırına yazılıyor.
+  // Satış faturasında kasa da kendi kartı üzerinden 2. kalem olarak yazılıyor
+  // (aşağıda), o yüzden kasaSatirlari'nın stokNo'ları da aynı sorguya dahil.
   let maliyetHaritasi = new Map();
-  if (secenek.belgeTuru === 'satisFaturasi' && urunSatirlari.length) {
-    const noLar = urunSatirlari.map((s) => Number(s.stokNo));
+  if (secenek.belgeTuru === 'satisFaturasi' && (urunSatirlari.length || kasaSatirlari.length)) {
+    const noLar = [
+      ...urunSatirlari.map((s) => Number(s.stokNo)),
+      ...kasaSatirlari.map((s) => Number(s.kasaStokNo))
+    ];
     const kartlar = await sorgu(
       `SELECT S.IND AS stokNo, ISNULL(S.MALIYET, 0) AS maliyet,
               ISNULL(S.STOKTIPI, 0) AS stokTipi, ISNULL(S.STOKKODU, '') AS kod,
@@ -747,6 +770,31 @@ async function belgeYaz(secenek) {
           carpan: Number(k.carpan || 1)
         };
       });
+
+      // Kasa depozitosu artık ayrı bir belge DEĞİL — faturanın 2. (3., ...)
+      // kalemi. Depozito KDV'siz sayılıyor (satış değil, iade edilebilir
+      // teminat); kdvOrani/kdvTutari bilerek 0.
+      for (const s of kasaSatirlari) {
+        const k = maliyetHaritasi.get(Number(s.kasaStokNo)) || {};
+        const tutar = Number(s.kasaTutari) || 0;
+        fatSatirlari.push({
+          stokNo: Number(s.kasaStokNo),
+          stokAdi: s.kasaTipiAdi || k.ad || 'KASA',
+          stokKodu: s.kasaTipiKod || k.kod || null,
+          stokTipi: Number(k.stokTipi || 0),
+          miktar: Number(s.kasaAdedi) || 0,
+          fiyat: Number(s.kasaDepozito) || 0,
+          tutar,
+          kdvOrani: 0,
+          kdvTutari: 0,
+          maliyet: Number(k.maliyet || 0),
+          birim: k.birim || 'ADET',
+          birimEx: Number(k.birimEx || 0),
+          carpan: Number(k.carpan || 1),
+          aciklama: 'KASA'
+        });
+      }
+
       const f = await satisFaturasiYaz(t, {
         v, firma, donem, cariInd, cariAd,
         satirlar: fatSatirlari, tarih, depo, userNo, aciklama, onek
@@ -755,17 +803,23 @@ async function belgeYaz(secenek) {
     } else if (urunTutari !== 0) {
       const d = await cariDekontuYaz(t, {
         v, firma, donem, cariInd, tutar: urunTutari, tarih, userNo,
-        giris: false, aciklama, onek
+        giris: false, borcMu: true, aciklama, onek
       });
       yazilan.push({ ad: 'Ürün satışı', tur: 'cariCikis', ...d });
     }
 
-    // Kasa depozitosu — ürün belgesinden ayrı, kendi dekontu (para tarafı).
+    // Kasa depozitosu — yalnızca "Cari Çıkış" akışında (fatura yoksa) hâlâ
+    // ayrı bir dekont; satış faturasında yukarıda 2. kalem olarak yazıldı.
+    //
+    // Belge tipi = Cari GİRİŞ: depozito tutarı bize (kasaya) girmiş gibi
+    // kaydediliyor — kullanıcı tercihi bu yönde. Borç/alacak yönü ayrı:
+    // müşteri kasayı iade edene kadar bu tutarı BORÇLU sayılır (satış gibi),
+    // bu yüzden borcMu:true (bkz. kasaIadesiYaz'daki ters yön).
     let kasaBelgeNo = null;
-    if (kasaTutari !== 0) {
+    if (secenek.belgeTuru !== 'satisFaturasi' && kasaTutari !== 0) {
       const d = await cariDekontuYaz(t, {
         v, firma, donem, cariInd, tutar: kasaTutari, tarih, userNo,
-        giris: false, aciklama: 'KASA TUTARI', onek
+        giris: true, borcMu: true, aciklama: 'KASA TUTARI', onek
       });
       yazilan.push({ ad: 'Kasa tutarı', tur: 'kasaDepozito', ...d });
       kasaBelgeNo = d.belgeNo;
@@ -829,8 +883,9 @@ async function belgeYaz(secenek) {
 //  Kasa iadesi — doğrudan Vega'ya yaz
 // ================================================================
 //
-// Depozito geri ödemesi cari giriş dekontu olarak yazılır: ALACAK satırı
-// müşterinin bakiyesini düşürür. Depozito bedeli tanımsız/sıfırsa Vega
+// Depozito geri ödemesi Cari Çıkış dekontu olarak yazılır (parayı biz
+// müşteriye veriyoruz); ALACAK satırı müşterinin bakiyesini düşürür.
+// Depozito bedeli tanımsız/sıfırsa Vega
 // tarafında para hareketi yazılmaz, ama kasa defterinde iade yine de
 // işlenir (fiziksel kasa geri geldi bilgisi kaybolmasın).
 async function kasaIadesiYaz(secenek) {
@@ -864,7 +919,10 @@ async function kasaIadesiYaz(secenek) {
       dekont = await cariDekontuYaz(t, {
         v, firma, donem, cariInd, tutar,
         tarih, userNo: Number(secenek.userNo || 0),
-        giris: true,
+        // Kasa iadesi: parayı biz müşteriye veriyoruz → Cari ÇIKIŞ. Müşterinin
+        // kasa depozito borcu bu kadar azalır → ALACAK (borcMu:false).
+        giris: false,
+        borcMu: false,
         aciklama: `KASA IADE${secenek.stokKodu ? ' - ' + secenek.stokKodu : ''}`,
         onek
       });
