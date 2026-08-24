@@ -27,7 +27,6 @@
 const { sorgu, calistir, islem } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
-const vega = require('./vega');
 const yardimci = require('./yardimci');
 
 function vt() {
@@ -206,13 +205,16 @@ function belgeOneki() {
 // Bu firma/dönem için kullanılacak öneği bir kez tespit eder (yazma
 // çağrısının başında). Aynı belge içindeki tüm dekontlar (fatura + kasa +
 // tahsilat) aynı öneği ve aynı sayacı paylaşır.
-async function onekTespitEt(firma, donem) {
-  try {
-    const gercek = await vega.satisSerisiTespitEt(firma, donem);
-    if (gercek) return gercek;
-  } catch (e) {
-    // tespit edilemezse ayarlardaki öneğe düşülür
-  }
+//
+// ESKİDEN Vega'nın gerçek satış faturası serisini (örn. "A") bulup onu
+// sürdürüyordu (vega.satisSerisiTespitEt). 24.08.2026'da KALDIRILDI: aynı
+// seriyi paylaşmak Vega'nın kendi muhasebeleştirmesiyle çakışıyor — belge
+// Vega'da açıldığında/eski hareketlerden girildiğinde Vega ikinci bir
+// TBLCARIHAREKETLERI satırı üretip bakiyeyi ikiye katlıyordu (bkz. A0000009
+// olayı). Artık HER ZAMAN ayarlardaki kendi önek (varsayılan "H") kullanılır
+// — Vega'nın gerçek serisiyle asla kesişmeyen, sadece bu programın yazdığı
+// belgelere ait ayrı bir seri.
+function onekTespitEt(firma, donem) {
   return belgeOneki();
 }
 
@@ -279,7 +281,15 @@ async function cariHareketEkle(t, ayrinti) {
       ACIKLAMA: aciklama || null,
       PARABIRIMI: 'TL',
       KUR: 1,
-      OZELKOD: 'MERKEZ'
+      OZELKOD: 'MERKEZ',
+      // LN = bu hareketin bağlı olduğu başlığın IND'i (TBLSATFATBASLIK /
+      // TBLCARCIKBASLIK / TBLCARGIRBASLIK). Boş bırakılırsa Vega belgeyi
+      // açtığında/eski hareketlerden girdiğinde kendi muhasebe satırını
+      // bulamıyor ve KENDİSİ ikinci bir TBLCARIHAREKETLERI satırı üretiyor
+      // (LN dolu, OZELKOD boş) — bakiye iki katına çıkıyor. Gerçek olayla
+      // doğrulandı: A0000009 belgesinde IND=499 (bizim, LN=NULL) yanına
+      // Vega 2 dk sonra IND=501'i (LN=101) eklemişti.
+      LN: headerInd != null ? Number(headerInd) : null
     },
     {
       zorunlu: ['FIRMANO', 'IZAHAT', 'BORC', 'ALACAK'],
