@@ -51,6 +51,7 @@ function yazmaAcikMi() {
 const TIP_SATIS_FATURASI = 21;
 const TIP_CARI_CIKIS = 11;
 const TIP_CARI_GIRIS = 13;
+const TIP_STOK_GIRIS_IADE = 34; // Stok Giriş İade Fişi — bkz. stokGirisIadesiYaz
 
 // ================================================================
 //  Şema uyumu
@@ -190,7 +191,7 @@ async function ekle(t, tamTabloAdi, alanlar, secenek) {
 // programın kendi kayıtları için UPDLOCK/HOLDLOCK korumalı). Kullanımın
 // çakışmayacağı varsayılıyor (haftalık toplu giriş, VegaWin'in kendi ekranı
 // aynı anda kullanılmıyor).
-const BELGE_NO_TABLOLARI = ['TBLSATFATBASLIK', 'TBLCARCIKBASLIK', 'TBLCARGIRBASLIK'];
+const BELGE_NO_TABLOLARI = ['TBLSATFATBASLIK', 'TBLCARCIKBASLIK', 'TBLCARGIRBASLIK', 'TBLSTKGIRBASLIK'];
 
 function belgeOneki() {
   const ham = String(ayarOku().belgeOneki || 'H').trim().toUpperCase();
@@ -264,7 +265,10 @@ async function siradakiBelgeNo(t, v, firma, donem, onek) {
 // değer, gerçek kayıtlarda tutarlı biçimde görülüyor. 'KREDIHESABI' değeriyle
 // karışmaz (bakiye hesabı sadece o değeri dışlıyor, bkz. db/vega.js).
 async function cariHareketEkle(t, ayrinti) {
-  const { v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd } = ayrinti;
+  const {
+    v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd,
+    ozelKod, belgeLink, gecikmeHesapla
+  } = ayrinti;
   const tam = tablo(v, firma, donem, 'TBLCARIHAREKETLERI');
 
   const ind = await ekle(
@@ -281,7 +285,11 @@ async function cariHareketEkle(t, ayrinti) {
       ACIKLAMA: aciklama || null,
       PARABIRIMI: 'TL',
       KUR: 1,
-      OZELKOD: 'MERKEZ',
+      // Vega'nın kendi ürettiği kayıtlarda çoğu belge tipinde 'MERKEZ' sabit
+      // görülüyor ama Stok Giriş İade Fişi'nde (34) boş string — çağıran
+      // farklı bir değer isterse ozelKod ile ezilebilir (bkz.
+      // stokGirisIadesiYaz).
+      OZELKOD: ozelKod !== undefined ? ozelKod : 'MERKEZ',
       // LN = bu hareketin bağlı olduğu başlığın IND'i (TBLSATFATBASLIK /
       // TBLCARCIKBASLIK / TBLCARGIRBASLIK). Boş bırakılırsa Vega belgeyi
       // açtığında/eski hareketlerden girdiğinde kendi muhasebe satırını
@@ -304,7 +312,8 @@ async function cariHareketEkle(t, ayrinti) {
   const kayitlar = [{ tablo: 'TBLCARIHAREKETLERI', ind, donemli: true }];
 
   const genel = await cariGenelHareketEkle(t, {
-    v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd
+    v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd,
+    belgeLink, gecikmeHesapla
   });
   if (genel) kayitlar.push(genel);
 
@@ -327,7 +336,10 @@ async function cariHareketEkle(t, ayrinti) {
 //   BELGEIZAHAT = ISLEMIZAHAT = izahat kodu (21 satış, 11 çıkış, 13 giriş)
 // Tablo bazı kurulumlarda olmayabilir; varsa yazılır, yoksa sessizce atlanır.
 async function cariGenelHareketEkle(t, ayrinti) {
-  const { v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd } = ayrinti;
+  const {
+    v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd,
+    belgeLink, gecikmeHesapla
+  } = ayrinti;
   if (!(await tabloVarMi(firma, donem, 'TBLCARIGENELHAREKET'))) return null;
 
   const tam = tablo(v, firma, donem, 'TBLCARIGENELHAREKET');
@@ -344,7 +356,12 @@ async function cariGenelHareketEkle(t, ayrinti) {
       ISLEMIND: headerInd != null ? Number(headerInd) : null,
       BELGEIZAHAT: Number(izahat),
       ISLEMIZAHAT: Number(izahat),
-      BELGELINK: girisMi ? -1 : null,
+      // Gerçek Vega kayıtlarında bu ikisi ALACAK'ın işaretiyle değil, belge
+      // TİPİYLE belirleniyor (tahsilat/giriş dekontu → -1/1; Stok Giriş İade
+      // Fişi'nde her ikisi de NULL, ALACAK>0 olsa bile — 24.08.2026'da
+      // kullanıcının Vega'da elle oluşturduğu gerçek kayıtla doğrulandı).
+      // Çağıran doğru değeri vermezse eski sezgisel davranış korunuyor.
+      BELGELINK: belgeLink !== undefined ? belgeLink : (girisMi ? -1 : null),
       BORC: Number(borc) || 0,
       ALACAK: Number(alacak) || 0,
       AYLIKVADE: 0,
@@ -353,7 +370,7 @@ async function cariGenelHareketEkle(t, ayrinti) {
       CONVERTED: 0,
       IPTAL: 0,
       TAHSILLINK: null,
-      GECIKMEHESAPLA: girisMi ? 1 : 0,
+      GECIKMEHESAPLA: gecikmeHesapla !== undefined ? gecikmeHesapla : (girisMi ? 1 : 0),
       PARABIRIMI: 'TL',
       KUR: 1,
       BASLIKPARABIRIMI: 'TL',
@@ -676,6 +693,191 @@ async function satisFaturasiYaz(t, ayrinti) {
 }
 
 // ================================================================
+//  Stok giriş iade fişi (kasa fiziksel iadesi)
+// ================================================================
+//
+// Kasa müşteriden geri geldiğinde yalnızca cari defter değil, depo stoğu da
+// artmalı — fiziksel kasa envantere geri girdi. 24.08.2026'ya kadar bu belge
+// bir Cari Çıkış dekontuydu (TBLCARCIKBASLIK); o tabloda Şube/Kasa/Depo
+// sütunu HİÇ YOK (canlı şemada doğrulandı — bkz. §5.1 BELGE-DESENI.md), bu
+// yüzden Vega'nın kendi ekranında bu alanlar boş kalıyor ve kullanıcı belgeyi
+// Vega'da açtığında/kapatmaya çalıştığında belge "kapanmıyor".
+//
+// Kullanıcının Vega'nın kendi "Stok Giriş İade Fişi" ekranından ELLE
+// oluşturduğu gerçek kayıt örnek alınarak yazılıyor (BELGENO A0000001,
+// 24.08.2026, F0102/D0001) — tahminle değil, doğrulanmış alan değerleriyle:
+// TBLSTKGIRBASLIK (BELGETIPI=34, IADE=1, GIRIS=1, OZELKOD1/2='MERKEZ' →
+// Şube/Kasa alanları buraya yazılıyor), TBLSTKGIRHAREKET (satır),
+// TBLSTOKHAREKETLERI (GIREN=adet, IZAHAT='34'), TBLDEPOENVANTER
+// (ENVANTER=+adet — kasa geri stoğa girdi, satıştaki -miktar'ın tersi),
+// TBLCARIHAREKETLERI (ALACAK, IZAHAT='34', OZELKOD='' — bu belge tipinde
+// 'MERKEZ' DEĞİL, gerçek kayıtta boş görüldü), TBLCARIGENELHAREKET
+// (BELGELINK=NULL, GECIKMEHESAPLA=NULL — elle geçiliyor, bkz.
+// cariGenelHareketEkle).
+//
+// Bağlar (satisFaturasiYaz ile aynı desen, farklı tablolar):
+//   TBLSTKGIRBASLIK.IND ──┬─→ TBLSTKGIRHAREKET.EVRAKNO
+//                         ├─→ TBLSTOKHAREKETLERI.BELGENO   (sayı!)
+//                         └─→ TBLDEPOENVANTER.BELGEIND
+//   TBLSTKGIRHAREKET.IND ─┬─→ TBLSTOKHAREKETLERI.LN
+//                         └─→ TBLDEPOENVANTER.HAREKETIND
+async function stokGirisIadesiYaz(t, ayrinti) {
+  const { v, firma, donem, cariInd, stokNo, stokKodu, adet, fiyat, depo, tarih, aciklama, onek } = ayrinti;
+
+  const baslikTam = tablo(v, firma, donem, 'TBLSTKGIRBASLIK');
+  const hareketTam = tablo(v, firma, donem, 'TBLSTKGIRHAREKET');
+  const stokHareketTam = tablo(v, firma, donem, 'TBLSTOKHAREKETLERI');
+  const envanterTam = tablo(v, firma, donem, 'TBLDEPOENVANTER');
+  const belgeNo = await siradakiBelgeNo(t, v, firma, donem, onek || belgeOneki());
+
+  const tutar = Number(adet) * Number(fiyat);
+
+  const baslikInd = await ekle(
+    t,
+    baslikTam,
+    {
+      BELGENO: belgeNo,
+      TARIH: tarih,
+      ODEMETARIHI: tarih,
+      FIRMANO: Number(cariInd),
+      FIRMAADI: null,
+      BELGETIPI: TIP_STOK_GIRIS_IADE,
+      EKBELGETIPI: 0,
+      HAREKETDEPOSU: Number(depo),
+      TUTAR: tutar,
+      ARATOPLAM: tutar,
+      KDV: 0, // BIT sütun — bu belge tipinde her zaman 0 (kasa depozitosu KDV'siz)
+      AK: 0,
+      STOKHAREKETEYAZ: 1,
+      CARIHAREKETEYAZ: 1,
+      IPTAL: 0,
+      IADE: 1,
+      CONVERTED: 0,
+      GIRIS: 1,
+      PARABIRIMI: 'TL',
+      KUR: 1,
+      USERNO: 100,
+      ALTNOT: aciklama || null,
+      OZELKOD1: 'MERKEZ', // Şube
+      OZELKOD2: 'MERKEZ', // Kasa
+      YUVARLAMA: 0,
+      ALLOWYUVARLAMA: 0,
+      ODENEN: 0,
+      ENTEGRE: 0,
+      SATISSEKLI: 0,
+      YURTDISI: 0,
+      MUHASEBELESMEYECEK: 0,
+      KAYNAK: 0
+    },
+    {
+      zorunlu: ['BELGENO', 'FIRMANO', 'BELGETIPI'],
+      ozel: { CREDATE: 'GETDATE()', LADATE: 'GETDATE()' }
+    }
+  );
+
+  const kayitlar = [{ tablo: 'TBLSTKGIRBASLIK', ind: baslikInd, donemli: true }];
+
+  const satirInd = await ekle(
+    t,
+    hareketTam,
+    {
+      EVRAKNO: baslikInd,
+      DETAY: 0,
+      TARIH: tarih,
+      FIRMANO: Number(cariInd),
+      STOKNO: Number(stokNo),
+      MALINCINSI: stokKodu || '',
+      STOKKODU: stokKodu || null,
+      STOKTIPI: 0,
+      MIKTAR: Number(adet),
+      BIRIMMIKTAR: 1,
+      BIRIM: 'ADET',
+      BIRIMEX: Number(stokNo),
+      KDV: 0,
+      AFIYATI: 1,
+      FIYATI: Number(fiyat),
+      GERCEKTOPLAM: tutar,
+      DEPO: Number(depo),
+      SATISKOSULU: 1,
+      SERIMIKTAR: 1,
+      ENVANTER: Number(adet),
+      PARABIRIMI: 'TL',
+      KUR: 1,
+      GRUPMIKTAR: 1,
+      ACIKLAMA: null
+    },
+    { zorunlu: ['EVRAKNO', 'STOKNO', 'MIKTAR'] }
+  );
+  kayitlar.push({ tablo: 'TBLSTKGIRHAREKET', ind: satirInd, donemli: true });
+
+  const stokInd = await ekle(
+    t,
+    stokHareketTam,
+    {
+      EVRAKNO: belgeNo,
+      BELGENO: baslikInd,
+      LN: satirInd,
+      IZAHAT: TIP_STOK_GIRIS_IADE,
+      TARIH: tarih,
+      STOKNO: Number(stokNo),
+      FIRMANO: Number(cariInd),
+      GIREN: Number(adet),
+      CIKAN: 0,
+      TUTAR: tutar,
+      DEPO: Number(depo),
+      KDV: 0,
+      IADE: 1,
+      BIRIMFIYAT: Number(fiyat),
+      BIRIMMALIYET: Number(fiyat),
+      BIRIMEX: Number(stokNo),
+      PARABIRIMI: 'TL',
+      KUR: 1,
+      ACIKLAMA: null
+    },
+    {
+      zorunlu: ['STOKNO', 'IZAHAT', 'GIREN'],
+      ozel: { SIRALAMATARIHI: 'GETDATE()', SIRALAMATARIHIEX: 'CONVERT(FLOAT, GETDATE())' }
+    }
+  );
+  kayitlar.push({ tablo: 'TBLSTOKHAREKETLERI', ind: stokInd, donemli: true });
+
+  const envanterInd = await ekle(
+    t,
+    envanterTam,
+    {
+      TARIH: tarih,
+      STOKNO: Number(stokNo),
+      DEPO: Number(depo),
+      ENVANTER: Number(adet), // pozitif — satıştaki -miktar'ın tersi, kasa stoğa geri girdi
+      BELGETIPI: TIP_STOK_GIRIS_IADE,
+      BELGEIND: baslikInd,
+      HAREKETIND: satirInd,
+      ACIKLAMA: null
+    },
+    {
+      zorunlu: ['STOKNO', 'ENVANTER', 'BELGETIPI'],
+      ozel: { SIRALAMATARIHI: 'GETDATE()', SIRALAMATARIHIEX: 'CONVERT(FLOAT, GETDATE())' }
+    }
+  );
+  kayitlar.push({ tablo: 'TBLDEPOENVANTER', ind: envanterInd, donemli: true });
+
+  const cari = await cariHareketEkle(t, {
+    v, firma, donem, cariInd,
+    izahat: TIP_STOK_GIRIS_IADE,
+    borc: 0,
+    alacak: tutar,
+    belgeNo, tarih, aciklama,
+    headerInd: baslikInd,
+    ozelKod: '',
+    belgeLink: null,
+    gecikmeHesapla: null
+  });
+  kayitlar.push(...cari);
+
+  return { belgeNo, belgeTipi: TIP_STOK_GIRIS_IADE, toplam: tutar, kayitlar };
+}
+
+// ================================================================
 //  Belgeyi doğrudan Vega'ya yaz
 // ================================================================
 //
@@ -911,11 +1113,19 @@ async function belgeYaz(secenek) {
 //  Kasa iadesi — doğrudan Vega'ya yaz
 // ================================================================
 //
-// Depozito geri ödemesi Cari Çıkış dekontu olarak yazılır (parayı biz
-// müşteriye veriyoruz); ALACAK satırı müşterinin bakiyesini düşürür.
-// Depozito bedeli tanımsız/sıfırsa Vega
-// tarafında para hareketi yazılmaz, ama kasa defterinde iade yine de
-// işlenir (fiziksel kasa geri geldi bilgisi kaybolmasın).
+// Kasa fiziksel olarak geri geldiği için "Stok Giriş İade Fişi" olarak
+// yazılır (bkz. stokGirisIadesiYaz) — hem depo stoğu artar hem müşterinin
+// cari defterindeki depozito borcu ALACAK ile azalır. 24.08.2026'ya kadar
+// yalnızca cari defter tarafı bir Cari Çıkış dekontuyla (TBLCARCIKBASLIK)
+// yazılıyordu; o tabloda Şube/Kasa/Depo sütunu HİÇ YOK, bu yüzden Vega'nın
+// kendi ekranında belge "kapanmıyordu" (kullanıcı raporu + canlı şema
+// doğrulaması). TBLSTKGIRBASLIK/HAREKET bu kurulumda yoksa ya da depo
+// seçili değilse eski yola (yalnız cari dekont) düşülür — geriye dönük
+// uyumluluk için.
+//
+// Depozito bedeli tanımsız/sıfırsa Vega'ya hiç belge yazılmaz, ama kasa
+// defterinde iade yine de işlenir (fiziksel kasa geri geldi bilgisi
+// kaybolmasın).
 async function kasaIadesiYaz(secenek) {
   kilitKontrol();
   await yardimci.hazirla();
@@ -940,10 +1150,23 @@ async function kasaIadesiYaz(secenek) {
   const depozito = Number(secenek.depozito) || 0;
   const tutar = adet * depozito;
   const onek = await onekTespitEt(firma, donem);
+  const a = ayarOku();
+  const depo = Number(secenek.depo != null ? secenek.depo : a.varsayilanDepo) || 0;
+  const aciklama = `KASA IADE${secenek.stokKodu ? ' - ' + secenek.stokKodu : ''}`;
+
+  const stokGirisVarMi = depo &&
+    (await tabloVarMi(firma, donem, 'TBLSTKGIRBASLIK')) &&
+    (await tabloVarMi(firma, donem, 'TBLSTKGIRHAREKET'));
 
   const sonuc = await islem(async (t) => {
     let dekont = null;
-    if (tutar > 0) {
+    if (tutar > 0 && stokGirisVarMi) {
+      dekont = await stokGirisIadesiYaz(t, {
+        v, firma, donem, cariInd,
+        stokNo: secenek.stokNo, stokKodu: secenek.stokKodu,
+        adet, fiyat: depozito, depo, tarih, aciklama, onek
+      });
+    } else if (tutar > 0) {
       dekont = await cariDekontuYaz(t, {
         v, firma, donem, cariInd, tutar,
         tarih, userNo: Number(secenek.userNo || 0),
@@ -951,7 +1174,7 @@ async function kasaIadesiYaz(secenek) {
         // kasa depozito borcu bu kadar azalır → ALACAK (borcMu:false).
         giris: false,
         borcMu: false,
-        aciklama: `KASA IADE${secenek.stokKodu ? ' - ' + secenek.stokKodu : ''}`,
+        aciklama,
         onek
       });
     }
@@ -1049,5 +1272,6 @@ module.exports = {
   onekTespitEt,
   TIP_SATIS_FATURASI,
   TIP_CARI_CIKIS,
-  TIP_CARI_GIRIS
+  TIP_CARI_GIRIS,
+  TIP_STOK_GIRIS_IADE
 };

@@ -288,7 +288,10 @@ async function kasaKartlariniGetir(secenek) {
 const ACIKLAMA_KAYNAKLARI = [
   { tablo: 'TBLCARCIKBASLIK', alan: 'ACIKLAMA', izahatlar: ['11'] },
   { tablo: 'TBLCARGIRBASLIK', alan: 'ACIKLAMA', izahatlar: ['13'] },
-  { tablo: 'TBLSATFATBASLIK', alan: 'ALTNOT', izahatlar: ['21'] }
+  { tablo: 'TBLSATFATBASLIK', alan: 'ALTNOT', izahatlar: ['21'] },
+  // Kasa iadesi 24.08.2026'dan itibaren Stok Giriş İade Fişi olarak yazılıyor
+  // (bkz. db/yazma.js → stokGirisIadesiYaz), açıklaması ALTNOT'ta duruyor.
+  { tablo: 'TBLSTKGIRBASLIK', alan: 'ALTNOT', izahatlar: ['34'] }
 ];
 
 // Bu üç alanın tipi NTEXT (canlı şemada doğrulandı). NTEXT kullanımdan kalkmış

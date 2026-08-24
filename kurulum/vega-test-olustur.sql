@@ -87,7 +87,9 @@ INSERT INTO @kart (ad, veriIle, sinir) VALUES
   (@firma + @donem + N'TBLSATFATHAREKET',   0, NULL),
   (@firma + @donem + N'TBLSTOKHAREKETLERI', 0, NULL),
   (@firma + @donem + N'TBLDEPOENVANTER',    0, NULL),
-  (@firma + @donem + N'TBLCARIGENELHAREKET', 0, NULL);
+  (@firma + @donem + N'TBLCARIGENELHAREKET', 0, NULL),
+  (@firma + @donem + N'TBLSTKGIRBASLIK',    0, NULL),
+  (@firma + @donem + N'TBLSTKGIRHAREKET',   0, NULL);
 
 DECLARE gezgin CURSOR LOCAL FAST_FORWARD FOR
   SELECT ad, veriIle, sinir FROM @kart;

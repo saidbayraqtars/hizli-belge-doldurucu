@@ -132,7 +132,7 @@ belge açmaz** — hangi tuşa basılırsa basılsın ürünle aynı belgenin i�
 | "Satış Faturası Olarak Kaydet" | Satış faturası (tip 21); kasa varsa faturanın **2. (3., ...) kalemi**, KDV'siz | §4 |
 | "Cari Giriş Olarak Kaydet" (faturasız) | **Tek** Cari Giriş dekontu (tip 13), BORÇ; ürün ve kasa aynı başlık altında **2 ayrı hareket satırı** | §5 |
 | Tahsilat tutarı girilmişse (her iki tuşta) | Ayrı cari giriş dekontu (tip 13), ALACAK, açıklama `Tahsilat` | §5 |
-| "İadeyi Kaydet" (Kasa ekranı) | Cari **ÇIKIŞ** dekontu (tip 11), ALACAK, açıklama `KASA IADE` | §5 |
+| "İadeyi Kaydet" (Kasa ekranı) | **Stok Giriş İade Fişi** (tip 34) — depo stoğu artar + cari ALACAK, açıklama `KASA IADE` | §5.1 |
 
 Eskiden (24.08.2026'dan önce) ürün ve kasa hep 2 ayrı belgeydi, faturasız
 akış da "Cari Çıkış" idi; kullanıcı ikisini de tek belgede ve Cari Giriş
@@ -157,8 +157,10 @@ verdik" sorusu) ile borç/alacak (müşterinin bakiyesi ne yönde değişsin)
 eskiden tek bayrakla (`giris`) birlikte belirleniyordu; artık
 `cariDekontuYaz(..., giris, borcMu)` olarak ayrı. Ürün satışı/kasa
 depozitosu alınırken tutar "bize girmiş" sayılır (Cari Giriş) ama müşteri
-yine de BORÇLANIR; kasa iade edilince tutar müşteriye "geri verilmiş"
-sayılır (Cari Çıkış) ve müşterinin borcu o kadar AZALIR (ALACAK).
+yine de BORÇLANIR. Kasa **iade** edilirken artık Cari Çıkış dekontu
+kullanılmıyor — bkz. §5.1: müşterinin borcu yine ALACAK ile AZALIR ama
+belge Stok Giriş İade Fişi'dir (fiziksel kasa geri geldiği için depo
+stoğunu da artırır).
 
 **"Girilen fiyatlara KDV dahil" kutusu (Belge Gir ekranı):** İşaretlenirse
 kullanıcının yazdığı Fiyat BRÜT kabul edilir, KDV oranına bölünerek NET
@@ -283,17 +285,67 @@ sınıyor.
 
 ---
 
+## 5.1. Kasa iadesi — Stok Giriş İade Fişi (tip 34) ✅
+
+24.08.2026'ya kadar kasa iadesi de §5'teki gibi bir Cari Çıkış dekontuydu.
+Kullanıcı canlıda şu belgeyi açtı: "Cari Çıkış Bordrosu" ekranında **Şube ve
+Kasa alanları boş** görünüyordu ve belge Vega'da kapanmıyordu. Şema kontrol
+edildi: **`TBLCARCIKBASLIK`'ta Şube/Kasa/Depo'ya karşılık gelen HİÇBİR sütun
+yok** (32 sütunun tamamı tarandı) — bu alanlar orada doldurulamaz bile, boş
+kalması Vega'nın kendi kısıtı. Kullanıcı Vega'nın kendi "Stok Giriş İade
+Fişi" ekranından ELLE bir kayıt oluşturdu (BELGENO A0000001, F0102/D0001,
+24.08.2026) ve bu, aşağıdaki desenin **doğrudan kaynağı**: tahmin değil,
+Vega'nın kendi ürettiği gerçek satırlardan okundu.
+
+```
+TBLSTKGIRBASLIK
+   IND ──────────────────────────┬─→ TBLSTKGIRHAREKET.EVRAKNO
+   (IDENTITY)                    ├─→ TBLSTOKHAREKETLERI.BELGENO   (sayı!)
+                                  └─→ TBLDEPOENVANTER.BELGEIND
+   BELGETIPI = 34, IADE = 1, GIRIS = 1
+   OZELKOD1 = 'MERKEZ'  ←── Şube (ekranda görünen alan)
+   OZELKOD2 = 'MERKEZ'  ←── Kasa (ekranda görünen alan)
+   HAREKETDEPOSU = depo, STOKHAREKETEYAZ = 1, CARIHAREKETEYAZ = 1
+TBLSTKGIRHAREKET
+   IND ──────────────────────────┬─→ TBLSTOKHAREKETLERI.LN
+   (IDENTITY)                    └─→ TBLDEPOENVANTER.HAREKETIND
+TBLSTOKHAREKETLERI
+   IZAHAT '34', GIREN = adet, CIKAN = 0                              (satıştaki tersi)
+TBLDEPOENVANTER
+   ENVANTER = +adet ←── kasa fiziksel stoğa geri girdi                (satıştaki -miktar'ın tersi)
+TBLCARIHAREKETLERI
+   IZAHAT '34', ALACAK = tutar, OZELKOD = ''                          (§5'teki 'MERKEZ' DEĞİL — gerçek kayıtta boş)
+TBLCARIGENELHAREKET
+   BELGEIZAHAT = ISLEMIZAHAT = 34, BELGELINK = NULL, GECIKMEHESAPLA = NULL
+   (ALACAK > 0 olsa bile — §5'teki tahsilat sezgisiyle karıştırılmasın diye
+   `cariHareketEkle`/`cariGenelHareketEkle`'ye elle geçiliyor)
+```
+
+`db/yazma.js` → `stokGirisIadesiYaz`. `kasaIadesiYaz` bu tabloları
+(`TBLSTKGIRBASLIK`/`TBLSTKGIRHAREKET`) bulamazsa ya da depo seçili değilse
+eski yola (yalnız cari dekont, §5) düşer — geriye dönük uyumluluk için.
+`kurulum/vega-test-olustur.sql`'e bu iki tablo da eklendi;
+`kurulum/test-yazma.js` §C bu deseni sınıyor.
+
+---
+
 ## 6. Kimlik ve numara üretimi ✅
 
 Başlık tablolarının `IND` alanı **IDENTITY**'dir. Numarayı SQL Server üretir;
 dışarıdan `MAX(IND)+1` **hesaplanmaz**.
 
-Belge numarası metni (`BELGENO`) için program önce o firma/dönemde Vega'nın
-KENDİ satış faturası serisini bulmaya çalışır (`TBLSATFATBASLIK.BELGENO`'daki
-en sık kullanılan tek harf önek, `db/vega.js` → `satisSerisiTespitEt`) ve
-numarayı **o seriden devam ettirir** — vergi dairesine bildirilmiş gerçek
-seriyle aynı kalsın diye. O firma/dönemde hiç fatura yoksa Ayarlar'daki öneğe
-(varsayılan `H`) düşülür.
+Belge numarası metni (`BELGENO`) için program **HER ZAMAN** Ayarlar'daki
+kendi önekini kullanır (varsayılan `H`) — `db/yazma.js` → `onekTespitEt`.
+Eskiden Vega'nın kendi satış faturası serisini (`TBLSATFATBASLIK.BELGENO`'daki
+en sık geçen tek harf önek, `satisSerisiTespitEt`) bulup onu sürdürüyordu;
+24.08.2026'da KALDIRILDI — aynı seriyi paylaşmak Vega'nın kendi
+muhasebeleştirmesiyle çakışıyordu: belge Vega'da açıldığında/eski
+hareketlerden girildiğinde Vega ikinci bir `TBLCARIHAREKETLERI` satırı
+üretip bakiyeyi ikiye katlıyordu (bkz. A0000009 olayı, §2). Artık program
+serisi Vega'nın gerçek serisiyle asla kesişmiyor. Sayaç, satış faturası /
+cari dekont / stok giriş iade fişi arasında **PAYLAŞILAN TEK sayaç**
+(`BELGE_NO_TABLOLARI` dört tabloyu birden tarar) — aynı belge iki farklı
+numara taşımasın diye.
 
 > **Yarış tehlikesi.** Program ağdaki birkaç bilgisayara kurulacak. `BELGENO`
 > IDENTITY değil; iki bilgisayar aynı anda kaydederse ikisi de aynı `MAX + 1`

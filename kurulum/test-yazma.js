@@ -94,7 +94,8 @@ const HAREKET_TABLOLARI = [
   'TBLCARCIKBASLIK', 'TBLCARCIKHAREKET',
   'TBLCARGIRBASLIK', 'TBLCARGIRHAREKET',
   'TBLSATFATBASLIK', 'TBLSATFATHAREKET',
-  'TBLSTOKHAREKETLERI', 'TBLDEPOENVANTER'
+  'TBLSTOKHAREKETLERI', 'TBLDEPOENVANTER',
+  'TBLSTKGIRBASLIK', 'TBLSTKGIRHAREKET'
 ];
 
 async function tumSayilar() {
@@ -460,12 +461,34 @@ async function calistir() {
 
   const sC = await tumSayilar();
   // sC.TBLCARGIRBASLIK: belgeC'nin urun+kasa'si TEK belgede birlesik (Cari
-  // Giris, borc). sC.TBLCARCIKBASLIK: az sonraki iade (Cari Cikis, alacak).
+  // Giris, borc). Iade artik Cari Cikis DEGIL — Stok Giris Iade Fisi
+  // (TBLSTKGIRBASLIK, 24.08.2026'da degisti): TBLCARCIKBASLIK'ta Sube/Kasa/
+  // Depo sutunu hic yok, Vega'nin kendi ekraninda belge bu yuzden kapanmiyordu.
   kontrol('Tek cari giris basligi (belgeC: urun + kasa birlesik)', sC.TBLCARGIRBASLIK === 1, String(sC.TBLCARGIRBASLIK));
-  kontrol('Bir cari cikis basligi (iade)', sC.TBLCARCIKBASLIK === 1, String(sC.TBLCARCIKBASLIK));
+  kontrol('Cari cikis basligi olusmadi (iade artik Stok Giris Iade Fisi)', sC.TBLCARCIKBASLIK === 0, String(sC.TBLCARCIKBASLIK));
+  kontrol('Bir stok giris iade fisi basligi (iade)', sC.TBLSTKGIRBASLIK === 1, String(sC.TBLSTKGIRBASLIK));
+  kontrol('Stok giris iade fisinde 1 satir', sC.TBLSTKGIRHAREKET === 1, String(sC.TBLSTKGIRHAREKET));
+
+  const stkGirSatir = await sql.sorgu(`SELECT TOP 1 * FROM ${vtAdi('TBLSTKGIRHAREKET', true)}`);
+  kontrol('Stok giris satirinda miktar/fiyat dogru',
+    stkGirSatir.length === 1 && Number(stkGirSatir[0].MIKTAR) === 2 && Number(stkGirSatir[0].FIYATI) === 100,
+    stkGirSatir.length ? `${stkGirSatir[0].MIKTAR} adet × ${stkGirSatir[0].FIYATI} TL` : 'yok');
+
+  const stokHarIade = await sql.sorgu(`
+    SELECT SUM(ISNULL(GIREN,0)) AS giren, SUM(ISNULL(CIKAN,0)) AS cikan
+    FROM ${vtAdi('TBLSTOKHAREKETLERI', true)} WHERE IZAHAT = '34'`);
+  kontrol('Stok hareketi GIREN yoninde (kasa fiziksel stoga geri girdi)',
+    Number(stokHarIade[0].giren) === 2 && Number(stokHarIade[0].cikan) === 0,
+    `giren ${stokHarIade[0].giren} · cikan ${stokHarIade[0].cikan}`);
+
+  const envanterIade = await sql.sorgu(`
+    SELECT SUM(ENVANTER) AS envanter FROM ${vtAdi('TBLDEPOENVANTER', true)} WHERE BELGETIPI = 34`);
+  kontrol('Envanter farki arti (iade ile stok geri girer)', Number(envanterIade[0].envanter) === 2,
+    String(envanterIade[0].envanter));
 
   const alacak = await sql.sorgu(`
-    SELECT SUM(ISNULL(ALACAK,0)) AS alacak FROM ${vtAdi('TBLCARIHAREKETLERI', true)}`);
+    SELECT SUM(ISNULL(ALACAK,0)) AS alacak FROM ${vtAdi('TBLCARIHAREKETLERI', true)}
+    WHERE IZAHAT = '34'`);
   kontrol('Iade ALACAK olarak yazildi', Number(alacak[0].alacak) === 200,
     String(alacak[0].alacak));
 
