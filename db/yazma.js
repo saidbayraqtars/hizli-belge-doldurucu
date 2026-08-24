@@ -757,6 +757,27 @@ async function belgeYaz(secenek) {
   const aciklama = ('Hizli Belge Doldurucu' + (secenek.fisNo ? ' - fis ' + secenek.fisNo : ''))
     .substring(0, 100);
 
+  // Sayıyı gereksiz ondalık sıfırlar olmadan yazar (198.5 → "198.5", 198 → "198").
+  const sayiYaz = (n) => {
+    const r = Math.round((Number(n) || 0) * 1000) / 1000;
+    return String(r);
+  };
+
+  // Kasa varsa satırın MIKTAR'ı nasıl bulunduğunu (dara düşümü) açıklamaya
+  // yazar — Vega'da satırı açan biri hesabı görsün diye. Kullanıcı isteği:
+  // brüt − (kasa adedi × kasa darası) = daralı miktar. Kasa yoksa boş
+  // (açıklanacak bir düşüm yok).
+  function daraAciklamasi(s) {
+    const kasaAdedi = Number(s.kasaAdedi) || 0;
+    if (!kasaAdedi) return null;
+    const b = s.birim ? ' ' + s.birim : '';
+    const brut = sayiYaz(s.brutMiktar);
+    const darasi = sayiYaz(s.kasaDarasi);
+    const net = sayiYaz(s.daraliMiktar);
+    const kasaAdi = s.kasaTipiKod ? ` (${s.kasaTipiKod})` : '';
+    return `${brut}${b} - ${sayiYaz(kasaAdedi)}×${darasi}${b}${kasaAdi} = ${net}${b}`;
+  }
+
   const onek = await onekTespitEt(firma, donem);
 
   const sonuc = await islem(async (t) => {
@@ -779,7 +800,8 @@ async function belgeYaz(secenek) {
           maliyet: Number(k.maliyet || 0),
           birim: s.birim || k.birim || '',
           birimEx: s.birimEx != null ? Number(s.birimEx) : Number(k.birimEx || 0),
-          carpan: Number(k.carpan || 1)
+          carpan: Number(k.carpan || 1),
+          aciklama: daraAciklamasi(s)
         };
       });
 

@@ -183,14 +183,15 @@ async function calistir() {
   }
   kontrol('Kasa tipi hazir', !!kasa.id, `${kasa.kod} (Id ${kasa.id})`);
 
-  // Örnek: 10,8 kg × 30 TL = 324,00 TL ürün + 1 kasa × 100 TL depozito.
+  // Örnek: 12,3 kg brüt - 1×1,5 kg dara = 10,8 kg × 30 TL = 324,00 TL ürün
+  // + 1 kasa × 100 TL depozito.
   function ornekSatirlar() {
     return [
       {
         stokNo: stoklar[0].stokNo, stokKodu: stoklar[0].kod, stokAdi: stoklar[0].ad,
         birim: stoklar[0].birim, birimEx: stoklar[0].birimEx,
-        daraliMiktar: 10.8, fiyat: 30, tutar: 324,
-        kasaAdedi: 1, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
+        brutMiktar: 12.3, daraliMiktar: 10.8, fiyat: 30, tutar: 324,
+        kasaAdedi: 1, kasaDarasi: kasa.dara, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
         kasaDepozito: 100, kasaTutari: 100
       },
       {
@@ -314,6 +315,15 @@ async function calistir() {
     kontrol('Kasa satirinin tutari 100 TL', Number(faturaKasaSatiri[0].GERCEKTOPLAM) === 100,
       String(faturaKasaSatiri[0].GERCEKTOPLAM));
   }
+
+  // Dara dusumlu urun satirinin aciklamasinda matematik yazmali (kullanici
+  // istegi 24.08.2026): brut - kasaAdedi×kasaDarasi = daralı.
+  const daraAciklamali = await sql.sorgu(
+    `SELECT ACIKLAMA FROM ${vtAdi('TBLSATFATHAREKET', true)} WHERE MIKTAR=10.8`);
+  kontrol('Dara dusumlu satirin aciklamasinda hesap yaziyor',
+    daraAciklamali.length === 1 && /12\.3.*1.*1\.5.*10\.8/.test(daraAciklamali[0].ACIKLAMA || ''),
+    daraAciklamali.length ? daraAciklamali[0].ACIKLAMA : 'bulunamadi');
+
   const tahsilatSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf('Tahsilat') >= 0);
   kontrol('Tahsilat satiri ALACAK olarak gorunuyor', !!tahsilatSatiri && tahsilatSatiri.alacak === TAHSILAT,
     tahsilatSatiri ? `${tahsilatSatiri.aciklama} · ${tahsilatSatiri.alacak} TL` : 'bulunamadi');
