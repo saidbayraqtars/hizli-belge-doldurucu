@@ -15,7 +15,7 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 
 | Alan | Açıklama |
 |---|---|
-| Cinsi | VEGADB stok kartından seçilir (ALANYA MUZ, KARPUZ, KAPYA BİBER…) |
+| Cinsi | VEGADB stok kartından seçilir (ALANYA MUZ, KARPUZ, KAPYA BİBER…) — arama "Google gibi": kelimeler ayrı ayrı ve sırasız aranır, Türkçe harf farkı yok sayılır |
 | Kasa Adedi | kaç kasa/kap gitti |
 | Kasa Tipi | Vega'daki kasa/kap kartları — adında "KASA" ya da "DEPOZİTO" geçen stok kartları, canlı okunur |
 | Brüt Miktar | kasayla birlikte tartılan kg |
@@ -28,6 +28,10 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 Ayrıca **Tahsilat** alanı var: ürün satılıp aynı anda ödeme de alınıyorsa,
 buraya girilen tutar kadar ayrı bir **cari giriş (tahsilat)** dekontu yazılır
 — borç ve tahsilat aynı belgeyle birlikte Vega'ya gider.
+
+**Klavye:** `Tab` sağa ilerler, `↓` alttaki satırın aynı sütununa geçer —
+son satırdaysanız yeni satır açar, `↑` üste çıkar, `Enter` `↓` ile aynı işi
+yapar. Ürün kutusu açıkken `↑ ↓` listede gezinir, `Enter`/`Tab` seçer.
 
 Altta iki tuş var; belgenin Vega'da ne olacağını kullanıcı seçer:
 
@@ -47,8 +51,48 @@ yazılır. Ekranda hangi müşteride kaç kasa durduğu görünür.
 no, tutar. Her satırda bir **Geri Al** düğmesi var — yanlış girilen belge tek
 tuşla Vega'dan silinir, müşterinin bakiyesi işlem öncesi haline döner.
 
+**Haftalık Rapor** — eski Access programındaki iki çıktının aynısı, tek
+ekranda. Hafta **Pazar başlar, Cumartesi biter** ("pazardan pazara"); ok
+tuşlarıyla hafta değiştirilir, "Yazdır" doğrudan çıktı alır.
+
+1. *GENEL MÜŞTERİYE GÖRE KALAN* — bütün müşteriler tek satır:
+   `Tarih | ADI_SOYADI | ESKİ BORÇ | KASA | YENİ BORÇ | TOP.BAKİYE` + genel toplam.
+2. Bir müşteriye tıklayınca *hafta dökümü* — `CİNSİ | K ADET | K.TUTAR |
+   NET KG | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO`, **fiş fiş gruplanmış**: her
+   fişin sonunda o fişin ara toplamı, altında bir satır boşluk, en altta genel
+   toplam. Üstte müşterinin adı/adresi/telefonu ve DEVİR, altta ÖDEME bloğu
+   (geri gelen kasalar + alınan ödemeler) ve BAKİYE.
+
+Sütunların tanımı (eski programın gerçek çıktısıyla doğrulandı):
+
+| Sütun | Nedir |
+|---|---|
+| ESKİ BORÇ | Hafta başından önceki bakiye − hafta içinde alınan ödeme |
+| KASA | Hafta içindeki kasa/kap depozito tutarı |
+| YENİ BORÇ | Hafta içindeki ürün borcu (kasa hariç) |
+| TOP.BAKİYE | Üçünün toplamı — Vega'daki gerçek hafta sonu bakiyesine eşit |
+
+TOP.BAKİYE doğrudan `TBLCARIHAREKETLERI`'nden hesaplanır, ESKİ BORÇ ondan
+geriye doğru çıkarılır: satır her zaman tam toplanır ve Vega'nın kendi
+bakiyesiyle birebir tutar.
+
 **Ekstre** — müşterinin cari hesap ekstresi: ürün satırı, kasa tutarı satırı,
-tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti.
+tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayrıca:
+
+- **Pazardan pazara gezinme** — ◀ ▶ tuşlarıyla hafta hafta, "Bu Hafta", "Tümü".
+- **Haftalık Giriş/Çıkış tablosu** — hareketler Pazar→Cumartesi haftalarına
+  bölünüp çıkış (borç) / giriş (alacak) / net / hafta sonu bakiyesi olarak
+  özetlenir. Bir haftaya tıklamak ekstreyi o haftaya süzer.
+- **Süzgeçler** — işlem türü, yön (borç/alacak), açıklama-evrak no araması, en
+  az tutar. Süzgeç yeni sorgu açmaz, çekilmiş satırları anında süzer.
+
+**Müşteri listesi ve cari kartı** — arama kutusunun altındaki "Listeden Seç"
+bütün müşterileri gezilebilir bir pencerede açar (alıcı/satıcı süzgeci, sadece
+bakiyesi olanlar). "+ Yeni Cari Kartı" doğrudan Vega'nın cari tablosuna kart
+açar; kart tipi alıcı / satıcı / ikisi olarak seçilir (`FIRMATIPI` bit
+maskesi). Cari kodu **elle yazılır** — bu kurulumda kod düzeni tutarsız ("8",
+"16", "148-", "332-"), program kendi numarasını uydurup işletmenin düzenini
+bozmasın diye; yalnızca aynı kodun ikinci kez kullanılması engellenir.
 
 **Ayarlar** — sunucu, firma/dönem, depo, Vega'ya yazma kilidi, kasa/kap
 kartlarının dara ağırlığı.
@@ -66,8 +110,8 @@ Belge, tek bir SQL işleminde, doğrudan VEGADB'nin gerçek tablolarına yazıl�
 (`TBLSATFATBASLIK`, `TBLCARCIKBASLIK`, `TBLCARIHAREKETLERI`, …). Ara bir
 "kendi veritabanımızda tut, sonra gönder" adımı yok.
 
-Vega'nın kendisinde bulunmayan, ama programın çalışması için gereken üç küçük
-şey **VEGADB'nin İÇİNE**, `BD_` önekli üç tabloya kuruluyor (ayrı bir veritabanı
+Vega'nın kendisinde bulunmayan, ama programın çalışması için gereken dört küçük
+şey **VEGADB'nin İÇİNE**, `BD_` önekli dört tabloya kuruluyor (ayrı bir veritabanı
 değil — aynı VEGADB, `db/yardimci.js`):
 
 | Tablo | Ne tutar | Neden Vega'da yok |
@@ -75,8 +119,9 @@ değil — aynı VEGADB, `db/yardimci.js`):
 | `BD_KasaTipi` | Kasa/kap tipinin dara ağırlığı (boşken kaç kg) | Vega'nın stok kartında böyle bir alan yok |
 | `BD_KasaHareket` | Müşteride kaç kasa açık olduğunun defteri (verilen/iade) | `TBLCARIHAREKETLERI` yalnızca PARA tutar, ADET tutmaz |
 | `BD_Islem` | Hangi Vega satırına ne yazıldığının günlüğü | Geri alma bunsuz yapılamaz |
+| `BD_BelgeSatir` | Belgeye girilen her satırın dökümü (cinsi, k.adet, net kg, fiyat, fiş no) | Faturasız belgede (Cari Giriş) Vega'da satır kırılımı HİÇ YOK — cari dekontunda yalnızca "ürün toplamı" ve "KASA TUTARI" diye iki kalem duruyor; haftalık rapor bunsuz ürün dökümü gösteremez |
 
-Bu üç tablo dışında **hiçbir belge, hiçbir müşteri/stok bilgisi programın
+Bu dört tablo dışında **hiçbir belge, hiçbir müşteri/stok bilgisi programın
 kendi tarafında durmaz** — hepsi doğrudan Vega'nın gerçek tablolarındadır.
 
 ## Vega'ya yazma — tek katmanlı kilit
@@ -140,7 +185,7 @@ sqlcmd -S localhost -E -C -i kurulum\sql-kullanici-olustur.sql
 ```
 
 Betik `belge_doldurucu` kullanıcısını oluşturur ve VEGADB üzerinde **tam
-yetki (db_owner)** verir — program üç küçük yardımcı tabloyu kendisi kurup
+yetki (db_owner)** verir — program dört küçük yardımcı tabloyu kendisi kurup
 yazacağı için salt okuma yetmiyor. Yazılabilirlik programın kendi tarafında
 Ayarlar ekranındaki anahtarla ayrıca korunuyor.
 

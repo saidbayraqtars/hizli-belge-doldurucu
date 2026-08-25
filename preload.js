@@ -23,6 +23,13 @@ const KANALLAR = [
   'yazma:belge',
   'yazma:belgeGeriAl',
   'yazma:kasaIade',
+  'rapor:hafta',
+  'rapor:haftalikOzet',
+  'rapor:haftalikDetay',
+  'cari:alanlar',
+  'cari:ac',
+  'cari:liste',
+  'yazdir',
   'guncelleme:kontrol',
   'guncelleme:durum',
   'onay'

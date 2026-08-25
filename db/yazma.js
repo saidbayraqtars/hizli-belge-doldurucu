@@ -1078,6 +1078,37 @@ async function belgeYaz(secenek) {
       kullanici: secenek.kullanici
     });
 
+    // Belge satır günlüğü — haftalık müşteri raporunun ürün dökümü buradan
+    // okunuyor. Faturasız (Cari Giriş) belgede Vega'da satır kırılımı hiç
+    // olmadığı için tek kaynak bu; faturalı belgede de aynı satırlar yazılıyor
+    // ki rapor iki akışta da aynı görünsün.
+    let siraNo = 0;
+    for (const s of satirlar) {
+      const tutar = Number(s.tutar) || 0;
+      const kasaTutari = Number(s.kasaTutari) || 0;
+      if (!tutar && !kasaTutari && !Number(s.daraliMiktar)) continue;
+      await yardimci.belgeSatirYaz(t, {
+        islemId, firma, donem, tarih, cariInd, cariAd,
+        belgeTuru: secenek.belgeTuru,
+        belgeNo,
+        fisNo: secenek.fisNo || null,
+        siraNo: ++siraNo,
+        stokNo: s.stokNo,
+        stokKodu: s.stokKodu,
+        stokAdi: s.stokAdi,
+        kasaAdedi: s.kasaAdedi,
+        kasaTipiKod: s.kasaTipiKod,
+        kasaDepozito: s.kasaDepozito,
+        kasaTutari,
+        brutMiktar: s.brutMiktar,
+        dara: s.kasaDarasi,
+        daraliMiktar: s.daraliMiktar,
+        fiyat: s.fiyat,
+        tutar,
+        aciklama: s.aciklama || daraAciklamasi(s)
+      });
+    }
+
     // Kasa depozito defteri — kaç kasa dışarıda, adet bazında.
     for (const s of kasaSatirlari) {
       await yardimci.kasaHareketiYaz(t, {
@@ -1254,6 +1285,7 @@ async function belgeGeriAl(secenek) {
   const silinen = await islem(async (t) => {
     const s = await vegaKaydiniGeriAl(t, yazilan, kayit.Firma, kayit.Donem);
     await yardimci.kasaHareketleriniSil(t, islemId);
+    await yardimci.belgeSatirlariniGeriAlIsaretle(t, islemId);
     return s;
   });
 

@@ -28,6 +28,7 @@ const IZAHAT_ADI = {
   23: 'Satış İade',
   32: 'Stok Giriş Fişi',
   33: 'Stok Çıkış Fişi',
+  34: 'Stok Giriş İade Fişi',
   83: 'Banka Girişi',
   84: 'Banka Çıkışı',
   103: 'Devir Girişi',
@@ -69,6 +70,49 @@ async function silinmemis(tamTabloAdi, takmaAd) {
   return '';
 }
 
+// --- "Google gibi" arama ------------------------------------------------------
+//
+// Kullanıcı isteği: aramanın tek parça yazmayı zorlamaması. "hasan cinar",
+// "cinar hasan", "HASAN ÇINAR", "çınar" — hepsi aynı kartı bulmalı.
+//
+// İki parça var:
+//   1. Yazılan metin BOŞLUKTAN bölünür, her parça AYRI AYRI aranır ve hepsi
+//      birden geçmek zorundadır (Google'ın varsayılan AND davranışı). Sıra
+//      önemli değil.
+//   2. Karşılaştırma Latin1_General_CI_AI harmanıyla yapılır: büyük/küçük harf
+//      ve Türkçe aksan farkı (ç/c, ğ/g, ı/i, ö/o, ş/s, ü/u) yok sayılır. Aksi
+//      halde klavyeden "cinar" yazan "ÇINAR"ı bulamıyordu.
+//
+//      TÜRKÇE HARMAN BURADA İŞE YARAMIYOR — canlı veritabanında sınandı:
+//      Turkish_CI_AI'de ç/ş/ğ Türk alfabesinin AYRI HARFLERİ sayılıyor, aksan
+//      sayılmıyor, bu yüzden "cinar" LIKE '%ÇINAR%' eşleşmiyor. Latin1_General
+//      onları aksanlı c/s/g gibi görüyor ve hepsini katlıyor (ı/i dahil).
+//      VEGADB'nin kendi harmanı Turkish_CI_AS; bu yüzden karşılaştırmanın
+//      İKİ TARAFINA da COLLATE yazmak şart, yoksa harman çakışması hatası olur.
+//
+// Sıralama (hangi sonuç üstte) arayüz tarafında yapılıyor — bkz. ui/app.js →
+// `aramaPuani`. Burada yalnızca "hangi satırlar eşleşiyor" belirleniyor.
+const ARAMA_HARMANI = 'Latin1_General_CI_AI';
+
+function aramaParcalari(ham) {
+  return String(ham || '')
+    .split(/\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(0, 6); // altıdan fazla kelime yazan yok; sorgu şişmesin
+}
+
+// alanIfadesi: aranacak sütunların tek metne birleştirilmiş hali.
+function aramaFiltresiKur(alanIfadesi, parcalar, parametreler) {
+  if (!parcalar.length) return '';
+  const kosullar = parcalar.map((p, i) => {
+    const ad = 'ara' + i;
+    parametreler[ad] = '%' + p + '%';
+    return `${alanIfadesi} COLLATE ${ARAMA_HARMANI} LIKE @${ad} COLLATE ${ARAMA_HARMANI}`;
+  });
+  return 'AND (' + kosullar.join(' AND ') + ')';
+}
+
 // --- Cari (müşteri) kartları -----------------------------------------------
 
 async function carileriGetir(secenek) {
@@ -80,9 +124,12 @@ async function carileriGetir(secenek) {
   const limit = Math.min(Number((secenek && secenek.limit) || 300), 2000);
 
   const filtre = await silinmemis(cariTablosu, 'C');
-  const aramaFiltresi = arama
-    ? `AND (C.FIRMAADI LIKE @arama OR C.UNVAN LIKE @arama OR C.FIRMAKODU LIKE @arama)`
-    : '';
+  const parametreler = {};
+  const aramaFiltresi = aramaFiltresiKur(
+    `(ISNULL(C.FIRMAADI, '') + ' ' + ISNULL(C.UNVAN, '') + ' ' + ISNULL(C.FIRMAKODU, ''))`,
+    aramaParcalari(arama),
+    parametreler
+  );
 
   // FIRMAADI kartların bir kısmında NULL değil, BOŞ METİN. ISNULL boş metne
   // düşmediği için ad alanı boş kalıyordu ve adsız kartlar listenin başına
@@ -102,6 +149,9 @@ async function carileriGetir(secenek) {
       ISNULL(C.FIRMAKODU, '') AS kod,
       ${adIfadesi} AS ad,
       ISNULL(C.UNVAN, '') AS unvan,
+      ISNULL(C.FIRMATIPI, 0) AS firmaTipi,
+      COALESCE(NULLIF(LTRIM(RTRIM(C.SEHIR)), ''),
+               NULLIF(LTRIM(RTRIM(CAST(C.ADRESPOSTA AS NVARCHAR(200)))), ''), '') AS adres,
       ISNULL(B.bakiye, 0) AS bakiye
     FROM ${cariTablosu} C
     LEFT JOIN (
@@ -110,10 +160,10 @@ async function carileriGetir(secenek) {
       WHERE ISNULL(OZELKOD, '') <> 'KREDIHESABI'
       GROUP BY FIRMANO
     ) B ON B.FIRMANO = C.IND
-    WHERE 1 = 1 ${filtre} ${aramaFiltresi}
+    WHERE ISNULL(C.STATUS, 1) <> 2 AND C.IND >= 100 ${filtre} ${aramaFiltresi}
     ORDER BY ${adIfadesi}
   `,
-    arama ? { arama: '%' + arama + '%' } : null
+    parametreler
   );
 
   return satirlar.map((s) => ({
@@ -121,6 +171,8 @@ async function carileriGetir(secenek) {
     kod: String(s.kod || '').trim(),
     ad: String(s.ad || '').trim(),
     unvan: String(s.unvan || '').trim(),
+    adres: String(s.adres || '').trim(),
+    firmaTipi: Number(s.firmaTipi) || 0,
     bakiye: Number(s.bakiye) || 0
   }));
 }
@@ -156,9 +208,12 @@ async function stoklariGetir(secenek) {
   const limit = Math.min(Number((secenek && secenek.limit) || 300), 2000);
 
   const filtre = await silinmemis(stokTablosu, 'S');
-  const aramaFiltresi = arama
-    ? `AND (S.MALINCINSI LIKE @arama OR S.STOKKODU LIKE @arama)`
-    : '';
+  const parametreler = {};
+  const aramaFiltresi = aramaFiltresiKur(
+    `(ISNULL(S.MALINCINSI, '') + ' ' + ISNULL(S.STOKKODU, ''))`,
+    aramaParcalari(arama),
+    parametreler
+  );
   const fiyatKolonu = await kolonVarMi(birimTablosu, 'SATISFIYATI');
   const fiyatIfadesi = fiyatKolonu ? 'ISNULL(B.SATISFIYATI, 0)' : '0';
 
@@ -190,7 +245,7 @@ async function stoklariGetir(secenek) {
     WHERE 1 = 1 ${filtre} ${aramaFiltresi}
     ORDER BY ${adIfadesi}
   `,
-    arama ? { arama: '%' + arama + '%' } : null
+    parametreler
   );
 
   return satirlar.map((s) => ({

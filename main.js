@@ -9,6 +9,8 @@ const firma = require('./db/firma');
 const vega = require('./db/vega');
 const yardimci = require('./db/yardimci');
 const yazma = require('./db/yazma');
+const rapor = require('./db/rapor');
+const cari = require('./db/cari');
 const guncelleme = require('./db/guncelleme');
 
 // Windows 7 kurulumlarında eski ekran kartı sürücüleri yüzünden pencere bazen
@@ -131,6 +133,39 @@ uc('yazma:durum', async () => ({ acik: yazma.yazmaAcikMi() }));
 uc('yazma:belge', async (girdi) => yazma.belgeYaz(girdi));
 uc('yazma:belgeGeriAl', async (girdi) => yazma.belgeGeriAl(girdi));
 uc('yazma:kasaIade', async (girdi) => yazma.kasaIadesiYaz(girdi));
+
+// --- Haftalık raporlar -----------------------------------------------------
+//
+// Hafta sınırı (Pazar → Cumartesi) tek yerde, db/rapor.js'te tanımlı; arayüz
+// kendi gün saymasını yapmasın diye aralığı da oradan istiyor.
+
+uc('rapor:hafta', async (girdi) => {
+  const h = rapor.haftaAraligi(girdi.tarih);
+  return { baslangic: h.baslangic, bitis: h.bitis };
+});
+uc('rapor:haftalikOzet', async (girdi) => rapor.haftalikOzet(girdi));
+uc('rapor:haftalikDetay', async (girdi) => rapor.haftalikDetay(girdi));
+
+// --- Cari kartı ------------------------------------------------------------
+
+uc('cari:alanlar', async (girdi) => cari.kartAlanlari(girdi));
+uc('cari:ac', async (girdi) => cari.cariKartiAc(girdi));
+uc('cari:liste', async (girdi) => cari.carileriListele(girdi));
+
+// --- Yazdırma --------------------------------------------------------------
+//
+// Arayüz önce window.print() deniyor; bazı Windows kurulumlarında o sessizce
+// hiçbir şey yapmıyor, bu kanal yedek.
+uc('yazdir', async () => {
+  if (!pencere) throw new Error('Pencere yok.');
+  return new Promise((coz, red) => {
+    pencere.webContents.print({ silent: false, printBackground: true }, (basarili, hata) => {
+      if (basarili) coz({ tamam: true });
+      else if (hata === 'cancelled') coz({ tamam: false, iptal: true });
+      else red(new Error(hata || 'Yazdırılamadı.'));
+    });
+  });
+});
 
 // --- Otomatik güncelleme ---------------------------------------------------
 

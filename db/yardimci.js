@@ -25,6 +25,14 @@ function vt() {
 let hazirlandiVt = null;
 
 // Şemayı VEGADB içinde kurar. Var olanı bozmaz; yalnızca eksik olanı ekler.
+// 24.08.2026: dördüncü tablo eklendi — BD_BelgeSatir. Sebebi: haftalık müşteri
+// raporu (eski Access programındaki "fiş no'ya göre ürün dökümü") satır
+// kırılımı istiyor, ama faturasız akışta (Cari Giriş) Vega'nın kendi
+// tablolarında böyle bir kırılım HİÇ YOK — TBLCARGIRHAREKET'te yalnızca
+// "ürün toplamı" ve "KASA TUTARI" diye iki kalem duruyor. Fatura kesilen
+// belgede kırılım Vega'da (TBLSATFATHAREKET) da var; rapor ikisini birleştirir,
+// bu tablo öncelikli kaynak.
+//
 // Bunun çalışması için SQL kullanıcısının VEGADB üzerinde CREATE TABLE
 // yetkisi (db_owner ya da db_ddladmin+db_datawriter) olması gerekir —
 // kurulum/sql-kullanici-olustur.sql bunu artık baştan veriyor.
@@ -72,6 +80,36 @@ async function hazirla(zorla) {
       Bilgisayar    NVARCHAR(100) NULL
     );
 
+    IF OBJECT_ID('[${db}].dbo.BD_BelgeSatir', 'U') IS NULL
+    CREATE TABLE [${db}].dbo.BD_BelgeSatir (
+      Id           INT IDENTITY(1,1) PRIMARY KEY,
+      IslemId      INT           NULL,
+      Firma        NVARCHAR(5)   NULL,
+      Donem        NVARCHAR(5)   NULL,
+      Tarih        DATE          NOT NULL,
+      CariInd      INT           NOT NULL,
+      CariAd       NVARCHAR(250) NULL,
+      BelgeTuru    NVARCHAR(30)  NULL,   -- 'satisFaturasi' | 'cariCikis'
+      BelgeNo      NVARCHAR(50)  NULL,
+      FisNo        NVARCHAR(50)  NULL,   -- kullanicinin elle yazdigi fis no
+      SiraNo       INT           NULL,
+      StokNo       INT           NULL,
+      StokKodu     NVARCHAR(50)  NULL,
+      StokAdi      NVARCHAR(250) NULL,   -- rapordaki "CINSI"
+      KasaAdedi    DECIMAL(18,3) NOT NULL DEFAULT 0,
+      KasaTipiKod  NVARCHAR(50)  NULL,
+      KasaDepozito DECIMAL(18,2) NOT NULL DEFAULT 0,
+      KasaTutari   DECIMAL(18,2) NOT NULL DEFAULT 0,
+      BrutMiktar   DECIMAL(18,3) NOT NULL DEFAULT 0,
+      Dara         DECIMAL(18,3) NOT NULL DEFAULT 0,
+      DaraliMiktar DECIMAL(18,3) NOT NULL DEFAULT 0,  -- rapordaki "NET KG"
+      Fiyat        DECIMAL(18,4) NOT NULL DEFAULT 0,
+      Tutar        DECIMAL(18,2) NOT NULL DEFAULT 0,
+      Aciklama     NVARCHAR(250) NULL,
+      GeriAlindi   BIT           NOT NULL DEFAULT 0,
+      OlusturmaTarihi DATETIME NOT NULL DEFAULT GETDATE()
+    );
+
     IF OBJECT_ID('[${db}].dbo.BD_KasaHareket', 'U') IS NULL
     CREATE TABLE [${db}].dbo.BD_KasaHareket (
       Id         INT IDENTITY(1,1) PRIMARY KEY,
@@ -104,6 +142,11 @@ async function hazirla(zorla) {
                    WHERE name = 'UX_BD_KasaTipi_Kod'
                      AND object_id = OBJECT_ID('[${db}].dbo.BD_KasaTipi'))
       CREATE UNIQUE INDEX UX_BD_KasaTipi_Kod ON [${db}].dbo.BD_KasaTipi (Kod);
+
+    IF NOT EXISTS (SELECT 1 FROM [${db}].sys.indexes
+                   WHERE name = 'IX_BD_BelgeSatir_Hafta'
+                     AND object_id = OBJECT_ID('[${db}].dbo.BD_BelgeSatir'))
+      CREATE INDEX IX_BD_BelgeSatir_Hafta ON [${db}].dbo.BD_BelgeSatir (Firma, Donem, Tarih, CariInd);
   `);
 
   hazirlandiVt = db;
@@ -386,6 +429,64 @@ async function acikKasaAdedi(firma, cariInd, stokNo) {
   return Number(r[0] ? r[0].acikAdet : 0);
 }
 
+// --- Belge satır günlüğü (haftalık rapor kaynağı) ----------------------------
+//
+// Belgeye girilen HER satır buraya bir kez yazılır — belge Vega'da fatura mı
+// yoksa cari dekont mu oldu fark etmez. Haftalık müşteri raporundaki
+// CİNSİ / K.ADET / K.TUTAR / NET KG / FİYAT / TUTAR / FİŞ NO sütunları bu
+// tablodan gelir. Vega'nın kendi tablolarına ek olarak tutuluyor, onların
+// yerine değil: bakiye/borç hep TBLCARIHAREKETLERI'nden okunur.
+async function belgeSatirYaz(t, ayrinti) {
+  const db = vt();
+  const alanlar = {
+    islemId: ayrinti.islemId != null ? Number(ayrinti.islemId) : null,
+    firma: ayrinti.firma || null,
+    donem: ayrinti.donem || null,
+    tarih: new Date(ayrinti.tarih || Date.now()),
+    cariInd: Number(ayrinti.cariInd),
+    cariAd: ayrinti.cariAd || null,
+    belgeTuru: ayrinti.belgeTuru || null,
+    belgeNo: ayrinti.belgeNo || null,
+    fisNo: ayrinti.fisNo || null,
+    siraNo: ayrinti.siraNo != null ? Number(ayrinti.siraNo) : null,
+    stokNo: ayrinti.stokNo != null ? Number(ayrinti.stokNo) : null,
+    stokKodu: ayrinti.stokKodu || null,
+    stokAdi: ayrinti.stokAdi || null,
+    kasaAdedi: Number(ayrinti.kasaAdedi) || 0,
+    kasaTipiKod: ayrinti.kasaTipiKod || null,
+    kasaDepozito: Number(ayrinti.kasaDepozito) || 0,
+    kasaTutari: Number(ayrinti.kasaTutari) || 0,
+    brutMiktar: Number(ayrinti.brutMiktar) || 0,
+    dara: Number(ayrinti.dara) || 0,
+    daraliMiktar: Number(ayrinti.daraliMiktar) || 0,
+    fiyat: Number(ayrinti.fiyat) || 0,
+    tutar: Number(ayrinti.tutar) || 0,
+    aciklama: ayrinti.aciklama ? String(ayrinti.aciklama).substring(0, 250) : null
+  };
+  const sorguMetni = `
+    INSERT INTO [${db}].dbo.BD_BelgeSatir
+      (IslemId, Firma, Donem, Tarih, CariInd, CariAd, BelgeTuru, BelgeNo, FisNo, SiraNo,
+       StokNo, StokKodu, StokAdi, KasaAdedi, KasaTipiKod, KasaDepozito, KasaTutari,
+       BrutMiktar, Dara, DaraliMiktar, Fiyat, Tutar, Aciklama)
+    VALUES
+      (@islemId, @firma, @donem, @tarih, @cariInd, @cariAd, @belgeTuru, @belgeNo, @fisNo, @siraNo,
+       @stokNo, @stokKodu, @stokAdi, @kasaAdedi, @kasaTipiKod, @kasaDepozito, @kasaTutari,
+       @brutMiktar, @dara, @daraliMiktar, @fiyat, @tutar, @aciklama)
+  `;
+  if (t) await t.calistir(sorguMetni, alanlar);
+  else await calistir(sorguMetni, alanlar);
+}
+
+// Geri alınan belge raporda görünmesin. Silmiyoruz — ne yazılıp ne geri
+// alındığı BD_Islem'deki günlükle tutarlı kalsın diye işaretliyoruz.
+async function belgeSatirlariniGeriAlIsaretle(t, islemId) {
+  const sorguMetni =
+    `UPDATE [${vt()}].dbo.BD_BelgeSatir SET GeriAlindi = 1 WHERE IslemId = @islemId`;
+  const parametreler = { islemId: Number(islemId) };
+  if (t) await t.calistir(sorguMetni, parametreler);
+  else await calistir(sorguMetni, parametreler);
+}
+
 // İşlem geri alınırken o işleme bağlı kasa hareketlerini de siler.
 async function kasaHareketleriniSil(t, islemId) {
   const sorguMetni = `DELETE FROM [${vt()}].dbo.BD_KasaHareket WHERE IslemId = @islemId`;
@@ -406,5 +507,7 @@ module.exports = {
   kasaHareketiYaz,
   kasaBakiyesi,
   acikKasaAdedi,
-  kasaHareketleriniSil
+  kasaHareketleriniSil,
+  belgeSatirYaz,
+  belgeSatirlariniGeriAlIsaretle
 };

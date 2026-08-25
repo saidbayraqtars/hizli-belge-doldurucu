@@ -329,6 +329,98 @@ eski yola (yalnız cari dekont, §5) düşer — geriye dönük uyumluluk için.
 
 ---
 
+## 5.2. Cari kartı açma — `TBLCARI` (24.08.2026) ✅
+
+Kullanıcı isteği: müşteri kartı VegaWin'e geçmeden bu programdan açılabilsin.
+Hangi alanların doldurulması gerektiği **tahmin edilmedi, canlı veriden
+sayıldı**: `F0102TBLCARI`'daki 493 gerçek kartın (IND ≥ 100, silinmemiş)
+491'i tam olarak aşağıdaki alan kümesini taşıyor, kalan 100+ sütun hepsinde
+NULL. Yani Vega'nın kendi kart açma ekranı da yalnızca bunları yazıyor.
+
+```
+TBLCARI (kart tablosu — dönemsiz, F{firma}TBLCARI)
+   IND          IDENTITY → hareket tablolarında FIRMANO bunu tutar
+   FIRMAKODU    kullanıcı yazar (zorunlu, çakışma kontrollü)
+   FIRMAADI     kullanıcı yazar (zorunlu)
+   FIRMATIPI    BİT MASKESİ: bit0(1)=alıcı, bit1(2)=satıcı, 3=ikisi
+   KAYITTARIHI  bugün
+   PARABIRIMI   'TL'
+   STATUS       1   (2 = pasif)
+   STATU        0   ← STATUS'tan AYRI bir sütun, ikisi de var
+   TAKSITTIPI   1
+   ZIMFIYAT     1
+   ISLETMETURU  0
+   ISKONTO / AYLIKVADE / OPSIYON / GECIKMEFAIZI / BAKIYE / ODEMEBAKIYESI = 0
+   DELETED      0
+   — isteğe bağlı, kullanıcıdan —
+   TELEFON1, TELEFON2, SEHIR, ADRESPOSTA (ntext), UNVAN
+```
+
+**Kod otomatik üretilmiyor.** Bu kurulumda FIRMAKODU düzeni tutarsız: "8",
+"16", "148-", "332-" hepsi bir arada. Program kendi numarasını uydurursa
+işletmenin kendi düzenini bozar; kullanıcı yazar, program yalnızca aynı kodun
+ikinci kez kullanılmasını engeller.
+
+**Bu işletmede alanların gerçek kullanımı** (haftalık rapor başlığı buradan
+okunuyor, bkz. `db/rapor.js` → `cariBasligi`):
+
+| Rapordaki sütun | Vega sütunu | Bu işletmedeki örnek |
+|---|---|---|
+| ADI_SOYADI | `FIRMAADI` | AHMET TAMALLIOĞLU |
+| ADRESİ | `SEHIR`, yoksa `ADRESPOSTA` | VEZİRKÖPRÜ / KIZILCAÖREN |
+| TELEFON | `TELEFON1` | 5427461033 |
+| baba adı | `UNVAN` | "ALİ OĞLU", "ESKİ MUHTAR", "kefili bekir" |
+
+`UNVAN` resmî unvan alanı olsa da bu işletmede **serbest not** olarak
+kullanılıyor — 14 kartta doldurulmuş, hepsi bu şekilde. Kart açma ekranında
+"Not / Baba adı" diye etiketlenmesinin sebebi bu.
+
+`db/cari.js` → `cariKartiAc`. Sütun var mı diye tek tek bakılıyor
+(`kolonVarMi`), olmayan sütun sessizce atlanıyor — Vega kurulumları arasında
+sütun farkı olabiliyor. Yazma kilidi (`yazma.kilitKontrol`) burada da geçerli.
+
+---
+
+## 5.3. `BD_BelgeSatir` — belge satır günlüğü (24.08.2026) ✅
+
+Haftalık müşteri raporu ürün dökümü istiyor (`CİNSİ | K ADET | K.TUTAR |
+NET KG | FİYAT | TUTAR | FİŞ NO`). Bu döküm:
+
+- **Satış faturasında Vega'da VAR** — `TBLSATFATHAREKET`, satır satır.
+- **Faturasız belgede (Cari Giriş) Vega'da HİÇ YOK** — `TBLCARGIRHAREKET`'te
+  yalnızca "ürün toplamı" ve "KASA TUTARI" diye iki kalem duruyor, ürün
+  kırılımı hiçbir yere yazılmıyor.
+
+Bu yüzden VEGADB içine dördüncü bir `BD_` tablosu eklendi: belgeye girilen
+her satır, belge Vega'da fatura mı dekont mu oldu fark etmeden buraya bir kez
+yazılıyor (`db/yardimci.js` → `belgeSatirYaz`, `db/yazma.js` → `belgeYaz`
+içinden, asıl yazmayla **aynı transaction**). Geri alınan belgenin satırları
+silinmiyor, `GeriAlindi = 1` işaretleniyor.
+
+Rapor iki kaynağı birleştiriyor (`db/rapor.js`): önce `BD_BelgeSatir`, sonra
+**günlükte olmayan** satış faturaları (doğrudan VegaWin'den kesilmiş olanlar)
+`TBLSATFATHAREKET`'ten. Aynı belge iki kez görünmesin diye BELGENO ile eleniyor.
+
+> **Bakiye asla buradan hesaplanmaz.** DEVİR, BAKİYE ve TOP.BAKİYE her zaman
+> `TBLCARIHAREKETLERI`'nden okunur — KDV'li fatura ya da VegaWin'den elle
+> girilmiş belge yüzünden satır toplamlarıyla ayrışabilir, doğru olan Vega'nınki.
+
+### Satır bağlantısı tuzağı ✅
+
+`TBLSATFATHAREKET` başlığa **BELGENO ile değil, başlığın IND'i ile** bağlı:
+
+```sql
+JOIN TBLSATFATHAREKET H ON H.EVRAKNO = B.IND     -- DOĞRU
+JOIN TBLSATFATHAREKET H ON H.BELGENO = B.BELGENO -- YANLIŞ (HAREKET'te BELGENO yok)
+```
+
+Ayrıca satırda ürün adı `MALINCINSI` (STOKADI değil), tutar `GERCEKTOPLAM`
+(TUTAR değil), fiyat `FIYATI`. Kasa kalemi satırın `ACIKLAMA`'sında `'KASA'`
+yazmasından tanınıyor — `belgeYaz` faturaya kasayı 2. kalem olarak bu
+açıklamayla yazıyor.
+
+---
+
 ## 6. Kimlik ve numara üretimi ✅
 
 Başlık tablolarının `IND` alanı **IDENTITY**'dir. Numarayı SQL Server üretir;

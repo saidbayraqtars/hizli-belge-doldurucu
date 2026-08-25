@@ -90,6 +90,63 @@ function bugun() {
   return `${d.getFullYear()}-${ay}-${gun}`;
 }
 
+function tarihKutusu(d) {
+  const t = d instanceof Date ? d : new Date(d);
+  const ay = String(t.getMonth() + 1).padStart(2, '0');
+  const gun = String(t.getDate()).padStart(2, '0');
+  return `${t.getFullYear()}-${ay}-${gun}`;
+}
+
+// ═══════════════════════ "Google gibi" arama ═══════════════════════
+//
+// İki kural: (1) yazılan kelimeler ayrı ayrı aranır, sırası önemli değil;
+// (2) Türkçe aksan ve büyük/küçük harf farkı yok sayılır — "cinar" yazan
+// "ÇINAR"ı bulur. Sunucu tarafındaki eşi db/vega.js → aramaFiltresiKur.
+// Buradaki iş sıralama: hangi sonuç üstte görünecek.
+
+const TURKCE_HARF = {
+  'ı': 'i', 'İ': 'i', 'I': 'i', 'ş': 's', 'Ş': 's', 'ğ': 'g', 'Ğ': 'g',
+  'ü': 'u', 'Ü': 'u', 'ö': 'o', 'Ö': 'o', 'ç': 'c', 'Ç': 'c',
+  'â': 'a', 'Â': 'a', 'î': 'i', 'Î': 'i', 'û': 'u', 'Û': 'u'
+};
+
+function sadelestir(metin) {
+  return String(metin == null ? '' : metin)
+    .replace(/[ıİIşŞğĞüÜöÖçÇâÂîÎûÛ]/g, (c) => TURKCE_HARF[c] || c)
+    .toLowerCase();
+}
+
+function aramaParcalari(ham) {
+  return sadelestir(ham).split(/\s+/).filter(Boolean);
+}
+
+// Eşleşmiyorsa -1. Büyük puan = üstte. Kelime başından eşleşme, adın
+// başından eşleşme ve kısa ad puanı yükseltir.
+function aramaPuani(metin, parcalar) {
+  if (!parcalar.length) return 0;
+  const m = sadelestir(metin);
+  let puan = 0;
+  for (const p of parcalar) {
+    const yer = m.indexOf(p);
+    if (yer < 0) return -1;
+    if (yer === 0) puan += 120;
+    else if (m[yer - 1] === ' ') puan += 70;
+    else puan += 25;
+    puan += Math.max(0, 25 - yer);
+    if (p.length === m.length) puan += 40; // tam eşleşme
+  }
+  return puan - Math.min(m.length, 60) / 12;
+}
+
+function aramayaGoreSirala(liste, parcalar, adAl) {
+  if (!parcalar.length) return liste;
+  return liste
+    .map((x) => ({ x, puan: aramaPuani(adAl(x), parcalar) }))
+    .filter((s) => s.puan >= 0)
+    .sort((a, b) => b.puan - a.puan)
+    .map((s) => s.x);
+}
+
 function boslukTemizle(govde, sutunSayisi, mesaj) {
   govde.innerHTML = '';
   const tr = document.createElement('tr');
@@ -110,6 +167,7 @@ const durum = {
   kasaKartlari: [],   // canlı Vega'dan: {id(=stokNo), kod, ad, depozito, dara}
   stoklar: [],
   stokHaritasi: new Map(),
+  stokSecenekleri: [],   // {etiket, kart, aranan} — satır içi ürün araması
   yazmaAcik: false
 };
 
@@ -139,6 +197,7 @@ function sekmeAc(ad) {
   if (ad === 'kasa') kasaBakiyesiniYukle();
   if (ad === 'belgeler') belgelerYukle();
   if (ad === 'ayar') ayarSayfasiniDoldur();
+  if (ad === 'rapor') raporSayfasiAcildi();
 }
 
 // ═══════════════════════ Müşteri arama kutusu ═══════════════════════
@@ -198,12 +257,19 @@ function cariKutusuKur(aramaId, sonucId, seciliId, secildiginde) {
       return;
     }
     try {
-      const liste = await cagir('vega:cariler', {
+      const ham = await cagir('vega:cariler', {
         firma: firmaKodu(),
         donem: donemKodu(),
         arama: metin,
-        limit: 40
+        limit: 200
       });
+      // Sunucu "hangi kartlar eşleşiyor"u veriyor; sıralamayı burada yapıyoruz:
+      // aranan kelime adın başındaysa o kart üste çıksın.
+      const parcalar = aramaParcalari(metin);
+      const liste = aramayaGoreSirala(
+        ham, parcalar, (c) => c.ad + ' ' + c.kod + ' ' + (c.adres || '')
+      ).slice(0, 40);
+
       sonuc.innerHTML = '';
       if (!liste.length) {
         sonuc.innerHTML = '<div class="bos">Eşleşen müşteri yok.</div>';
@@ -212,7 +278,7 @@ function cariKutusuKur(aramaId, sonucId, seciliId, secildiginde) {
           const d = document.createElement('button');
           d.type = 'button';
           const sol = document.createElement('span');
-          sol.textContent = c.ad;
+          sol.textContent = c.ad + (c.adres ? ' — ' + c.adres : '');
           const sag = document.createElement('span');
           sag.className = 'kod';
           sag.textContent = (c.kod ? c.kod + ' · ' : '') + para(c.bakiye) + ' TL';
@@ -245,6 +311,12 @@ function cariKutusuKur(aramaId, sonucId, seciliId, secildiginde) {
   return {
     secili: () => seciliCari,
     temizle: () => { secimiGoster(null); arama.value = ''; },
+    // Müşteri listesi penceresinden ya da yeni açılan cari kartından
+    // doğrudan seçim yapılabilsin diye.
+    sec: (cari) => {
+      secimiGoster(cari);
+      if (secildiginde) secildiginde(cari);
+    },
     yenile: async () => {
       if (!seciliCari) return;
       try {
@@ -263,22 +335,121 @@ const belgeCari = cariKutusuKur('cariArama', 'cariSonuc', 'cariSecili', null);
 const iadeCari = cariKutusuKur('iadeCariArama', 'iadeCariSonuc', 'iadeCariSecili', () =>
   iadeBilgisiniGuncelle()
 );
-const ekstreCari = cariKutusuKur('ekstreCariArama', 'ekstreCariSonuc', 'ekstreCariSecili', null);
+const ekstreCari = cariKutusuKur('ekstreCariArama', 'ekstreCariSonuc', 'ekstreCariSecili', (c) => {
+  // Müşteri seçilir seçilmez ekstre gelsin — ayrıca "Getir"e basmaya gerek yok.
+  if (c) ekstreYukle();
+});
 
 // ═══════════════════════ BELGE GİR ═══════════════════════
 
+// Ürün listesi bir kez açılışta indiriliyor, arama tarayıcı tarafında yapılıyor
+// — her tuşta sunucuya gitmek eski makinelerde gözle görülür gecikme yapıyordu.
 function stokListesiniDoldur() {
-  const liste = el('stokListesi');
-  liste.innerHTML = '';
   durum.stokHaritasi = new Map();
+  durum.stokSecenekleri = [];
   for (const s of durum.stoklar) {
     // Aynı isimde iki kart olabiliyor; ayırt etmek için koda düşüyoruz.
     const etiket = durum.stokHaritasi.has(s.ad) && s.kod ? `${s.ad} [${s.kod}]` : s.ad;
     durum.stokHaritasi.set(etiket, s);
-    const o = document.createElement('option');
-    o.value = etiket;
-    liste.appendChild(o);
+    durum.stokSecenekleri.push({ etiket, kart: s, aranan: etiket + ' ' + (s.kod || '') });
   }
+}
+
+// ═══════════════════════ Ürün arama kutusu (satır içi) ═══════════════════════
+//
+// <datalist> yerine kendi açılır listemiz var. Sebebi üç tane: (1) datalist
+// sıralamayı bize bırakmıyor — "biber" yazınca en alakalısı üste çıkmıyordu,
+// (2) çok kelimeli arama ("kapya biber" / "biber kapya") datalist'te hiç
+// çalışmıyor, (3) yön tuşlarıyla gezinmeyi kendimiz yönetmemiz gerekiyor
+// (aşağı ok satır tablosunda başka bir iş yapıyor).
+function stokKutusuKur(girdi, hucre, secildiginde) {
+  const acilir = document.createElement('div');
+  acilir.className = 'stokAcilir gizli';
+  hucre.appendChild(acilir);
+
+  let secenekler = [];
+  let imlec = -1;
+
+  function kapat() {
+    acilir.classList.add('gizli');
+    acilir.innerHTML = '';
+    secenekler = [];
+    imlec = -1;
+  }
+
+  function acikMi() {
+    return !acilir.classList.contains('gizli');
+  }
+
+  function imleciTasi(fark) {
+    if (!secenekler.length) return;
+    imlec = (imlec + fark + secenekler.length) % secenekler.length;
+    for (let i = 0; i < acilir.children.length; i++) {
+      acilir.children[i].classList.toggle('secilen', i === imlec);
+    }
+    const secili = acilir.children[imlec];
+    if (secili && secili.scrollIntoView) secili.scrollIntoView({ block: 'nearest' });
+  }
+
+  function sec(secenek) {
+    girdi.value = secenek.etiket;
+    kapat();
+    if (secildiginde) secildiginde(secenek.kart);
+  }
+
+  function goster() {
+    const parcalar = aramaParcalari(girdi.value);
+    const kaynak = durum.stokSecenekleri || [];
+    secenekler = parcalar.length
+      ? aramayaGoreSirala(kaynak, parcalar, (s) => s.aranan).slice(0, 12)
+      : kaynak.slice(0, 12);
+
+    acilir.innerHTML = '';
+    if (!secenekler.length) {
+      const bos = document.createElement('div');
+      bos.className = 'bos';
+      bos.textContent = kaynak.length ? 'Eşleşen ürün yok.' : 'Ürün listesi okunamadı.';
+      acilir.appendChild(bos);
+    } else {
+      secenekler.forEach((s, i) => {
+        const d = document.createElement('button');
+        d.type = 'button';
+        d.tabIndex = -1;
+        const sol = document.createElement('span');
+        sol.textContent = s.etiket;
+        const sag = document.createElement('span');
+        sag.className = 'kod';
+        sag.textContent = s.kart.kod || '';
+        d.append(sol, sag);
+        // mousedown: blur'dan önce çalışsın, yoksa tıklama kutuyu kapatıyor.
+        d.addEventListener('mousedown', (olay) => { olay.preventDefault(); sec(s); });
+        acilir.appendChild(d);
+        if (i === 0) d.classList.add('secilen');
+      });
+      imlec = 0;
+    }
+    acilir.classList.remove('gizli');
+  }
+
+  girdi.addEventListener('input', goster);
+  // Boş kutuya odaklanınca liste açılmıyor: yeni satır açıldığında ekranın
+  // yarısını kaplayan bir ürün listesi çıkması kullanıcıyı şaşırtıyordu.
+  girdi.addEventListener('focus', () => { if (girdi.value.trim()) goster(); });
+  girdi.addEventListener('blur', () => setTimeout(kapat, 120));
+
+  return {
+    acikMi,
+    kapat,
+    imleciTasi,
+    // Açık listede seçili olanı alır; yoksa yazılan metne birebir uyanı arar.
+    secimiOnayla() {
+      if (acikMi() && secenekler[imlec]) {
+        sec(secenekler[imlec]);
+        return true;
+      }
+      return false;
+    }
+  };
 }
 
 function kasaKartiSecenekleri(secili) {
@@ -304,7 +475,6 @@ function satirEkle() {
   const stokHucre = document.createElement('td');
   const stok = document.createElement('input');
   stok.type = 'text';
-  stok.setAttribute('list', 'stokListesi');
   stok.placeholder = 'Ürün adı yazın…';
   stok.autocomplete = 'off';
   stokHucre.appendChild(stok);
@@ -379,32 +549,103 @@ function satirEkle() {
     kasaTutarHucre
   };
 
-  stok.addEventListener('change', () => {
-    const kart = durum.stokHaritasi.get(stok.value.trim());
+  function stokSecildi(kart) {
     if (kart && kart.fiyat) {
       fiyat.girdi.value = String(kart.fiyat).replace('.', ',');
     }
     toplamlariGuncelle();
-  });
+    // Seçimden sonra sıradaki alana geç — el klavyeden kalkmasın.
+    kasaAdedi.girdi.focus();
+    kasaAdedi.girdi.select();
+  }
+
+  tr._satir.stokKutusu = stokKutusuKur(stok, stokHucre, stokSecildi);
+
+  stok.addEventListener('change', toplamlariGuncelle);
 
   [stok, brutMiktar.girdi, kasaAdedi.girdi, fiyat.girdi].forEach((i) => {
     i.addEventListener('input', toplamlariGuncelle);
   });
   tip.addEventListener('change', toplamlariGuncelle);
 
-  // Hızlı giriş: son alanda Enter yeni satır açar.
-  fiyat.girdi.addEventListener('keydown', (olay) => {
-    if (olay.key === 'Enter') {
-      olay.preventDefault();
-      const sonuncu = govde.lastElementChild === tr;
-      if (sonuncu) satirEkle();
-      const sonraki = tr.nextElementSibling;
-      if (sonraki && sonraki._satir) sonraki._satir.stokGirdi.focus();
-    }
-  });
+  // Klavye gezinmesi — kullanıcı isteği:
+  //   Tab  → sağa (tarayıcının kendi davranışı, satır sonunda alt satıra geçer)
+  //   ↓    → alttaki satırın aynı sütunu; son satırdaysanız YENİ SATIR açar
+  //   ↑    → üstteki satırın aynı sütunu
+  //   Enter→ ↓ ile aynı
+  // Ürün kutusunda açılır liste açıkken ↑/↓ listede gezinir, Enter seçer —
+  // ancak o zaman satır gezinmesine karışmaz.
+  for (const girdi of satirAlanlari(tr)) {
+    girdi.addEventListener('keydown', (olay) => satirKlavyesi(olay, tr, girdi));
+  }
 
   stok.focus();
   return tr;
+}
+
+// Satırdaki gezilebilir alanlar, soldan sağa. Hesaplanan hücreler (dara,
+// daralı miktar, tutar) odaklanamaz, bu yüzden listede yok.
+function satirAlanlari(tr) {
+  const s = tr._satir;
+  if (!s) return [];
+  return [s.stokGirdi, s.kasaAdediGirdi, s.tipSecim, s.brutMiktarGirdi, s.fiyatGirdi];
+}
+
+function komsuSatiraGec(tr, girdi, yon) {
+  const govde = el('satirGovde');
+  const alanlar = satirAlanlari(tr);
+  const sutun = Math.max(0, alanlar.indexOf(girdi));
+
+  let hedef = yon > 0 ? tr.nextElementSibling : tr.previousElementSibling;
+
+  if (yon > 0 && !hedef) {
+    // Son satırda aşağı ok: yeni satır aç (kullanıcı isteği).
+    hedef = satirEkle();
+    toplamlariGuncelle();
+  }
+  if (!hedef || !hedef._satir) return;
+
+  const hedefAlanlar = satirAlanlari(hedef);
+  const secilen = hedefAlanlar[Math.min(sutun, hedefAlanlar.length - 1)];
+  if (!secilen) return;
+  secilen.focus();
+  if (secilen.select) secilen.select();
+  if (govde.lastElementChild === hedef && secilen.scrollIntoView) {
+    secilen.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function satirKlavyesi(olay, tr, girdi) {
+  const kutu = tr._satir && tr._satir.stokKutusu;
+  const urunKutusunda = girdi === tr._satir.stokGirdi;
+
+  if (olay.key === 'ArrowDown' || olay.key === 'ArrowUp') {
+    if (urunKutusunda && kutu && kutu.acikMi()) {
+      olay.preventDefault();
+      kutu.imleciTasi(olay.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    // Açılır kutusu olan <select> kendi seçeneklerinde gezinsin.
+    if (girdi.tagName === 'SELECT' && !olay.altKey) return;
+    olay.preventDefault();
+    komsuSatiraGec(tr, girdi, olay.key === 'ArrowDown' ? 1 : -1);
+    return;
+  }
+
+  if (olay.key === 'Enter') {
+    olay.preventDefault();
+    if (urunKutusunda && kutu && kutu.secimiOnayla()) return;
+    komsuSatiraGec(tr, girdi, 1);
+    return;
+  }
+
+  if (olay.key === 'Tab' && urunKutusunda && kutu && kutu.acikMi()) {
+    // Tab da seçsin: listede gezinip Tab'a basan kullanıcı ürünü kaybetmesin.
+    if (kutu.secimiOnayla()) olay.preventDefault();
+    return;
+  }
+
+  if (olay.key === 'Escape' && kutu) kutu.kapat();
 }
 
 function kdvOraniOku() {
@@ -848,9 +1089,69 @@ async function belgelerYukle() {
   }
 }
 
+// ═══════════════════════ Hafta hesabı (Pazar → Cumartesi) ═══════════════════════
+//
+// Kullanıcı isteği: "pazardan pazara". Hafta Pazar 00:00'da başlar, Cumartesi
+// biter. Aynı kural sunucu tarafında db/rapor.js → haftaAraligi'nda duruyor;
+// burada tekrar hesaplanmasının tek sebebi ok tuşlarına basınca her seferinde
+// sunucuya gidilmemesi.
+
+function haftaBasi(t) {
+  const d = t instanceof Date ? new Date(t) : new Date(t || Date.now());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay()); // getDay(): 0 = Pazar
+  return d;
+}
+
+function haftaSonu(t) {
+  const d = haftaBasi(t);
+  d.setDate(d.getDate() + 6);
+  return d;
+}
+
+function haftaEtiketi(t) {
+  return `${tarihYaz(haftaBasi(t))} — ${tarihYaz(haftaSonu(t))}`;
+}
+
 // ═══════════════════════ EKSTRE ═══════════════════════
+//
+// Ekran iki katmanlı: veritabanından TARİH ARALIĞI ile çekiliyor, süzgeçler
+// (işlem türü, yön, metin, en az tutar) çekilen satırlar üzerinde tarayıcıda
+// uygulanıyor. Süzgeci değiştirmek yeni sorgu açmıyor, anında süzüyor.
+
+const ekstreDurum = { devir: 0, satirlar: [], sonBakiye: 0 };
 
 el('ekstreGetir').addEventListener('click', () => ekstreYukle());
+
+el('ekstreBuHafta').addEventListener('click', () => ekstreHaftayaGit(new Date()));
+el('ekstreOncekiHafta').addEventListener('click', () => ekstreHaftaKaydir(-7));
+el('ekstreSonrakiHafta').addEventListener('click', () => ekstreHaftaKaydir(7));
+el('ekstreTumu').addEventListener('click', () => {
+  el('ekstreBaslangic').value = '';
+  el('ekstreBitis').value = '';
+  el('ekstreHaftaEtiket').textContent = 'Tüm hareketler';
+  ekstreYukle();
+});
+
+for (const id of ['ekstreIslem', 'ekstreYon', 'ekstreMetin', 'ekstreEnAz']) {
+  const kutu = el(id);
+  kutu.addEventListener(kutu.tagName === 'SELECT' ? 'change' : 'input', () => ekstreCiz());
+}
+
+function ekstreHaftayaGit(tarih) {
+  el('ekstreBaslangic').value = tarihKutusu(haftaBasi(tarih));
+  el('ekstreBitis').value = tarihKutusu(haftaSonu(tarih));
+  el('ekstreHaftaEtiket').textContent = haftaEtiketi(tarih);
+  ekstreYukle();
+}
+
+function ekstreHaftaKaydir(gun) {
+  const su = el('ekstreBaslangic').value
+    ? new Date(el('ekstreBaslangic').value)
+    : new Date();
+  su.setDate(su.getDate() + gun);
+  ekstreHaftayaGit(su);
+}
 
 async function ekstreYukle() {
   const govde = el('ekstreGovde');
@@ -858,7 +1159,10 @@ async function ekstreYukle() {
   ozet.textContent = '';
 
   const cari = ekstreCari.secili();
-  if (!cari) return boslukTemizle(govde, 7, 'Müşteri seçin.');
+  if (!cari) {
+    el('ekstreHaftaKutusu').classList.add('gizli');
+    return boslukTemizle(govde, 7, 'Müşteri seçin.');
+  }
 
   try {
     const sonuc = await cagir('vega:ekstre', {
@@ -869,29 +1173,73 @@ async function ekstreYukle() {
       bitis: el('ekstreBitis').value || null
     });
 
-    govde.innerHTML = '';
+    ekstreDurum.devir = sonuc.devir || 0;
+    ekstreDurum.satirlar = sonuc.satirlar || [];
+    ekstreDurum.sonBakiye = sonuc.sonBakiye || 0;
 
-    if (sonuc.devir) {
-      const tr = document.createElement('tr');
-      const bos = document.createElement('td');
-      bos.colSpan = 6;
-      const b = document.createElement('b');
-      b.textContent = 'Devir bakiyesi';
-      bos.appendChild(b);
-      const d = document.createElement('td');
-      d.className = 'sayi';
-      const db = document.createElement('b');
-      db.textContent = para(sonuc.devir);
-      d.appendChild(db);
-      tr.append(bos, d);
-      govde.appendChild(tr);
+    ekstreCiz();
+    ekstreHaftalariCiz();
+
+    try {
+      const kasalar = await cagir('yardimci:kasaBakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
+      if (kasalar.length) {
+        ozet.textContent +=
+          ' · müşteride duran kasa: ' +
+          kasalar.map((k) => `${k.kasaTipiKod} ${miktarYaz(k.acikAdet)}`).join(', ');
+      }
+    } catch (e) { /* kasa bilgisi olmasa da ekstre gösterilir */ }
+  } catch (e) {
+    el('ekstreHaftaKutusu').classList.add('gizli');
+    boslukTemizle(govde, 7, 'Okunamadı: ' + e.message);
+  }
+}
+
+function ekstreSuzgecleriUygula(satirlar) {
+  const izahat = el('ekstreIslem').value;
+  const yon = el('ekstreYon').value;
+  const parcalar = aramaParcalari(el('ekstreMetin').value);
+  const enAz = sayiOku(el('ekstreEnAz').value);
+
+  return satirlar.filter((s) => {
+    if (izahat && String(s.izahat).trim() !== izahat) return false;
+    if (yon === 'borc' && !s.borc) return false;
+    if (yon === 'alacak' && !s.alacak) return false;
+    if (enAz && Math.max(s.borc, s.alacak) < enAz) return false;
+    if (parcalar.length) {
+      const metin = `${s.aciklama} ${s.evrakNo} ${s.izahatAdi}`;
+      if (aramaPuani(metin, parcalar) < 0) return false;
     }
+    return true;
+  });
+}
 
-    if (!sonuc.satirlar.length && !sonuc.devir) {
-      return boslukTemizle(govde, 7, 'Bu aralıkta hareket yok.');
-    }
+function ekstreCiz() {
+  const govde = el('ekstreGovde');
+  const ozet = el('ekstreOzet');
+  const suzulmus = ekstreSuzgecleriUygula(ekstreDurum.satirlar);
 
-    for (const s of sonuc.satirlar) {
+  govde.innerHTML = '';
+
+  if (ekstreDurum.devir) {
+    const tr = document.createElement('tr');
+    const bos = document.createElement('td');
+    bos.colSpan = 6;
+    const b = document.createElement('b');
+    b.textContent = 'Devir bakiyesi';
+    bos.appendChild(b);
+    const d = document.createElement('td');
+    d.className = 'sayi';
+    const db = document.createElement('b');
+    db.textContent = para(ekstreDurum.devir);
+    d.appendChild(db);
+    tr.append(bos, d);
+    govde.appendChild(tr);
+  }
+
+  if (!suzulmus.length && !ekstreDurum.devir) {
+    boslukTemizle(govde, 7, 'Bu aralıkta (ve süzgeçle) hareket yok.');
+  } else {
+    for (const s of suzulmus) {
       const tr = document.createElement('tr');
       const hucreler = [
         [tarihYaz(s.tarih), ''],
@@ -910,21 +1258,602 @@ async function ekstreYukle() {
       }
       govde.appendChild(tr);
     }
+  }
 
-    let metin = `${sonuc.satirlar.length} hareket · son bakiye ${para(sonuc.sonBakiye)} TL`;
+  const borc = suzulmus.reduce((t, s) => t + s.borc, 0);
+  const alacak = suzulmus.reduce((t, s) => t + s.alacak, 0);
+  const suzuldu = suzulmus.length !== ekstreDurum.satirlar.length;
 
-    try {
-      const kasalar = await cagir('yardimci:kasaBakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
-      if (kasalar.length) {
-        metin +=
-          ' · müşteride duran kasa: ' +
-          kasalar.map((k) => `${k.kasaTipiKod} ${miktarYaz(k.acikAdet)}`).join(', ');
-      }
-    } catch (e) { /* kasa bilgisi olmasa da ekstre gösterilir */ }
+  ozet.textContent =
+    `${suzulmus.length} hareket` +
+    (suzuldu ? ` (toplam ${ekstreDurum.satirlar.length} içinden süzüldü)` : '') +
+    ` · çıkış ${para(borc)} · giriş ${para(alacak)}` +
+    ` · son bakiye ${para(ekstreDurum.sonBakiye)} TL`;
+}
 
-    ozet.textContent = metin;
+// "Bu haftaya tıklayınca ne kadar giriş çıkış olmuş" — hareketler Pazar→Cumartesi
+// haftalarına bölünüp özetleniyor. Satıra tıklamak ekstreyi o haftaya süzer.
+function ekstreHaftalariCiz() {
+  const kutu = el('ekstreHaftaKutusu');
+  const govde = el('ekstreHaftaGovde');
+  govde.innerHTML = '';
+
+  if (!ekstreDurum.satirlar.length) {
+    kutu.classList.add('gizli');
+    return;
+  }
+
+  const haftalar = new Map();
+  for (const s of ekstreDurum.satirlar) {
+    const bas = haftaBasi(s.tarih);
+    const anahtar = tarihKutusu(bas);
+    if (!haftalar.has(anahtar)) {
+      haftalar.set(anahtar, { bas, cikis: 0, giris: 0, sonBakiye: 0 });
+    }
+    const h = haftalar.get(anahtar);
+    h.cikis += s.borc;
+    h.giris += s.alacak;
+    h.sonBakiye = s.bakiye; // satırlar tarih sırasında: haftanın son bakiyesi
+  }
+
+  const sirali = [...haftalar.values()].sort((a, b) => b.bas - a.bas);
+  for (const h of sirali) {
+    const tr = document.createElement('tr');
+    tr.className = 'tiklanir';
+    tr.style.cursor = 'pointer';
+    const net = h.cikis - h.giris;
+    const hucreler = [
+      [haftaEtiketi(h.bas), ''],
+      [para(h.cikis), 'sayi'],
+      [para(h.giris), 'sayi'],
+      [para(net), 'sayi'],
+      [para(h.sonBakiye), 'sayi']
+    ];
+    for (const [metin, sinif] of hucreler) {
+      const td = document.createElement('td');
+      if (sinif) td.className = sinif;
+      td.textContent = metin;
+      tr.appendChild(td);
+    }
+    tr.addEventListener('click', () => ekstreHaftayaGit(h.bas));
+    govde.appendChild(tr);
+  }
+
+  kutu.classList.remove('gizli');
+}
+
+// ═══════════════════════ HAFTALIK RAPOR ═══════════════════════
+//
+// İki görünüm, tek sayfa:
+//   1. "GENEL MÜŞTERİYE GÖRE KALAN" — bütün müşteriler, tek satır özet
+//   2. Bir müşteriye tıklayınca o müşterinin hafta dökümü (fiş fiş)
+// Sütun tanımları için bkz. db/rapor.js başındaki açıklama.
+
+const raporDurum = { hafta: haftaBasi(new Date()), ozet: null, ilkAcilis: true };
+
+el('raporGetir').addEventListener('click', () => raporGetir());
+el('raporBuHafta').addEventListener('click', () => raporHaftayaGit(new Date()));
+el('raporOncekiHafta').addEventListener('click', () => raporHaftaKaydir(-7));
+el('raporSonrakiHafta').addEventListener('click', () => raporHaftaKaydir(7));
+el('raporTip').addEventListener('change', () => raporGetir());
+el('raporArama').addEventListener('input', () => raporGenelCiz());
+el('raporGeri').addEventListener('click', () => {
+  el('raporDetay').classList.add('gizli');
+  el('raporGenel').classList.remove('gizli');
+});
+el('raporYazdir').addEventListener('click', () => raporYazdir());
+
+function raporSayfasiAcildi() {
+  raporHaftaEtiketiniGuncelle();
+  if (raporDurum.ilkAcilis && firmaSecildiMi()) {
+    raporDurum.ilkAcilis = false;
+    raporGetir();
+  }
+}
+
+function raporHaftaEtiketiniGuncelle() {
+  el('raporHaftaEtiket').textContent = haftaEtiketi(raporDurum.hafta);
+  el('raporGenelTarih').textContent = tarihYaz(haftaSonu(raporDurum.hafta));
+}
+
+function raporHaftayaGit(tarih) {
+  raporDurum.hafta = haftaBasi(tarih);
+  raporHaftaEtiketiniGuncelle();
+  raporGetir();
+}
+
+function raporHaftaKaydir(gun) {
+  const d = new Date(raporDurum.hafta);
+  d.setDate(d.getDate() + gun);
+  raporHaftayaGit(d);
+}
+
+async function raporGetir() {
+  if (!firmaSecildiMi()) {
+    bildir('Önce Ayarlar ekranından firma ve dönem seçin.', 'hata');
+    return sekmeAc('ayar');
+  }
+  const dugme = el('raporGetir');
+  dugme.disabled = true;
+  el('raporDetay').classList.add('gizli');
+  el('raporGenel').classList.remove('gizli');
+  boslukTemizle(el('raporGenelGovde'), 6, 'Hazırlanıyor…');
+
+  try {
+    raporDurum.ozet = await cagir('rapor:haftalikOzet', {
+      firma: firmaKodu(),
+      donem: donemKodu(),
+      baslangic: tarihKutusu(haftaBasi(raporDurum.hafta)),
+      bitis: tarihKutusu(haftaSonu(raporDurum.hafta)),
+      tip: el('raporTip').value || null
+    });
+    raporHaftaEtiketiniGuncelle();
+    raporGenelCiz();
   } catch (e) {
-    boslukTemizle(govde, 7, 'Okunamadı: ' + e.message);
+    raporDurum.ozet = null;
+    boslukTemizle(el('raporGenelGovde'), 6, 'Rapor okunamadı: ' + e.message);
+    el('raporGenelToplam').textContent = '0,00';
+  } finally {
+    dugme.disabled = false;
+  }
+}
+
+function raporGenelCiz() {
+  const govde = el('raporGenelGovde');
+  if (!raporDurum.ozet) return;
+
+  const parcalar = aramaParcalari(el('raporArama').value);
+  const satirlar = parcalar.length
+    ? aramayaGoreSirala(raporDurum.ozet.satirlar, parcalar, (s) => s.ad + ' ' + s.kod)
+    : raporDurum.ozet.satirlar;
+
+  govde.innerHTML = '';
+  if (!satirlar.length) {
+    boslukTemizle(govde, 6, 'Bu haftada gösterilecek müşteri yok.');
+    el('raporGenelToplam').textContent = '0,00';
+    return;
+  }
+
+  const tarihMetni = tarihYaz(haftaSonu(raporDurum.hafta));
+  let toplam = 0;
+
+  for (const s of satirlar) {
+    const tr = document.createElement('tr');
+    tr.className = 'tiklanir';
+    const hucreler = [
+      [tarihMetni, ''],
+      [s.ad, ''],
+      [para(s.eskiBorc), 'sayi'],
+      [s.kasa ? para(s.kasa) : '0,00', 'sayi'],
+      [para(s.yeniBorc), 'sayi'],
+      [para(s.topBakiye), 'sayi']
+    ];
+    for (const [metin, sinif] of hucreler) {
+      const td = document.createElement('td');
+      if (sinif) td.className = sinif;
+      td.textContent = metin;
+      tr.appendChild(td);
+    }
+    tr.addEventListener('click', () => raporDetayGetir(s));
+    govde.appendChild(tr);
+    toplam += s.topBakiye;
+  }
+
+  el('raporGenelToplam').textContent = para(toplam);
+}
+
+async function raporDetayGetir(satir) {
+  const govde = el('raporDetayGovde');
+  el('raporGenel').classList.add('gizli');
+  el('raporDetay').classList.remove('gizli');
+  el('raporDetayUst').textContent = '';
+  el('raporDetayAlt').textContent = '';
+  boslukTemizle(govde, 8, 'Hazırlanıyor…');
+
+  try {
+    const d = await cagir('rapor:haftalikDetay', {
+      firma: firmaKodu(),
+      donem: donemKodu(),
+      cariInd: satir.cariInd,
+      baslangic: tarihKutusu(haftaBasi(raporDurum.hafta)),
+      bitis: tarihKutusu(haftaSonu(raporDurum.hafta))
+    });
+    raporDetayCiz(d);
+  } catch (e) {
+    boslukTemizle(govde, 8, 'Döküm okunamadı: ' + e.message);
+  }
+}
+
+function bilgiKutusu(baslik, deger, buyuk) {
+  const k = document.createElement('div');
+  k.className = 'bilgi';
+  const s = document.createElement('span');
+  s.textContent = baslik;
+  const b = document.createElement('b');
+  if (buyuk) b.className = 'buyukAd';
+  b.textContent = deger || '—';
+  k.append(s, b);
+  return k;
+}
+
+function raporSatiriEkle(govde, hucreler, sinif) {
+  const tr = document.createElement('tr');
+  if (sinif) tr.className = sinif;
+  for (const [metin, kolonSinif, genislik] of hucreler) {
+    const td = document.createElement('td');
+    if (kolonSinif) td.className = kolonSinif;
+    if (genislik) td.colSpan = genislik;
+    td.textContent = metin;
+    tr.appendChild(td);
+  }
+  govde.appendChild(tr);
+  return tr;
+}
+
+function raporDetayCiz(d) {
+  // Üst bilgi — eski programın başlığıyla aynı sıra.
+  const ust = el('raporDetayUst');
+  ust.innerHTML = '';
+  ust.append(
+    bilgiKutusu('ADI_SOYADI', d.cari.ad, true),
+    bilgiKutusu('ADRESİ', d.cari.adres),
+    bilgiKutusu('TELEFON', d.cari.telefon),
+    bilgiKutusu('BABA ADI / NOT', d.cari.not),
+    bilgiKutusu('HAFTA', `${tarihYaz(d.baslangic)} — ${tarihYaz(d.bitis)}`),
+    bilgiKutusu('DEVİR', para(d.devir))
+  );
+
+  // Satırlar — fiş fiş. Her fişin sonunda ara toplam, sonra bir boş satır
+  // (kullanıcı isteği: "fiş sırası bitince sonunda boşluk bıraksın, o seriyi
+  // toplasın, sonra öyle öyle devam etsin").
+  const govde = el('raporDetayGovde');
+  govde.innerHTML = '';
+
+  if (!d.gruplar.length) {
+    boslukTemizle(govde, 8, 'Bu haftada bu müşteriye belge girilmemiş.');
+  } else {
+    let genel = { kasaAdedi: 0, kasaTutari: 0, netKg: 0, tutar: 0 };
+
+    d.gruplar.forEach((g, sira) => {
+      for (const s of g.satirlar) {
+        raporSatiriEkle(govde, [
+          [s.cinsi, ''],
+          [s.kasaAdedi ? miktarYaz(s.kasaAdedi) + (s.kasaTipiKod ? ' ' + s.kasaTipiKod : '') : '0', 'sayi'],
+          [para(s.kasaTutari), 'sayi'],
+          [miktarYaz(s.netKg), 'sayi'],
+          [para(s.fiyat), 'sayi'],
+          [para(s.tutar), 'sayi'],
+          [s.aciklama, ''],
+          [s.fisNo, 'sayi']
+        ]);
+      }
+
+      raporSatiriEkle(govde, [
+        [`FİŞ ${g.fisNo} TOPLAMI`, ''],
+        [miktarYaz(g.araToplam.kasaAdedi), 'sayi'],
+        [para(g.araToplam.kasaTutari), 'sayi'],
+        [miktarYaz(g.araToplam.netKg), 'sayi'],
+        ['', 'sayi'],
+        [para(g.araToplam.tutar), 'sayi'],
+        ['', ''],
+        [g.fisNo, 'sayi']
+      ], 'fisAra');
+
+      genel.kasaAdedi += g.araToplam.kasaAdedi;
+      genel.kasaTutari += g.araToplam.kasaTutari;
+      genel.netKg += g.araToplam.netKg;
+      genel.tutar += g.araToplam.tutar;
+
+      // Son fişten sonra boşluk yok; genel toplam hemen altında dursun.
+      if (sira < d.gruplar.length - 1) {
+        raporSatiriEkle(govde, [['', '', 8]], 'fisBoslugu');
+      }
+    });
+
+    raporSatiriEkle(govde, [
+      ['GENEL TOPLAM', ''],
+      [miktarYaz(genel.kasaAdedi), 'sayi'],
+      [para(genel.kasaTutari), 'sayi'],
+      [miktarYaz(genel.netKg), 'sayi'],
+      ['', 'sayi'],
+      [para(genel.tutar), 'sayi'],
+      ['', ''],
+      ['', 'sayi']
+    ], 'genelToplam');
+  }
+
+  // Alt blok: geri gelen kasalar, ödemeler, bakiye.
+  const alt = el('raporDetayAlt');
+  alt.innerHTML = '';
+
+  if (d.kasaIadeleri.length) {
+    alt.appendChild(kucukTablo(
+      'Geri Gelen Kasalar',
+      ['K SAYISI', 'K TÜRÜ', 'K TUTARI'],
+      d.kasaIadeleri.map((k) => [
+        [miktarYaz(k.adet), 'sayi'], [k.tur, ''], [para(k.tutar), 'sayi']
+      ])
+    ));
+  }
+
+  alt.appendChild(kucukTablo(
+    'ÖDEME',
+    ['ÖD. TARİHİ', 'ALINAN', 'AÇIKLAMA'],
+    d.odemeler.length
+      ? d.odemeler.map((o) => [
+          [tarihYaz(o.tarih), ''], [para(o.alinan), 'sayi'], [o.aciklama, '']
+        ])
+      : [[['Bu hafta ödeme alınmamış.', '', 3]]]
+  ));
+
+  const ozet = document.createElement('div');
+  ozet.className = 'raporOzet';
+  ozet.append(
+    ozetKalemi('DEVİR', para(d.devir)),
+    ozetKalemi('KASA TUTARI', para(d.kasaTutari)),
+    ozetKalemi('S.TUTARI', para(d.urunTutari)),
+    ozetKalemi('HAFTA TOPLAMI', para(d.toplam)),
+    ozetKalemi('ÖDEME', para(d.odemeToplam)),
+    ozetKalemi('BAKİYE', para(d.bakiye), true)
+  );
+  alt.appendChild(ozet);
+}
+
+function ozetKalemi(baslik, deger, vurgu) {
+  const k = document.createElement('div');
+  k.className = 'kalem' + (vurgu ? ' vurgu' : '');
+  const s = document.createElement('span');
+  s.textContent = baslik;
+  const b = document.createElement('b');
+  b.textContent = deger;
+  k.append(s, b);
+  return k;
+}
+
+function kucukTablo(baslik, basliklar, satirlar) {
+  const sarma = document.createElement('div');
+  const h = document.createElement('h3');
+  h.textContent = baslik;
+  sarma.appendChild(h);
+
+  const t = document.createElement('table');
+  t.className = 'veri rapor';
+  const thead = document.createElement('thead');
+  const btr = document.createElement('tr');
+  for (const b of basliklar) {
+    const th = document.createElement('th');
+    th.textContent = b;
+    btr.appendChild(th);
+  }
+  thead.appendChild(btr);
+  const tbody = document.createElement('tbody');
+  for (const satir of satirlar) raporSatiriEkle(tbody, satir);
+  t.append(thead, tbody);
+  sarma.appendChild(t);
+  return sarma;
+}
+
+async function raporYazdir() {
+  try {
+    window.print();
+  } catch (e) {
+    try {
+      await cagir('yazdir', {});
+    } catch (e2) {
+      bildir('Yazdırılamadı: ' + e2.message, 'hata');
+    }
+  }
+}
+
+// ═══════════════════════ MÜŞTERİ LİSTESİ + YENİ CARİ KARTI ═══════════════════════
+
+const cariKutulari = {
+  belge: () => belgeCari,
+  iade: () => iadeCari,
+  ekstre: () => ekstreCari
+};
+
+let cariHedefi = 'belge';
+let cariListesi = [];
+
+document.querySelectorAll('[data-cari-liste]').forEach((d) => {
+  d.addEventListener('click', () => cariListesiniAc(d.dataset.cariListe));
+});
+document.querySelectorAll('[data-cari-yeni]').forEach((d) => {
+  d.addEventListener('click', () => cariYenisiniAc(d.dataset.cariYeni));
+});
+
+el('cariListeKapat').addEventListener('click', () => el('cariListePerde').classList.add('gizli'));
+el('cariListeYenile').addEventListener('click', () => cariListesiniYukle());
+el('cariListeTip').addEventListener('change', () => cariListesiniYukle());
+el('cariListeBakiyeli').addEventListener('change', () => cariListesiniYukle());
+el('cariListeArama').addEventListener('input', () => cariListesiniCiz());
+el('cariListeYeni').addEventListener('click', () => {
+  el('cariListePerde').classList.add('gizli');
+  cariYenisiniAc(cariHedefi);
+});
+
+el('cariYeniKapat').addEventListener('click', () => el('cariYeniPerde').classList.add('gizli'));
+el('cariYeniKaydet').addEventListener('click', () => cariKartiniAc());
+
+// Perdeye (dışına) tıklayınca kapat.
+for (const id of ['cariListePerde', 'cariYeniPerde']) {
+  el(id).addEventListener('click', (olay) => {
+    if (olay.target === el(id)) el(id).classList.add('gizli');
+  });
+}
+
+document.addEventListener('keydown', (olay) => {
+  if (olay.key !== 'Escape') return;
+  el('cariListePerde').classList.add('gizli');
+  el('cariYeniPerde').classList.add('gizli');
+});
+
+async function cariListesiniAc(hedef) {
+  if (!firmaSecildiMi()) {
+    bildir('Önce Ayarlar ekranından firma ve dönem seçin.', 'hata');
+    return sekmeAc('ayar');
+  }
+  cariHedefi = hedef || 'belge';
+  el('cariListePerde').classList.remove('gizli');
+  el('cariListeArama').value = '';
+  el('cariListeArama').focus();
+  await cariListesiniYukle();
+}
+
+async function cariListesiniYukle() {
+  const govde = el('cariListeGovde');
+  boslukTemizle(govde, 6, 'Yükleniyor…');
+  try {
+    cariListesi = await cagir('cari:liste', {
+      firma: firmaKodu(),
+      donem: donemKodu(),
+      tip: el('cariListeTip').value || null,
+      sadeceBakiyeli: el('cariListeBakiyeli').checked
+    });
+    cariListesiniCiz();
+  } catch (e) {
+    cariListesi = [];
+    boslukTemizle(govde, 6, 'Liste okunamadı: ' + e.message);
+  }
+}
+
+function cariListesiniCiz() {
+  const govde = el('cariListeGovde');
+  const parcalar = aramaParcalari(el('cariListeArama').value);
+  const liste = parcalar.length
+    ? aramayaGoreSirala(cariListesi, parcalar, (c) => `${c.ad} ${c.kod} ${c.adres} ${c.telefon}`)
+    : cariListesi;
+
+  govde.innerHTML = '';
+  if (!liste.length) {
+    boslukTemizle(govde, 6, 'Eşleşen müşteri yok.');
+    el('cariListeBilgi').textContent = '';
+    return;
+  }
+
+  for (const c of liste.slice(0, 500)) {
+    const tr = document.createElement('tr');
+    const hucreler = [
+      [c.kod, ''], [c.ad, ''], [c.adres, ''], [c.telefon, ''], [c.tip, ''],
+      [para(c.bakiye), 'sayi']
+    ];
+    for (const [metin, sinif] of hucreler) {
+      const td = document.createElement('td');
+      if (sinif) td.className = sinif;
+      td.textContent = metin;
+      tr.appendChild(td);
+    }
+    tr.addEventListener('click', () => cariSecildi(c));
+    govde.appendChild(tr);
+  }
+
+  el('cariListeBilgi').textContent =
+    `${liste.length} müşteri` + (liste.length > 500 ? ' (ilk 500 gösteriliyor, aramayı daraltın)' : '');
+}
+
+function cariSecildi(c) {
+  el('cariListePerde').classList.add('gizli');
+
+  if (cariHedefi === 'rapor') {
+    sekmeAc('rapor');
+    raporDetayGetir(c);
+    return;
+  }
+
+  const kutu = cariKutulari[cariHedefi] && cariKutulari[cariHedefi]();
+  if (!kutu) return;
+  kutu.sec({ cariInd: c.cariInd, kod: c.kod, ad: c.ad, adres: c.adres, bakiye: c.bakiye });
+  if (cariHedefi === 'ekstre') ekstreYukle();
+}
+
+// --- Yeni cari kartı ---------------------------------------------------------
+//
+// Hangi alanların sorulacağını sunucu söylüyor (db/cari.js → kartAlanlari):
+// Vega kurulumları arasında sütun farkı olabildiği için liste orada, gerçekten
+// var olan sütunlara göre kuruluyor.
+
+let cariYeniAlanlari = [];
+
+async function cariYenisiniAc(hedef) {
+  if (!firmaSecildiMi()) {
+    bildir('Önce Ayarlar ekranından firma ve dönem seçin.', 'hata');
+    return sekmeAc('ayar');
+  }
+  if (!durum.yazmaAcik) {
+    bildir("Cari kartı açmak için Ayarlar ekranından \"Vega'ya yazmayı aç\" işaretlenmeli.", 'hata');
+    return sekmeAc('ayar');
+  }
+
+  cariHedefi = hedef || 'belge';
+  const kap = el('cariYeniAlanlar');
+  kap.innerHTML = '';
+  el('cariYeniBilgi').textContent = '';
+  el('cariYeniPerde').classList.remove('gizli');
+
+  try {
+    cariYeniAlanlari = await cagir('cari:alanlar', { firma: firmaKodu(), donem: donemKodu() });
+  } catch (e) {
+    cariYeniAlanlari = [];
+    el('cariYeniBilgi').textContent = 'Alan listesi okunamadı: ' + e.message;
+    return;
+  }
+
+  for (const a of cariYeniAlanlari) {
+    const kutu = document.createElement('div');
+    kutu.className = 'alan';
+    const etiket = document.createElement('label');
+    etiket.textContent = a.etiket + (a.zorunlu ? ' *' : '');
+    etiket.htmlFor = 'cariYeni_' + a.ad;
+    const girdi = document.createElement('input');
+    girdi.type = 'text';
+    girdi.id = 'cariYeni_' + a.ad;
+    girdi.autocomplete = 'off';
+    girdi.maxLength = a.uzunluk || 100;
+    kutu.append(etiket, girdi);
+    kap.appendChild(kutu);
+  }
+
+  const ilk = kap.querySelector('input');
+  if (ilk) ilk.focus();
+}
+
+async function cariKartiniAc() {
+  const dugme = el('cariYeniKaydet');
+  const bilgi = el('cariYeniBilgi');
+  const degerler = { firma: firmaKodu(), donem: donemKodu(), tip: el('cariYeniTip').value };
+
+  for (const a of cariYeniAlanlari) {
+    const girdi = el('cariYeni_' + a.ad);
+    const deger = girdi ? girdi.value.trim() : '';
+    if (a.zorunlu && !deger) {
+      bilgi.textContent = a.etiket + ' boş bırakılamaz.';
+      if (girdi) girdi.focus();
+      return;
+    }
+    // 'unvan1' sunucuda 'ad' olarak bekleniyor (FIRMAADI).
+    degerler[a.ad === 'unvan1' ? 'ad' : a.ad] = deger;
+  }
+
+  dugme.disabled = true;
+  bilgi.textContent = 'Kart açılıyor…';
+  try {
+    const sonuc = await cagir('cari:ac', degerler);
+    el('cariYeniPerde').classList.add('gizli');
+    bildir(`Cari kartı açıldı: ${sonuc.ad} (${sonuc.kod}) · ${sonuc.tip}`, 'basarili');
+    cariSecildi({
+      cariInd: sonuc.cariInd,
+      kod: sonuc.kod,
+      ad: sonuc.ad,
+      adres: degerler.sehir || degerler.adres || '',
+      telefon: degerler.telefon || '',
+      tip: sonuc.tip,
+      bakiye: 0
+    });
+  } catch (e) {
+    bilgi.textContent = 'Açılamadı: ' + e.message;
+  } finally {
+    dugme.disabled = false;
   }
 }
 

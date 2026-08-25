@@ -14,8 +14,9 @@
   <nav class="sekmeler">
     <button class="sekme etkin" data-sekme="belge">Belge Gir</button>
     <button class="sekme" data-sekme="kasa">Kasa</button>
-    <button class="sekme" data-sekme="belgeler">Son Belgeler</button>
+    <button class="sekme" data-sekme="rapor">Haftalık Rapor</button>
     <button class="sekme" data-sekme="ekstre">Ekstre</button>
+    <button class="sekme" data-sekme="belgeler">Son Belgeler</button>
     <button class="sekme" data-sekme="ayar">Ayarlar</button>
   </nav>
   <div class="durum">
@@ -38,6 +39,10 @@
           <input type="text" id="cariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
           <div id="cariSonuc" class="acilir gizli"></div>
           <div id="cariSecili" class="secili gizli"></div>
+          <div class="altDugmeler">
+            <button type="button" class="dugme mini ikincil" data-cari-liste="belge">Listeden Seç</button>
+            <button type="button" class="dugme mini ikincil" data-cari-yeni="belge">+ Yeni Cari Kartı</button>
+          </div>
         </div>
         <div class="alan">
           <label for="belgeTarih">Tarih</label>
@@ -75,8 +80,12 @@
         </thead>
         <tbody id="satirGovde"></tbody>
       </table>
-      <datalist id="stokListesi"></datalist>
       <button class="dugme ikincil" id="satirEkle">+ Satır Ekle</button>
+      <p class="ipucu klavyeIpucu">
+        <b>Tab</b> sağa ilerler · <b>↓</b> alttaki satıra geçer, son satırdaysanız
+        yeni satır açar · <b>↑</b> üste çıkar · <b>Enter</b> yeni satır açar ·
+        ürün kutusunda kelimeleri ayrı ayrı yazabilirsiniz ("kapya biber" / "biber kapya" aynı).
+      </p>
     </div>
 
     <div class="kutu toplamlar">
@@ -110,6 +119,9 @@
           <input type="text" id="iadeCariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
           <div id="iadeCariSonuc" class="acilir gizli"></div>
           <div id="iadeCariSecili" class="secili gizli"></div>
+          <div class="altDugmeler">
+            <button type="button" class="dugme mini ikincil" data-cari-liste="iade">Listeden Seç</button>
+          </div>
         </div>
         <div class="alan">
           <label for="iadeKasaTipi">Kasa Tipi</label>
@@ -146,6 +158,80 @@
         </thead>
         <tbody id="kasaGovde"></tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════ HAFTALIK RAPOR ══════════════════ -->
+  <section class="sayfa" id="sayfa-rapor">
+    <div class="kutu yazdirilmaz">
+      <div class="haftaCubugu">
+        <button class="dugme ikincil" id="raporOncekiHafta" title="Önceki hafta">◀</button>
+        <div class="haftaEtiket" id="raporHaftaEtiket">—</div>
+        <button class="dugme ikincil" id="raporSonrakiHafta" title="Sonraki hafta">▶</button>
+        <button class="dugme ucuncul" id="raporBuHafta">Bu Hafta</button>
+        <div class="alan kucuk">
+          <label for="raporTip">Kart tipi</label>
+          <select id="raporTip">
+            <option value="">Hepsi</option>
+            <option value="alici" selected>Alıcı (müşteri)</option>
+            <option value="satici">Satıcı (tedarikçi)</option>
+          </select>
+        </div>
+        <div class="alan buyu">
+          <label for="raporArama">Listede ara</label>
+          <input type="text" id="raporArama" placeholder="müşteri adı…" autocomplete="off">
+        </div>
+        <button class="dugme birincil buyuk" id="raporGetir">Raporu Getir</button>
+        <button class="dugme ikincil" id="raporYazdir">Yazdır</button>
+      </div>
+      <p class="ipucu">
+        Hafta <b>Pazar</b> başlar, <b>Cumartesi</b> biter. Listede bir müşteriye
+        tıklayınca o müşterinin hafta dökümü (fiş fiş, ara toplamlı) açılır.
+      </p>
+    </div>
+
+    <!-- Görsel 2: GENEL MÜŞTERİYE GÖRE KALAN -->
+    <div class="kutu yazdirilir" id="raporGenel">
+      <h1 class="raporBaslik">GENEL MÜŞTERİYE GÖRE KALAN</h1>
+      <table class="veri rapor" id="raporGenelTablo">
+        <thead>
+          <tr>
+            <th class="tarihSutun" id="raporGenelTarih">—</th>
+            <th class="genis">ADI_SOYADI</th>
+            <th class="sayi">ESKİ BORÇ</th>
+            <th class="sayi">KASA</th>
+            <th class="sayi">YENİ BORÇ</th>
+            <th class="sayi">TOP.BAKİYE</th>
+          </tr>
+        </thead>
+        <tbody id="raporGenelGovde"></tbody>
+      </table>
+      <div class="raporGenelToplam">
+        <span>GENEL TOPLAM</span>
+        <b id="raporGenelToplam">0,00</b>
+      </div>
+    </div>
+
+    <!-- Görsel 1: müşteri hafta dökümü -->
+    <div class="kutu yazdirilir gizli" id="raporDetay">
+      <button class="dugme ikincil yazdirilmaz" id="raporGeri">◀ Listeye Dön</button>
+      <div class="raporUst" id="raporDetayUst"></div>
+      <table class="veri rapor" id="raporDetayTablo">
+        <thead>
+          <tr>
+            <th class="genis">CİNSİ</th>
+            <th class="sayi">K ADET</th>
+            <th class="sayi">K.TUTAR</th>
+            <th class="sayi">NET KG</th>
+            <th class="sayi">FİYAT</th>
+            <th class="sayi">TUTAR</th>
+            <th>AÇIKLAMA</th>
+            <th class="sayi">FİŞ NO</th>
+          </tr>
+        </thead>
+        <tbody id="raporDetayGovde"></tbody>
+      </table>
+      <div class="raporAlt" id="raporDetayAlt"></div>
     </div>
   </section>
 
@@ -186,6 +272,10 @@
           <input type="text" id="ekstreCariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
           <div id="ekstreCariSonuc" class="acilir gizli"></div>
           <div id="ekstreCariSecili" class="secili gizli"></div>
+          <div class="altDugmeler">
+            <button type="button" class="dugme mini ikincil" data-cari-liste="ekstre">Listeden Seç</button>
+            <button type="button" class="dugme mini ikincil" data-cari-yeni="ekstre">+ Yeni Cari Kartı</button>
+          </div>
         </div>
         <div class="alan">
           <label for="ekstreBaslangic">Başlangıç</label>
@@ -199,6 +289,64 @@
           <button class="dugme birincil" id="ekstreGetir">Getir</button>
         </div>
       </div>
+
+      <div class="haftaCubugu ince">
+        <button class="dugme ikincil" id="ekstreOncekiHafta" title="Önceki hafta">◀</button>
+        <div class="haftaEtiket" id="ekstreHaftaEtiket">Tüm hareketler</div>
+        <button class="dugme ikincil" id="ekstreSonrakiHafta" title="Sonraki hafta">▶</button>
+        <button class="dugme ucuncul" id="ekstreBuHafta">Bu Hafta</button>
+        <button class="dugme ucuncul" id="ekstreTumu">Tümü</button>
+      </div>
+
+      <div class="suzgecCubugu">
+        <div class="alan">
+          <label for="ekstreIslem">İşlem türü</label>
+          <select id="ekstreIslem">
+            <option value="">Hepsi</option>
+            <option value="21">Satış Faturası</option>
+            <option value="13">Tahsilat</option>
+            <option value="11">Cari Çıkış</option>
+            <option value="34">Kasa İadesi</option>
+            <option value="104">Devir</option>
+          </select>
+        </div>
+        <div class="alan">
+          <label for="ekstreYon">Yön</label>
+          <select id="ekstreYon">
+            <option value="">Hepsi</option>
+            <option value="borc">Sadece borç (çıkış)</option>
+            <option value="alacak">Sadece alacak (giriş)</option>
+          </select>
+        </div>
+        <div class="alan buyuk">
+          <label for="ekstreMetin">Açıklama / evrak no ara</label>
+          <input type="text" id="ekstreMetin" placeholder="fiş no, açıklama…" autocomplete="off">
+        </div>
+        <div class="alan kucuk">
+          <label for="ekstreEnAz">En az tutar</label>
+          <input type="text" id="ekstreEnAz" inputmode="decimal" placeholder="0" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <!-- Haftalara bölünmüş giriş/çıkış özeti — satıra tıklayınca o hafta süzülür -->
+    <div class="kutu gizli" id="ekstreHaftaKutusu">
+      <div class="baslikSatir">
+        <h2>Haftalık Giriş / Çıkış</h2>
+        <span class="ipucu">Bir haftaya tıklayın: ekstre o haftaya süzülür.</span>
+      </div>
+      <table class="veri" id="ekstreHaftaTablo">
+        <thead>
+          <tr>
+            <th class="genis">Hafta (Pazar → Cumartesi)</th>
+            <th class="sayi">Çıkış (borç)</th>
+            <th class="sayi">Giriş (alacak)</th>
+            <th class="sayi">Net</th>
+            <th class="sayi">Hafta sonu bakiye</th>
+          </tr>
+        </thead>
+        <tbody id="ekstreHaftaGovde"></tbody>
+      </table>
     </div>
 
     <div class="kutu">
@@ -343,6 +491,80 @@
   </section>
 
 </main>
+
+<!-- ══════════════════ MÜŞTERİ LİSTESİ ══════════════════ -->
+<div class="perde gizli" id="cariListePerde">
+  <div class="pencere genisPencere">
+    <div class="pencereBaslik">
+      <h2>Müşteri Listesi</h2>
+      <button class="dugme mini ucuncul" id="cariListeKapat">Kapat</button>
+    </div>
+    <div class="suzgecCubugu">
+      <div class="alan buyuk">
+        <label for="cariListeArama">Ara</label>
+        <input type="text" id="cariListeArama" placeholder="isim, kod, köy…" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariListeTip">Tip</label>
+        <select id="cariListeTip">
+          <option value="alici" selected>Alıcı (müşteri)</option>
+          <option value="satici">Satıcı (tedarikçi)</option>
+          <option value="">Hepsi</option>
+        </select>
+      </div>
+      <div class="alan onay">
+        <label><input type="checkbox" id="cariListeBakiyeli"> Sadece bakiyesi olanlar</label>
+      </div>
+      <div class="alan dugmeAlani">
+        <button class="dugme ikincil" id="cariListeYenile">Yenile</button>
+        <button class="dugme birincil" id="cariListeYeni">+ Yeni Cari Kartı</button>
+      </div>
+    </div>
+    <div class="pencereGovde">
+      <table class="veri" id="cariListeTablo">
+        <thead>
+          <tr>
+            <th>Kod</th>
+            <th class="genis">Adı Soyadı</th>
+            <th>Adresi</th>
+            <th>Telefon</th>
+            <th>Tip</th>
+            <th class="sayi">Bakiye</th>
+          </tr>
+        </thead>
+        <tbody id="cariListeGovde"></tbody>
+      </table>
+    </div>
+    <div class="ipucu" id="cariListeBilgi"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ YENİ CARİ KARTI ══════════════════ -->
+<div class="perde gizli" id="cariYeniPerde">
+  <div class="pencere">
+    <div class="pencereBaslik">
+      <h2>Yeni Cari Kartı</h2>
+      <button class="dugme mini ucuncul" id="cariYeniKapat">Kapat</button>
+    </div>
+    <p class="ipucu">
+      Kart doğrudan Vega'ya (cari kartları tablosuna) açılır. Cari kodu elle
+      yazılır — program kendi numarasını uydurmaz, işletmenin kendi düzeni bozulmasın.
+    </p>
+    <div class="izgara" id="cariYeniAlanlar"></div>
+    <div class="alan">
+      <label for="cariYeniTip">Kart tipi</label>
+      <select id="cariYeniTip">
+        <option value="alici" selected>Alıcı (müşteri)</option>
+        <option value="satici">Satıcı (tedarikçi)</option>
+        <option value="ikisi">Alıcı + Satıcı</option>
+      </select>
+    </div>
+    <div class="eylemler sol">
+      <button class="dugme birincil buyuk" id="cariYeniKaydet">Cari Kartını Aç</button>
+    </div>
+    <div class="ipucu" id="cariYeniBilgi"></div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
