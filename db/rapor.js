@@ -1,17 +1,23 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  HAFTALIK RAPORLAR
+//  RAPORLAR
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Eski Access programının iki çıktısı buraya taşındı:
+// Eski Access programının iki çıktısı buraya taşındı. 27.08.2026'da ikisi
+// ayrı ekranlara bölündü (kullanıcı isteği): özet "Haftalık Rapor"
+// sekmesinde, fiş bazlı ayrıntı "Ekstre" sekmesinde.
 //
-//   1. "GENEL MÜŞTERİYE GÖRE KALAN" (haftalikOzet)
-//      Tarih | ADI_SOYADI | ESKİ BORÇ | KASA | YENİ BORÇ | TOP.BAKİYE
+//   1. "GENEL MÜŞTERİYE GÖRE KALAN" (haftalikOzet) — çok müşterili borç dökümü
+//      Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA |
+//      YENİ BORÇ | ÖDEME | TOP.BAKİYE
+//      Ayrıntı yok: "ne kadar almış, ne kadar vermiş, borcu ne" tek satır.
 //
-//   2. Müşteri hafta dökümü (haftalikDetay)
-//      CİNSİ | K ADET | K.TUTAR | NET KG | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO
-//      + DEVİR, KASA TUTARI, S.TUTARI, ÖDEME bloğu, BAKİYE
+//   2. Müşteri dönem dökümü (haftalikDetay) — Ekstre ekranındaki ayrıntılı rapor
+//      CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO
+//      + DEVİR, KASA ÖZETİ, S.TUTARI, ÖDEME bloğu, BAKİYE
+//      NET KG sütunu 27.08.2026'da kaldırıldı (kullanıcı isteği: gerekmiyor,
+//      ayrıca çıktı sayfa sayısını şişiriyordu).
 //
 // SÜTUNLARIN TANIMI — eski programın gerçek çıktısıyla doğrulandı
 // (AHMET TAMALLIOĞLU: 348.451,20 + 1.300,00 + 21.243,00 = 370.994,20):
@@ -132,25 +138,40 @@ async function haftalikOzet(secenek) {
   //      günlükte olmayan belgeler için (o belgeleri bu program yazmadı).
   // Faturasız (cari dekont) belgelerde Vega tarafında kasa kalemi ayrı bir
   // satır olarak durmuyor; onlar yalnızca günlükten gelir.
+  //
+  // Tutarın yanında ADET ve TÜR de toplanıyor: kullanıcı çıktıda "kaç kasa,
+  // hangi türden, kaç TL" bilgisini ayrı ayrı istiyor (27.08.2026) — önceden
+  // yalnızca toplam tutar vardı.
   const kasaHaftalik = new Map();
-  const kasaEkle = (cariInd, tutar) => {
+  const kasaEkle = (cariInd, tur, adet, tutar) => {
     const no = Number(cariInd);
-    kasaHaftalik.set(no, (kasaHaftalik.get(no) || 0) + (Number(tutar) || 0));
+    if (!kasaHaftalik.has(no)) kasaHaftalik.set(no, { tutar: 0, adet: 0, turler: new Map() });
+    const k = kasaHaftalik.get(no);
+    k.tutar += Number(tutar) || 0;
+    k.adet += Number(adet) || 0;
+    const kod = String(tur || '').trim();
+    if (kod && Number(adet)) k.turler.set(kod, (k.turler.get(kod) || 0) + Number(adet));
   };
 
   const gunlukKasa = await sorgu(
-    `SELECT CariInd, SUM(KasaTutari) AS kasa
+    `SELECT CariInd, ISNULL(KasaTipiKod, '') AS tur,
+            SUM(KasaAdedi) AS adet, SUM(KasaTutari) AS kasa
      FROM [${v}].dbo.BD_BelgeSatir
      WHERE Firma = @firma AND GeriAlindi = 0 AND Tarih >= @bas AND Tarih <= @bitis
-     GROUP BY CariInd`,
+     GROUP BY CariInd, ISNULL(KasaTipiKod, '')`,
     { firma, bas: baslangic, bitis }
   );
-  for (const s of gunlukKasa) kasaEkle(s.CariInd, s.kasa);
+  for (const s of gunlukKasa) kasaEkle(s.CariInd, s.tur, s.adet, s.kasa);
 
   if (await tabloVarMi(firma, donem, 'TBLSATFATBASLIK') &&
       await tabloVarMi(firma, donem, 'TBLSATFATHAREKET')) {
     const faturaKasa = await sorgu(
-      `SELECT B.FIRMANO AS cariInd, SUM(ISNULL(H.GERCEKTOPLAM, 0)) AS kasa
+      // MALINCINSI bazı kurulumlarda metin (TEXT) tipinde olabiliyor; GROUP BY
+      // metin sütunu kabul etmediği için NVARCHAR'a çevriliyor.
+      `SELECT B.FIRMANO AS cariInd,
+              CAST(ISNULL(H.MALINCINSI, ISNULL(H.STOKKODU, '')) AS NVARCHAR(250)) AS tur,
+              SUM(ISNULL(H.MIKTAR, 0)) AS adet,
+              SUM(ISNULL(H.GERCEKTOPLAM, 0)) AS kasa
        FROM ${tablo(v, firma, donem, 'TBLSATFATBASLIK')} B
        JOIN ${tablo(v, firma, donem, 'TBLSATFATHAREKET')} H ON H.EVRAKNO = B.IND
        WHERE B.TARIH >= @bas AND B.TARIH < @ertesi AND ISNULL(B.IPTAL, 0) = 0
@@ -159,20 +180,21 @@ async function haftalikOzet(secenek) {
            SELECT 1 FROM [${v}].dbo.BD_BelgeSatir G
            WHERE G.Firma = @firma AND G.GeriAlindi = 0 AND G.BelgeNo = B.BELGENO
          )
-       GROUP BY B.FIRMANO`,
+       GROUP BY B.FIRMANO, CAST(ISNULL(H.MALINCINSI, ISNULL(H.STOKKODU, '')) AS NVARCHAR(250))`,
       { firma, bas: baslangic, ertesi }
     );
-    for (const s of faturaKasa) kasaEkle(s.cariInd, s.kasa);
+    for (const s of faturaKasa) kasaEkle(s.cariInd, s.tur, s.adet, s.kasa);
   }
 
   const sonuc = [];
-  let toplam = { eskiBorc: 0, kasa: 0, yeniBorc: 0, topBakiye: 0 };
+  let toplam = { eskiBorc: 0, kasaAdedi: 0, kasa: 0, yeniBorc: 0, odeme: 0, topBakiye: 0 };
 
   for (const s of satirlar) {
     const oncekiBakiye = Number(s.oncekiBakiye) || 0;
     const haftaBorc = Number(s.haftaBorc) || 0;
     const haftaAlacak = Number(s.haftaAlacak) || 0;
-    const kasa = kasaHaftalik.get(Number(s.cariInd)) || 0;
+    const k = kasaHaftalik.get(Number(s.cariInd)) || { tutar: 0, adet: 0, turler: new Map() };
+    const kasa = k.tutar;
 
     const eskiBorc = oncekiBakiye - haftaAlacak;
     const yeniBorc = haftaBorc - kasa;
@@ -186,11 +208,15 @@ async function haftalikOzet(secenek) {
       kod: String(s.kod || '').trim(),
       ad: String(s.ad || '').trim(),
       eskiBorc, kasa, yeniBorc, topBakiye,
+      kasaAdedi: k.adet,
+      kasaTurleri: [...k.turler.entries()].map(([tur, adet]) => ({ tur, adet })),
       odeme: haftaAlacak
     });
     toplam.eskiBorc += eskiBorc;
+    toplam.kasaAdedi += k.adet;
     toplam.kasa += kasa;
     toplam.yeniBorc += yeniBorc;
+    toplam.odeme += haftaAlacak;
     toplam.topBakiye += topBakiye;
   }
 
@@ -378,6 +404,22 @@ async function haftalikDetay(secenek) {
   const kasaTutari = tumSatirlar.reduce((t, s) => t + s.kasaTutari, 0);
   const urunTutari = tumSatirlar.reduce((t, s) => t + s.tutar, 0);
 
+  // Verilen kasaların türe göre özeti — kullanıcı çıktıda "kasa sayısı, kasa
+  // türü, kasa toplam tutarı"nı ayrıca istiyor (27.08.2026). Satırların
+  // kendisinden toplanıyor; böylece hem program günlüğünden hem doğrudan
+  // Vega'dan gelen belgeler aynı blokta görünüyor.
+  const kasaTurMap = new Map();
+  for (const s of tumSatirlar) {
+    if (!s.kasaAdedi && !s.kasaTutari) continue;
+    const tur = s.kasaTipiKod || '—';
+    if (!kasaTurMap.has(tur)) kasaTurMap.set(tur, { tur, adet: 0, tutar: 0 });
+    const k = kasaTurMap.get(tur);
+    k.adet += s.kasaAdedi;
+    k.tutar += s.kasaTutari;
+  }
+  const kasaVerilenleri = [...kasaTurMap.values()];
+  const kasaAdedi = kasaVerilenleri.reduce((t, k) => t + k.adet, 0);
+
   // ÖDEME bloğu — hafta içindeki bütün ALACAK hareketleri (tahsilat, kasa
   // iadesi, satış iadesi). Raporun "ALINAN" sütunu bu.
   const o = await sorgu(
@@ -420,6 +462,8 @@ async function haftalikDetay(secenek) {
     gruplar,
     satirSayisi: tumSatirlar.length,
     kasaTutari,
+    kasaAdedi,
+    kasaVerilenleri,
     urunTutari,
     toplam: urunTutari + kasaTutari,
     odemeler,

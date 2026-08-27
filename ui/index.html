@@ -75,6 +75,7 @@
             <th class="sayi">Fiyat</th>
             <th class="sayi">Tutar</th>
             <th class="sayi">Kasa Tutarı</th>
+            <th class="aciklamaSutun">Açıklama</th>
             <th></th>
           </tr>
         </thead>
@@ -185,53 +186,37 @@
         <button class="dugme ikincil" id="raporYazdir">Yazdır</button>
       </div>
       <p class="ipucu">
-        Hafta <b>Pazar</b> başlar, <b>Cumartesi</b> biter. Listede bir müşteriye
-        tıklayınca o müşterinin hafta dökümü (fiş fiş, ara toplamlı) açılır.
+        Hafta <b>Pazar</b> başlar, <b>Cumartesi</b> biter. Bu ekran çok müşterili
+        <b>borç dökümü</b>: ne kadar almış, ne kadar ödemiş, borcu ne kadar
+        kalmış. Fiş fiş ayrıntılı döküm <b>Ekstre</b> sekmesinde — listede bir
+        müşteriye tıklayınca oraya, o hafta seçili olarak geçilir.
       </p>
     </div>
 
-    <!-- Görsel 2: GENEL MÜŞTERİYE GÖRE KALAN -->
+    <!-- GENEL MÜŞTERİYE GÖRE KALAN — çok müşterili borç dökümü -->
     <div class="kutu yazdirilir" id="raporGenel">
       <h1 class="raporBaslik">GENEL MÜŞTERİYE GÖRE KALAN</h1>
-      <table class="veri rapor" id="raporGenelTablo">
+      <table class="veri rapor dar" id="raporGenelTablo">
         <thead>
           <tr>
             <th class="tarihSutun" id="raporGenelTarih">—</th>
             <th class="genis">ADI_SOYADI</th>
             <th class="sayi">ESKİ BORÇ</th>
+            <th class="sayi">K.ADET</th>
+            <th>K.TÜRÜ</th>
             <th class="sayi">KASA</th>
             <th class="sayi">YENİ BORÇ</th>
+            <th class="sayi">ÖDEME</th>
             <th class="sayi">TOP.BAKİYE</th>
           </tr>
         </thead>
         <tbody id="raporGenelGovde"></tbody>
+        <tfoot id="raporGenelAyak"></tfoot>
       </table>
       <div class="raporGenelToplam">
         <span>GENEL TOPLAM</span>
         <b id="raporGenelToplam">0,00</b>
       </div>
-    </div>
-
-    <!-- Görsel 1: müşteri hafta dökümü -->
-    <div class="kutu yazdirilir gizli" id="raporDetay">
-      <button class="dugme ikincil yazdirilmaz" id="raporGeri">◀ Listeye Dön</button>
-      <div class="raporUst" id="raporDetayUst"></div>
-      <table class="veri rapor" id="raporDetayTablo">
-        <thead>
-          <tr>
-            <th class="genis">CİNSİ</th>
-            <th class="sayi">K ADET</th>
-            <th class="sayi">K.TUTAR</th>
-            <th class="sayi">NET KG</th>
-            <th class="sayi">FİYAT</th>
-            <th class="sayi">TUTAR</th>
-            <th>AÇIKLAMA</th>
-            <th class="sayi">FİŞ NO</th>
-          </tr>
-        </thead>
-        <tbody id="raporDetayGovde"></tbody>
-      </table>
-      <div class="raporAlt" id="raporDetayAlt"></div>
     </div>
   </section>
 
@@ -287,6 +272,7 @@
         </div>
         <div class="alan dugmeAlani">
           <button class="dugme birincil" id="ekstreGetir">Getir</button>
+          <button class="dugme ikincil" id="ekstreRaporGetir">Ayrıntılı Rapor</button>
         </div>
       </div>
 
@@ -327,6 +313,35 @@
           <input type="text" id="ekstreEnAz" inputmode="decimal" placeholder="0" autocomplete="off">
         </div>
       </div>
+    </div>
+
+    <!-- Fiş bazlı ayrıntılı rapor — asıl çıktı burada (27.08.2026: Haftalık
+         Rapor ekranından buraya taşındı). Yalnızca bu kutu yazdırılır. -->
+    <div class="kutu yazdirilir gizli" id="ekstreRapor">
+      <div class="baslikSatir yazdirilmaz">
+        <h2>Ayrıntılı Rapor (fiş bazlı)</h2>
+        <div class="eylemler">
+          <button class="dugme ikincil" id="ekstreRaporYazdir">Yazdır</button>
+          <button class="dugme ucuncul" id="ekstreRaporKapat">Kapat</button>
+        </div>
+      </div>
+      <div class="raporUst" id="ekstreRaporUst"></div>
+      <table class="veri rapor dar" id="ekstreRaporTablo">
+        <thead>
+          <tr>
+            <th class="genis">CİNSİ</th>
+            <th class="sayi">K.ADET</th>
+            <th>K.TÜRÜ</th>
+            <th class="sayi">K.TUTAR</th>
+            <th class="sayi">FİYAT</th>
+            <th class="sayi">TUTAR</th>
+            <th>AÇIKLAMA</th>
+            <th class="sayi">FİŞ NO</th>
+          </tr>
+        </thead>
+        <tbody id="ekstreRaporGovde"></tbody>
+      </table>
+      <div class="raporAlt" id="ekstreRaporAlt"></div>
     </div>
 
     <!-- Haftalara bölünmüş giriş/çıkış özeti — satıra tıklayınca o hafta süzülür -->

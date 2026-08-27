@@ -102,7 +102,7 @@ async function hazirla(zorla) {
       KasaTutari   DECIMAL(18,2) NOT NULL DEFAULT 0,
       BrutMiktar   DECIMAL(18,3) NOT NULL DEFAULT 0,
       Dara         DECIMAL(18,3) NOT NULL DEFAULT 0,
-      DaraliMiktar DECIMAL(18,3) NOT NULL DEFAULT 0,  -- rapordaki "NET KG"
+      DaraliMiktar DECIMAL(18,3) NOT NULL DEFAULT 0,  -- brut - dara (raporda gosterilmiyor)
       Fiyat        DECIMAL(18,4) NOT NULL DEFAULT 0,
       Tutar        DECIMAL(18,2) NOT NULL DEFAULT 0,
       Aciklama     NVARCHAR(250) NULL,
@@ -429,12 +429,12 @@ async function acikKasaAdedi(firma, cariInd, stokNo) {
   return Number(r[0] ? r[0].acikAdet : 0);
 }
 
-// --- Belge satır günlüğü (haftalık rapor kaynağı) ----------------------------
+// --- Belge satır günlüğü (ayrıntılı rapor kaynağı) ---------------------------
 //
 // Belgeye girilen HER satır buraya bir kez yazılır — belge Vega'da fatura mı
-// yoksa cari dekont mu oldu fark etmez. Haftalık müşteri raporundaki
-// CİNSİ / K.ADET / K.TUTAR / NET KG / FİYAT / TUTAR / FİŞ NO sütunları bu
-// tablodan gelir. Vega'nın kendi tablolarına ek olarak tutuluyor, onların
+// yoksa cari dekont mu oldu fark etmez. Ekstre ekranındaki fiş bazlı ayrıntılı
+// rapordaki CİNSİ / K.ADET / K.TÜRÜ / K.TUTAR / FİYAT / TUTAR / AÇIKLAMA /
+// FİŞ NO sütunları bu tablodan gelir. Vega'nın kendi tablolarına ek olarak tutuluyor, onların
 // yerine değil: bakiye/borç hep TBLCARIHAREKETLERI'nden okunur.
 async function belgeSatirYaz(t, ayrinti) {
   const db = vt();

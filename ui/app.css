@@ -221,6 +221,10 @@ table.veri.girdi input, table.veri.girdi select {
   border-color: #dde1e8;
 }
 table.veri.girdi input.sayi { text-align: right; font-variant-numeric: tabular-nums; }
+/* Elle yazılan satır açıklaması. Satır tablosu 11 sütuna çıktığı için ürün
+   sütununun alt sınırı da düşürüldü — 1024 px'lik ekranda tablo taşmasın. */
+table.veri.girdi th.genis { min-width: 170px; }
+table.veri.girdi th.aciklamaSutun { min-width: 130px; }
 
 td.hesaplanan {
   text-align: right;
@@ -409,6 +413,20 @@ table.veri.rapor tr.genelToplam td {
   font-size: 15px;
   border-top: 3px double #1e3a8a;
 }
+table.veri.rapor tfoot tr.genelToplam td { border-bottom: 0; }
+
+/* "dar" — daraltılmış rapor tablosu. Kullanıcı isteği (27.08.2026): ürünü
+   çok olan müşteride çıktı sayfalarca sürüyordu; satır yüksekliği ve yazı
+   boyu küçültüldü, sütun sayısı da azaltıldı (NET KG kaldırıldı). */
+table.veri.rapor.dar { font-size: 12px; }
+table.veri.rapor.dar th { font-size: 11px; padding: 4px 5px; }
+table.veri.rapor.dar td { padding: 2px 5px; line-height: 1.25; }
+table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
+
+/* Verilen / geri gelen kasa blokları yan yana — kasa sayısı, türü ve tutarı
+   çıktıda ayrıca görünsün diye eklendi. */
+.kasaBloklari { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.kasaBloklari > div { flex: 1 1 240px; max-width: 380px; }
 
 .raporGenelToplam {
   display: flex;
@@ -489,20 +507,45 @@ table.veri.rapor tr.genelToplam td {
 /* ─── Yazdırma ─── */
 
 @media print {
+  @page { margin: 10mm 8mm; }
+
   .ustcubuk, .uyari, .yazdirilmaz, .sekmeler, .durum { display: none !important; }
-  body { background: #fff; font-size: 11px; }
+  body { background: #fff; font-size: 10px; }
   main { padding: 0; max-width: none; }
   .kutu {
     border: 0;
     padding: 0;
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     border-radius: 0;
     page-break-inside: auto;
   }
   .sayfa:not(.etkin) { display: none !important; }
-  table.veri.rapor { font-size: 10.5px; }
-  table.veri.rapor th, table.veri.rapor td { padding: 3px 5px; }
+
+  /* Yazdır tuşuna basıldığında yalnızca rapor kutusu kâğıda gider — ekstre
+     ekranındaki süzgeçler, hareket tablosu ve haftalık özet basılmasın. */
+  body.yazdirmaModu .sayfa.etkin > .kutu:not(.yazdirilir) { display: none !important; }
+
+  /* Daraltılmış çıktı: aynı müşteride sayfa sayısı yarıya iner. */
+  table.veri.rapor { font-size: 9.5px; }
+  table.veri.rapor th, table.veri.rapor td { padding: 1px 4px; line-height: 1.2; }
+  table.veri.rapor.dar { font-size: 9px; }
+  table.veri.rapor.dar th, table.veri.rapor.dar td { padding: 1px 3px; }
   table.veri.rapor tbody tr { page-break-inside: avoid; }
-  .raporBaslik { font-size: 16px; }
+  table.veri.rapor thead { display: table-header-group; }
+  table.veri.rapor tr.fisBoslugu td { height: 5px; }
+  table.veri.rapor tr.genelToplam td { font-size: 11px; }
+
+  .raporBaslik { font-size: 15px; margin: 0 0 6px; }
+  .raporUst { gap: 16px; margin: 4px 0 8px; padding-bottom: 6px; }
+  .raporUst .bilgi span { font-size: 8px; }
+  .raporUst .bilgi b { font-size: 11px; }
+  .raporUst .bilgi b.buyukAd { font-size: 13px; }
+  .raporAlt { margin-top: 8px; gap: 8px; page-break-inside: avoid; }
+  .raporAlt h3 { font-size: 10px; margin-bottom: 3px; }
+  .raporOzet { gap: 14px; padding-top: 6px; }
+  .raporOzet .kalem span { font-size: 8px; }
+  .raporOzet .kalem b { font-size: 12px; }
+  .raporOzet .kalem.vurgu b { font-size: 15px; }
+
   a[href]:after { content: none !important; }
 }

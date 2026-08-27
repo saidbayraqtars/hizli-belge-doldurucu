@@ -193,7 +193,8 @@ async function calistir() {
         birim: stoklar[0].birim, birimEx: stoklar[0].birimEx,
         brutMiktar: 12.3, daraliMiktar: 10.8, fiyat: 30, tutar: 324,
         kasaAdedi: 1, kasaDarasi: kasa.dara, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
-        kasaDepozito: 100, kasaTutari: 100
+        kasaDepozito: 100, kasaTutari: 100,
+        aciklama: 'ELLE YAZILAN NOT'
       },
       {
         stokNo: stoklar[1].stokNo, stokKodu: stoklar[1].kod, stokAdi: stoklar[1].ad,
@@ -317,13 +318,22 @@ async function calistir() {
       String(faturaKasaSatiri[0].GERCEKTOPLAM));
   }
 
-  // Dara dusumlu urun satirinin aciklamasinda matematik yazmali (kullanici
-  // istegi 24.08.2026): brut - kasaAdedi×kasaDarasi = daralı.
-  const daraAciklamali = await sql.sorgu(
+  // Satir aciklamasi artik ELLE yaziliyor (kullanici istegi 27.08.2026);
+  // program otomatik dara hesabi yazmiyor. Kullanicinin yazdigi metin
+  // oldugu gibi Vega'ya gecmeli.
+  const satirAciklamalari = await sql.sorgu(
     `SELECT ACIKLAMA FROM ${vtAdi('TBLSATFATHAREKET', true)} WHERE MIKTAR=10.8`);
-  kontrol('Dara dusumlu satirin aciklamasinda hesap yaziyor',
-    daraAciklamali.length === 1 && /12\.3.*1.*1\.5.*10\.8/.test(daraAciklamali[0].ACIKLAMA || ''),
-    daraAciklamali.length ? daraAciklamali[0].ACIKLAMA : 'bulunamadi');
+  kontrol('Satir aciklamasi kullanicinin yazdigi metin',
+    satirAciklamalari.length === 1 &&
+      String(satirAciklamalari[0].ACIKLAMA || '').trim() === 'ELLE YAZILAN NOT',
+    satirAciklamalari.length ? satirAciklamalari[0].ACIKLAMA : 'bulunamadi');
+
+  // Aciklama girilmemis satirda program bir sey uydurmamali.
+  const bosAciklamali = await sql.sorgu(
+    `SELECT ACIKLAMA FROM ${vtAdi('TBLSATFATHAREKET', true)} WHERE MIKTAR=5`);
+  kontrol('Aciklama girilmeyen satir bos kaliyor (otomatik hesap yazilmiyor)',
+    bosAciklamali.length === 1 && !String(bosAciklamali[0].ACIKLAMA || '').trim(),
+    bosAciklamali.length ? `"${bosAciklamali[0].ACIKLAMA}"` : 'bulunamadi');
 
   const tahsilatSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf('Tahsilat') >= 0);
   kontrol('Tahsilat satiri ALACAK olarak gorunuyor', !!tahsilatSatiri && tahsilatSatiri.alacak === TAHSILAT,

@@ -517,6 +517,17 @@ function satirEkle() {
   kasaTutarHucre.className = 'hesaplanan';
   kasaTutarHucre.textContent = '0,00';
 
+  // Açıklama artık elle yazılıyor. 27.08.2026'ya kadar program buraya dara
+  // hesabını ("198 kg - 12×2 kg = 174 kg") otomatik yazıyordu; kullanıcı alanı
+  // kendi notu için istedi, otomatik metin kaldırıldı (bkz. db/yazma.js).
+  const aciklamaHucre = document.createElement('td');
+  const aciklama = document.createElement('input');
+  aciklama.type = 'text';
+  aciklama.placeholder = '(isteğe bağlı)';
+  aciklama.autocomplete = 'off';
+  aciklama.maxLength = 250;
+  aciklamaHucre.appendChild(aciklama);
+
   const silHucre = document.createElement('td');
   silHucre.className = 'sayi';
   const sil = document.createElement('button');
@@ -532,7 +543,7 @@ function satirEkle() {
 
   tr.append(
     stokHucre, kasaAdedi.td, tipHucre, brutMiktar.td, daraHucre,
-    daraliMiktarHucre, fiyat.td, tutarHucre, kasaTutarHucre, silHucre
+    daraliMiktarHucre, fiyat.td, tutarHucre, kasaTutarHucre, aciklamaHucre, silHucre
   );
   govde.appendChild(tr);
 
@@ -543,6 +554,7 @@ function satirEkle() {
     kasaAdediGirdi: kasaAdedi.girdi,
     tipSecim: tip,
     fiyatGirdi: fiyat.girdi,
+    aciklamaGirdi: aciklama,
     daraHucre,
     daraliMiktarHucre,
     tutarHucre,
@@ -588,7 +600,7 @@ function satirEkle() {
 function satirAlanlari(tr) {
   const s = tr._satir;
   if (!s) return [];
-  return [s.stokGirdi, s.kasaAdediGirdi, s.tipSecim, s.brutMiktarGirdi, s.fiyatGirdi];
+  return [s.stokGirdi, s.kasaAdediGirdi, s.tipSecim, s.brutMiktarGirdi, s.fiyatGirdi, s.aciklamaGirdi];
 }
 
 function komsuSatiraGec(tr, girdi, yon) {
@@ -681,6 +693,8 @@ function satirOku(tr) {
   const kasaDepozito = kasa ? kasa.depozito : 0; // depozito KDV'siz, kdvDahil'den etkilenmez
   const kasaTutari = Math.round(kasaAdedi * kasaDepozito * 100) / 100;
 
+  const aciklama = s.aciklamaGirdi ? s.aciklamaGirdi.value.trim() : '';
+
   return {
     etiket, stok, brutMiktar, dara, daraliMiktar, kasaAdedi, fiyat, tutar,
     kasaStokNo,
@@ -689,7 +703,8 @@ function satirOku(tr) {
     kasaDarasi,
     kasaDepozito,
     kasaTutari,
-    bos: !etiket && !brutMiktar && !kasaAdedi && !fiyatGirilen
+    aciklama,
+    bos: !etiket && !brutMiktar && !kasaAdedi && !fiyatGirilen && !aciklama
   };
 }
 
@@ -793,7 +808,8 @@ async function belgeKaydet(belgeTuru) {
       kasaDepozito: s.kasaDepozito,
       kasaTutari: s.kasaTutari,
       fiyat: s.fiyat,
-      tutar: s.tutar
+      tutar: s.tutar,
+      aciklama: s.aciklama
     });
   }
 
@@ -1324,9 +1340,12 @@ function ekstreHaftalariCiz() {
 
 // ═══════════════════════ HAFTALIK RAPOR ═══════════════════════
 //
-// İki görünüm, tek sayfa:
-//   1. "GENEL MÜŞTERİYE GÖRE KALAN" — bütün müşteriler, tek satır özet
-//   2. Bir müşteriye tıklayınca o müşterinin hafta dökümü (fiş fiş)
+// Tek görünüm: "GENEL MÜŞTERİYE GÖRE KALAN" — çok müşterili borç dökümü.
+// Kullanıcı isteği (27.08.2026): bu ekran ekstre gibi ayrıntılı OLMASIN;
+// her müşteri için tek satırda "ne kadar almış (kasa + yeni borç), ne kadar
+// vermiş (ödeme), son borç durumu ne" görünsün. Fiş bazlı ayrıntılı döküm
+// Ekstre sekmesine taşındı (bkz. ekstreRaporGetir). Listede bir müşteriye
+// tıklamak o müşteriyi Ekstre sekmesinde, aynı hafta seçili olarak açar.
 // Sütun tanımları için bkz. db/rapor.js başındaki açıklama.
 
 const raporDurum = { hafta: haftaBasi(new Date()), ozet: null, ilkAcilis: true };
@@ -1337,11 +1356,7 @@ el('raporOncekiHafta').addEventListener('click', () => raporHaftaKaydir(-7));
 el('raporSonrakiHafta').addEventListener('click', () => raporHaftaKaydir(7));
 el('raporTip').addEventListener('change', () => raporGetir());
 el('raporArama').addEventListener('input', () => raporGenelCiz());
-el('raporGeri').addEventListener('click', () => {
-  el('raporDetay').classList.add('gizli');
-  el('raporGenel').classList.remove('gizli');
-});
-el('raporYazdir').addEventListener('click', () => raporYazdir());
+el('raporYazdir').addEventListener('click', () => yazdir());
 
 function raporSayfasiAcildi() {
   raporHaftaEtiketiniGuncelle();
@@ -1368,6 +1383,13 @@ function raporHaftaKaydir(gun) {
   raporHaftayaGit(d);
 }
 
+// "PK 12 · SBÜYÜK 3" — kasa türü ve sayısı tek hücrede. Kullanıcı çıktıda
+// kasa sayısını, türünü ve tutarını ayrı ayrı istiyor.
+function kasaTuruMetni(liste) {
+  if (!liste || !liste.length) return '';
+  return liste.map((k) => `${k.tur} ${miktarYaz(k.adet)}`).join(' · ');
+}
+
 async function raporGetir() {
   if (!firmaSecildiMi()) {
     bildir('Önce Ayarlar ekranından firma ve dönem seçin.', 'hata');
@@ -1375,9 +1397,8 @@ async function raporGetir() {
   }
   const dugme = el('raporGetir');
   dugme.disabled = true;
-  el('raporDetay').classList.add('gizli');
-  el('raporGenel').classList.remove('gizli');
-  boslukTemizle(el('raporGenelGovde'), 6, 'Hazırlanıyor…');
+  el('raporGenelAyak').innerHTML = '';
+  boslukTemizle(el('raporGenelGovde'), 9, 'Hazırlanıyor…');
 
   try {
     raporDurum.ozet = await cagir('rapor:haftalikOzet', {
@@ -1391,7 +1412,7 @@ async function raporGetir() {
     raporGenelCiz();
   } catch (e) {
     raporDurum.ozet = null;
-    boslukTemizle(el('raporGenelGovde'), 6, 'Rapor okunamadı: ' + e.message);
+    boslukTemizle(el('raporGenelGovde'), 9, 'Rapor okunamadı: ' + e.message);
     el('raporGenelToplam').textContent = '0,00';
   } finally {
     dugme.disabled = false;
@@ -1400,6 +1421,7 @@ async function raporGetir() {
 
 function raporGenelCiz() {
   const govde = el('raporGenelGovde');
+  const ayak = el('raporGenelAyak');
   if (!raporDurum.ozet) return;
 
   const parcalar = aramaParcalari(el('raporArama').value);
@@ -1408,24 +1430,29 @@ function raporGenelCiz() {
     : raporDurum.ozet.satirlar;
 
   govde.innerHTML = '';
+  ayak.innerHTML = '';
   if (!satirlar.length) {
-    boslukTemizle(govde, 6, 'Bu haftada gösterilecek müşteri yok.');
+    boslukTemizle(govde, 9, 'Bu haftada gösterilecek müşteri yok.');
     el('raporGenelToplam').textContent = '0,00';
     return;
   }
 
   const tarihMetni = tarihYaz(haftaSonu(raporDurum.hafta));
-  let toplam = 0;
+  const toplam = { eskiBorc: 0, kasaAdedi: 0, kasa: 0, yeniBorc: 0, odeme: 0, topBakiye: 0 };
 
   for (const s of satirlar) {
     const tr = document.createElement('tr');
     tr.className = 'tiklanir';
+    tr.title = 'Ayrıntılı dökümü Ekstre ekranında aç';
     const hucreler = [
       [tarihMetni, ''],
       [s.ad, ''],
       [para(s.eskiBorc), 'sayi'],
+      [s.kasaAdedi ? miktarYaz(s.kasaAdedi) : '', 'sayi'],
+      [kasaTuruMetni(s.kasaTurleri), ''],
       [s.kasa ? para(s.kasa) : '0,00', 'sayi'],
       [para(s.yeniBorc), 'sayi'],
+      [s.odeme ? para(s.odeme) : '', 'sayi'],
       [para(s.topBakiye), 'sayi']
     ];
     for (const [metin, sinif] of hucreler) {
@@ -1434,33 +1461,105 @@ function raporGenelCiz() {
       td.textContent = metin;
       tr.appendChild(td);
     }
-    tr.addEventListener('click', () => raporDetayGetir(s));
+    tr.addEventListener('click', () => raporMusteriyeGec(s));
     govde.appendChild(tr);
-    toplam += s.topBakiye;
+
+    toplam.eskiBorc += s.eskiBorc;
+    toplam.kasaAdedi += s.kasaAdedi || 0;
+    toplam.kasa += s.kasa;
+    toplam.yeniBorc += s.yeniBorc;
+    toplam.odeme += s.odeme || 0;
+    toplam.topBakiye += s.topBakiye;
   }
 
-  el('raporGenelToplam').textContent = para(toplam);
+  // Toplam satırı tablonun içinde: yazdırınca her sayı kendi sütununun
+  // altına denk gelsin.
+  const ayakSatiri = document.createElement('tr');
+  ayakSatiri.className = 'genelToplam';
+  const ayakHucreleri = [
+    ['', ''],
+    ['GENEL TOPLAM', ''],
+    [para(toplam.eskiBorc), 'sayi'],
+    [toplam.kasaAdedi ? miktarYaz(toplam.kasaAdedi) : '', 'sayi'],
+    ['', ''],
+    [para(toplam.kasa), 'sayi'],
+    [para(toplam.yeniBorc), 'sayi'],
+    [para(toplam.odeme), 'sayi'],
+    [para(toplam.topBakiye), 'sayi']
+  ];
+  for (const [metin, sinif] of ayakHucreleri) {
+    const td = document.createElement('td');
+    if (sinif) td.className = sinif;
+    td.textContent = metin;
+    ayakSatiri.appendChild(td);
+  }
+  ayak.appendChild(ayakSatiri);
+
+  el('raporGenelToplam').textContent = para(toplam.topBakiye);
 }
 
-async function raporDetayGetir(satir) {
-  const govde = el('raporDetayGovde');
-  el('raporGenel').classList.add('gizli');
-  el('raporDetay').classList.remove('gizli');
-  el('raporDetayUst').textContent = '';
-  el('raporDetayAlt').textContent = '';
-  boslukTemizle(govde, 8, 'Hazırlanıyor…');
+// Haftalık rapordan ayrıntıya geçiş: müşteri Ekstre ekranında, aynı hafta
+// seçili olarak açılır ve fiş bazlı rapor hemen hazırlanır.
+function raporMusteriyeGec(s) {
+  sekmeAc('ekstre');
+  el('ekstreBaslangic').value = tarihKutusu(haftaBasi(raporDurum.hafta));
+  el('ekstreBitis').value = tarihKutusu(haftaSonu(raporDurum.hafta));
+  el('ekstreHaftaEtiket').textContent = haftaEtiketi(raporDurum.hafta);
+  ekstreCari.sec({ cariInd: s.cariInd, kod: s.kod, ad: s.ad, bakiye: s.topBakiye });
+  ekstreCari.yenile();
+  ekstreRaporGetir();
+}
+
+// ═══════════════════════ EKSTRE → AYRINTILI RAPOR ═══════════════════════
+//
+// Asıl ayrıntılı çıktı burada (27.08.2026'da Haftalık Rapor ekranından
+// taşındı): seçili müşterinin, ekstredeki tarih aralığında, fiş fiş ürün
+// dökümü. Her fişin sonunda ara toplam, en altta genel toplam, ardından
+// kasa özeti / ödemeler / bakiye blokları.
+//
+// Tasarım daraltıldı: NET KG sütunu kaldırıldı (kullanıcı: "gerek yok"),
+// satır yüksekliği ve yazı boyu küçültüldü — ürünü çok olan müşteride çıktı
+// sayfalarca sürüyordu. Kasa sayısı / türü / tutarı hem ayrı sütun hem ayrı
+// özet bloğu olarak veriliyor (kullanıcı: "ayrıca verilmiyormuş").
+
+el('ekstreRaporGetir').addEventListener('click', () => ekstreRaporGetir());
+el('ekstreRaporYazdir').addEventListener('click', () => yazdir());
+el('ekstreRaporKapat').addEventListener('click', () => {
+  el('ekstreRapor').classList.add('gizli');
+});
+
+async function ekstreRaporGetir() {
+  if (!firmaSecildiMi()) {
+    bildir('Önce Ayarlar ekranından firma ve dönem seçin.', 'hata');
+    return sekmeAc('ayar');
+  }
+  const cari = ekstreCari.secili();
+  if (!cari) return bildir('Önce müşteri seçin.', 'hata');
+
+  // Aralık boşsa ("Tümü") ayrıntılı rapor için bu hafta varsayılır — tüm
+  // zamanların fiş dökümü yüzlerce sayfa olurdu.
+  if (!el('ekstreBaslangic').value || !el('ekstreBitis').value) {
+    el('ekstreBaslangic').value = tarihKutusu(haftaBasi(new Date()));
+    el('ekstreBitis').value = tarihKutusu(haftaSonu(new Date()));
+    el('ekstreHaftaEtiket').textContent = haftaEtiketi(new Date());
+  }
+
+  el('ekstreRapor').classList.remove('gizli');
+  el('ekstreRaporUst').textContent = '';
+  el('ekstreRaporAlt').textContent = '';
+  boslukTemizle(el('ekstreRaporGovde'), 8, 'Hazırlanıyor…');
 
   try {
     const d = await cagir('rapor:haftalikDetay', {
       firma: firmaKodu(),
       donem: donemKodu(),
-      cariInd: satir.cariInd,
-      baslangic: tarihKutusu(haftaBasi(raporDurum.hafta)),
-      bitis: tarihKutusu(haftaSonu(raporDurum.hafta))
+      cariInd: cari.cariInd,
+      baslangic: el('ekstreBaslangic').value,
+      bitis: el('ekstreBitis').value
     });
-    raporDetayCiz(d);
+    ekstreRaporCiz(d);
   } catch (e) {
-    boslukTemizle(govde, 8, 'Döküm okunamadı: ' + e.message);
+    boslukTemizle(el('ekstreRaporGovde'), 8, 'Döküm okunamadı: ' + e.message);
   }
 }
 
@@ -1490,37 +1589,36 @@ function raporSatiriEkle(govde, hucreler, sinif) {
   return tr;
 }
 
-function raporDetayCiz(d) {
+function ekstreRaporCiz(d) {
   // Üst bilgi — eski programın başlığıyla aynı sıra.
-  const ust = el('raporDetayUst');
+  const ust = el('ekstreRaporUst');
   ust.innerHTML = '';
   ust.append(
     bilgiKutusu('ADI_SOYADI', d.cari.ad, true),
     bilgiKutusu('ADRESİ', d.cari.adres),
     bilgiKutusu('TELEFON', d.cari.telefon),
-    bilgiKutusu('BABA ADI / NOT', d.cari.not),
-    bilgiKutusu('HAFTA', `${tarihYaz(d.baslangic)} — ${tarihYaz(d.bitis)}`),
+    bilgiKutusu('DÖNEM', `${tarihYaz(d.baslangic)} — ${tarihYaz(d.bitis)}`),
     bilgiKutusu('DEVİR', para(d.devir))
   );
 
-  // Satırlar — fiş fiş. Her fişin sonunda ara toplam, sonra bir boş satır
+  // Satırlar — fiş fiş. Her fişin sonunda ara toplam, sonra ince bir ayraç
   // (kullanıcı isteği: "fiş sırası bitince sonunda boşluk bıraksın, o seriyi
-  // toplasın, sonra öyle öyle devam etsin").
-  const govde = el('raporDetayGovde');
+  // toplasın, sonra öyle öyle devam etsin"). NET KG sütunu yok.
+  const govde = el('ekstreRaporGovde');
   govde.innerHTML = '';
 
   if (!d.gruplar.length) {
-    boslukTemizle(govde, 8, 'Bu haftada bu müşteriye belge girilmemiş.');
+    boslukTemizle(govde, 8, 'Bu aralıkta bu müşteriye belge girilmemiş.');
   } else {
-    let genel = { kasaAdedi: 0, kasaTutari: 0, netKg: 0, tutar: 0 };
+    const genel = { kasaAdedi: 0, kasaTutari: 0, tutar: 0 };
 
     d.gruplar.forEach((g, sira) => {
       for (const s of g.satirlar) {
         raporSatiriEkle(govde, [
           [s.cinsi, ''],
-          [s.kasaAdedi ? miktarYaz(s.kasaAdedi) + (s.kasaTipiKod ? ' ' + s.kasaTipiKod : '') : '0', 'sayi'],
-          [para(s.kasaTutari), 'sayi'],
-          [miktarYaz(s.netKg), 'sayi'],
+          [s.kasaAdedi ? miktarYaz(s.kasaAdedi) : '', 'sayi'],
+          [s.kasaTipiKod, ''],
+          [s.kasaTutari ? para(s.kasaTutari) : '', 'sayi'],
           [para(s.fiyat), 'sayi'],
           [para(s.tutar), 'sayi'],
           [s.aciklama, ''],
@@ -1531,8 +1629,8 @@ function raporDetayCiz(d) {
       raporSatiriEkle(govde, [
         [`FİŞ ${g.fisNo} TOPLAMI`, ''],
         [miktarYaz(g.araToplam.kasaAdedi), 'sayi'],
+        ['', ''],
         [para(g.araToplam.kasaTutari), 'sayi'],
-        [miktarYaz(g.araToplam.netKg), 'sayi'],
         ['', 'sayi'],
         [para(g.araToplam.tutar), 'sayi'],
         ['', ''],
@@ -1541,10 +1639,9 @@ function raporDetayCiz(d) {
 
       genel.kasaAdedi += g.araToplam.kasaAdedi;
       genel.kasaTutari += g.araToplam.kasaTutari;
-      genel.netKg += g.araToplam.netKg;
       genel.tutar += g.araToplam.tutar;
 
-      // Son fişten sonra boşluk yok; genel toplam hemen altında dursun.
+      // Son fişten sonra ayraç yok; genel toplam hemen altında dursun.
       if (sira < d.gruplar.length - 1) {
         raporSatiriEkle(govde, [['', '', 8]], 'fisBoslugu');
       }
@@ -1553,8 +1650,8 @@ function raporDetayCiz(d) {
     raporSatiriEkle(govde, [
       ['GENEL TOPLAM', ''],
       [miktarYaz(genel.kasaAdedi), 'sayi'],
+      ['', ''],
       [para(genel.kasaTutari), 'sayi'],
-      [miktarYaz(genel.netKg), 'sayi'],
       ['', 'sayi'],
       [para(genel.tutar), 'sayi'],
       ['', ''],
@@ -1562,12 +1659,27 @@ function raporDetayCiz(d) {
     ], 'genelToplam');
   }
 
-  // Alt blok: geri gelen kasalar, ödemeler, bakiye.
-  const alt = el('raporDetayAlt');
+  // Alt blok: verilen kasalar, geri gelen kasalar, ödemeler, bakiye.
+  const alt = el('ekstreRaporAlt');
   alt.innerHTML = '';
 
+  const kasaBloklari = document.createElement('div');
+  kasaBloklari.className = 'kasaBloklari';
+
+  if (d.kasaVerilenleri && d.kasaVerilenleri.length) {
+    kasaBloklari.appendChild(kucukTablo(
+      'Verilen Kasalar',
+      ['K SAYISI', 'K TÜRÜ', 'K TUTARI'],
+      d.kasaVerilenleri
+        .map((k) => [[miktarYaz(k.adet), 'sayi'], [k.tur, ''], [para(k.tutar), 'sayi']])
+        .concat([[
+          [miktarYaz(d.kasaAdedi), 'sayi'], ['TOPLAM', ''], [para(d.kasaTutari), 'sayi']
+        ]])
+    ));
+  }
+
   if (d.kasaIadeleri.length) {
-    alt.appendChild(kucukTablo(
+    kasaBloklari.appendChild(kucukTablo(
       'Geri Gelen Kasalar',
       ['K SAYISI', 'K TÜRÜ', 'K TUTARI'],
       d.kasaIadeleri.map((k) => [
@@ -1576,6 +1688,8 @@ function raporDetayCiz(d) {
     ));
   }
 
+  if (kasaBloklari.children.length) alt.appendChild(kasaBloklari);
+
   alt.appendChild(kucukTablo(
     'ÖDEME',
     ['ÖD. TARİHİ', 'ALINAN', 'AÇIKLAMA'],
@@ -1583,16 +1697,17 @@ function raporDetayCiz(d) {
       ? d.odemeler.map((o) => [
           [tarihYaz(o.tarih), ''], [para(o.alinan), 'sayi'], [o.aciklama, '']
         ])
-      : [[['Bu hafta ödeme alınmamış.', '', 3]]]
+      : [[['Bu aralıkta ödeme alınmamış.', '', 3]]]
   ));
 
   const ozet = document.createElement('div');
   ozet.className = 'raporOzet';
   ozet.append(
     ozetKalemi('DEVİR', para(d.devir)),
+    ozetKalemi('KASA ADEDİ', miktarYaz(d.kasaAdedi)),
     ozetKalemi('KASA TUTARI', para(d.kasaTutari)),
     ozetKalemi('S.TUTARI', para(d.urunTutari)),
-    ozetKalemi('HAFTA TOPLAMI', para(d.toplam)),
+    ozetKalemi('DÖNEM TOPLAMI', para(d.toplam)),
     ozetKalemi('ÖDEME', para(d.odemeToplam)),
     ozetKalemi('BAKİYE', para(d.bakiye), true)
   );
@@ -1617,7 +1732,7 @@ function kucukTablo(baslik, basliklar, satirlar) {
   sarma.appendChild(h);
 
   const t = document.createElement('table');
-  t.className = 'veri rapor';
+  t.className = 'veri rapor dar';
   const thead = document.createElement('thead');
   const btr = document.createElement('tr');
   for (const b of basliklar) {
@@ -1633,7 +1748,11 @@ function kucukTablo(baslik, basliklar, satirlar) {
   return sarma;
 }
 
-async function raporYazdir() {
+// Yazdırma — yalnızca "yazdirilir" işaretli kutu basılır (haftalık rapor
+// tablosu ya da ekstredeki ayrıntılı rapor). Gövdeye geçici bir sınıf
+// eklenip yazdırma bitince kaldırılıyor.
+async function yazdir() {
+  document.body.classList.add('yazdirmaModu');
   try {
     window.print();
   } catch (e) {
@@ -1642,6 +1761,8 @@ async function raporYazdir() {
     } catch (e2) {
       bildir('Yazdırılamadı: ' + e2.message, 'hata');
     }
+  } finally {
+    setTimeout(() => document.body.classList.remove('yazdirmaModu'), 500);
   }
 }
 
@@ -1756,8 +1877,10 @@ function cariSecildi(c) {
   el('cariListePerde').classList.add('gizli');
 
   if (cariHedefi === 'rapor') {
-    sekmeAc('rapor');
-    raporDetayGetir(c);
+    // Ayrıntılı döküm artık Ekstre ekranında (27.08.2026).
+    sekmeAc('ekstre');
+    ekstreCari.sec({ cariInd: c.cariInd, kod: c.kod, ad: c.ad, adres: c.adres, bakiye: c.bakiye });
+    ekstreRaporGetir();
     return;
   }
 

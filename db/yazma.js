@@ -959,26 +959,14 @@ async function belgeYaz(secenek) {
   const aciklama = ('Hizli Belge Doldurucu' + (secenek.fisNo ? ' - fis ' + secenek.fisNo : ''))
     .substring(0, 100);
 
-  // Sayıyı gereksiz ondalık sıfırlar olmadan yazar (198.5 → "198.5", 198 → "198").
-  const sayiYaz = (n) => {
-    const r = Math.round((Number(n) || 0) * 1000) / 1000;
-    return String(r);
+  // Satır açıklaması artık PROGRAM ÜRETMİYOR — kullanıcı elle yazar
+  // (27.08.2026 isteği). Önceden buraya dara hesabı ("198 kg - 12×2 kg = 174
+  // kg") otomatik yazılıyordu; kullanıcı o alanı kendi notu için istiyor.
+  // Boş bırakılırsa Vega'da da boş kalır.
+  const satirAciklamasi = (s) => {
+    const m = String(s.aciklama == null ? '' : s.aciklama).trim();
+    return m ? m.substring(0, 250) : null;
   };
-
-  // Kasa varsa satırın MIKTAR'ı nasıl bulunduğunu (dara düşümü) açıklamaya
-  // yazar — Vega'da satırı açan biri hesabı görsün diye. Kullanıcı isteği:
-  // brüt − (kasa adedi × kasa darası) = daralı miktar. Kasa yoksa boş
-  // (açıklanacak bir düşüm yok).
-  function daraAciklamasi(s) {
-    const kasaAdedi = Number(s.kasaAdedi) || 0;
-    if (!kasaAdedi) return null;
-    const b = s.birim ? ' ' + s.birim : '';
-    const brut = sayiYaz(s.brutMiktar);
-    const darasi = sayiYaz(s.kasaDarasi);
-    const net = sayiYaz(s.daraliMiktar);
-    const kasaAdi = s.kasaTipiKod ? ` (${s.kasaTipiKod})` : '';
-    return `${brut}${b} - ${sayiYaz(kasaAdedi)}×${darasi}${b}${kasaAdi} = ${net}${b}`;
-  }
 
   const onek = await onekTespitEt(firma, donem);
 
@@ -1003,7 +991,7 @@ async function belgeYaz(secenek) {
           birim: s.birim || k.birim || '',
           birimEx: s.birimEx != null ? Number(s.birimEx) : Number(k.birimEx || 0),
           carpan: Number(k.carpan || 1),
-          aciklama: daraAciklamasi(s)
+          aciklama: satirAciklamasi(s)
         };
       });
 
@@ -1105,7 +1093,7 @@ async function belgeYaz(secenek) {
         daraliMiktar: s.daraliMiktar,
         fiyat: s.fiyat,
         tutar,
-        aciklama: s.aciklama || daraAciklamasi(s)
+        aciklama: satirAciklamasi(s)
       });
     }
 

@@ -24,6 +24,7 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 | Fiyat | elle girilir (Vega'da sebze-meyve için günlük değişen bir satış fiyatı tutulmuyor); ürün kartında bir fiyat varsa öneri olarak gelir |
 | Tutar | daralı miktar × fiyat, kendiliğinden hesaplanır |
 | Kasa Tutarı | kasa adedi × depozito bedeli, kendiliğinden hesaplanır |
+| Açıklama | **elle yazılır**, isteğe bağlı. Yazılan not olduğu gibi Vega'daki belge satırının açıklamasına ve ayrıntılı rapora geçer. (Program 27.08.2026'ya kadar buraya dara hesabını kendisi yazıyordu; artık yazmıyor — alan kullanıcının.) |
 
 Ayrıca **Tahsilat** alanı var: ürün satılıp aynı anda ödeme de alınıyorsa,
 buraya girilen tutar kadar ayrı bir **cari giriş (tahsilat)** dekontu yazılır
@@ -51,33 +52,49 @@ yazılır. Ekranda hangi müşteride kaç kasa durduğu görünür.
 no, tutar. Her satırda bir **Geri Al** düğmesi var — yanlış girilen belge tek
 tuşla Vega'dan silinir, müşterinin bakiyesi işlem öncesi haline döner.
 
-**Haftalık Rapor** — eski Access programındaki iki çıktının aynısı, tek
-ekranda. Hafta **Pazar başlar, Cumartesi biter** ("pazardan pazara"); ok
-tuşlarıyla hafta değiştirilir, "Yazdır" doğrudan çıktı alır.
+**Haftalık Rapor** — *GENEL MÜŞTERİYE GÖRE KALAN*: çok müşterili **borç
+dökümü**, her müşteri tek satır. Ekstre gibi ayrıntılı değildir; "ne kadar
+almış, ne kadar ödemiş, borcu ne kalmış" sorusunu yanıtlar. Hafta **Pazar
+başlar, Cumartesi biter** ("pazardan pazara"); ok tuşlarıyla hafta
+değiştirilir, "Yazdır" doğrudan çıktı alır.
 
-1. *GENEL MÜŞTERİYE GÖRE KALAN* — bütün müşteriler tek satır:
-   `Tarih | ADI_SOYADI | ESKİ BORÇ | KASA | YENİ BORÇ | TOP.BAKİYE` + genel toplam.
-2. Bir müşteriye tıklayınca *hafta dökümü* — `CİNSİ | K ADET | K.TUTAR |
-   NET KG | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO`, **fiş fiş gruplanmış**: her
-   fişin sonunda o fişin ara toplamı, altında bir satır boşluk, en altta genel
-   toplam. Üstte müşterinin adı/adresi/telefonu ve DEVİR, altta ÖDEME bloğu
-   (geri gelen kasalar + alınan ödemeler) ve BAKİYE.
+`Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA | YENİ BORÇ | ÖDEME |
+TOP.BAKİYE` + tablonun altında genel toplam satırı.
+
+Listede bir müşteriye tıklamak, o müşteriyi **Ekstre** sekmesinde aynı hafta
+seçili olarak açar ve fiş bazlı ayrıntılı raporu hazırlar.
 
 Sütunların tanımı (eski programın gerçek çıktısıyla doğrulandı):
 
 | Sütun | Nedir |
 |---|---|
 | ESKİ BORÇ | Hafta başından önceki bakiye − hafta içinde alınan ödeme |
+| K.ADET | Hafta içinde verilen kasa/kap sayısı |
+| K.TÜRÜ | Hangi türden kaç tane (ör. `PK 12 · SBÜYÜK 3`) |
 | KASA | Hafta içindeki kasa/kap depozito tutarı |
 | YENİ BORÇ | Hafta içindeki ürün borcu (kasa hariç) |
-| TOP.BAKİYE | Üçünün toplamı — Vega'daki gerçek hafta sonu bakiyesine eşit |
+| ÖDEME | Hafta içinde alınan ödeme (tahsilat, kasa iadesi, satış iadesi) |
+| TOP.BAKİYE | ESKİ BORÇ + KASA + YENİ BORÇ — Vega'daki gerçek hafta sonu bakiyesine eşit |
 
 TOP.BAKİYE doğrudan `TBLCARIHAREKETLERI`'nden hesaplanır, ESKİ BORÇ ondan
 geriye doğru çıkarılır: satır her zaman tam toplanır ve Vega'nın kendi
 bakiyesiyle birebir tutar.
 
+ÖDEME sütunu bilgi içindir; ESKİ BORÇ zaten ödeme düşülmüş halidir, bu yüzden
+TOP.BAKİYE'den ayrıca çıkarılmaz.
+
 **Ekstre** — müşterinin cari hesap ekstresi: ürün satırı, kasa tutarı satırı,
 tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayrıca:
+
+- **Ayrıntılı Rapor (fiş bazlı)** — asıl ayrıntılı çıktı burada. Seçili
+  müşterinin, ekrandaki tarih aralığındaki ürün dökümü: `CİNSİ | K.ADET |
+  K.TÜRÜ | K.TUTAR | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO`, **fiş fiş
+  gruplanmış** — her fişin sonunda o fişin ara toplamı, en altta genel toplam.
+  Üstte müşterinin adı/adresi/telefonu ve DEVİR; altta *Verilen Kasalar* ve
+  *Geri Gelen Kasalar* blokları (kasa sayısı / türü / tutarı ayrı ayrı),
+  ÖDEME bloğu ve BAKİYE. Çıktı bilerek dar tutuldu: NET KG sütunu yok, satır
+  yüksekliği küçük — ürünü çok olan müşteride sayfa sayısı düşük kalsın diye.
+  "Yazdır" yalnızca bu kutuyu basar.
 
 - **Pazardan pazara gezinme** — ◀ ▶ tuşlarıyla hafta hafta, "Bu Hafta", "Tümü".
 - **Haftalık Giriş/Çıkış tablosu** — hareketler Pazar→Cumartesi haftalarına
