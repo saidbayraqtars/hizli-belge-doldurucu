@@ -532,7 +532,21 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
   table.veri.rapor.dar th, table.veri.rapor.dar td { padding: 1px 3px; }
   table.veri.rapor tbody tr { page-break-inside: avoid; }
   table.veri.rapor thead { display: table-header-group; }
-  table.veri.rapor tr.fisBoslugu td { height: 5px; }
+
+  /* Yazıcıda açık gri hücre çizgileri kayboluyordu. Ayrıntılı fiş
+     tablosundaki her mal satırı artık belirgin bir yatay çizgiyle ayrılır. */
+  #ekstreRaporGovde > tr:not(.fisAra):not(.fisBoslugu):not(.genelToplam) > td {
+    border-bottom: 1px solid #64748b !important;
+  }
+
+  /* Fiş toplamından sonraki boşluk: önceki 5 px yerine yaklaşık iki boş satır.
+     Son fişin ardından eklenmez; genel toplam bitişik kalır. */
+  table.veri.rapor tr.fisBoslugu td {
+    height: 24px;
+    min-height: 24px;
+    padding: 0 !important;
+    border: 0 !important;
+  }
   table.veri.rapor tr.genelToplam td { font-size: 11px; }
 
   .raporBaslik { font-size: 15px; margin: 0 0 6px; }

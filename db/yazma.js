@@ -959,10 +959,9 @@ async function belgeYaz(secenek) {
   const aciklama = ('Hizli Belge Doldurucu' + (secenek.fisNo ? ' - fis ' + secenek.fisNo : ''))
     .substring(0, 100);
 
-  // Satır açıklaması artık PROGRAM ÜRETMİYOR — kullanıcı elle yazar
-  // (27.08.2026 isteği). Önceden buraya dara hesabı ("198 kg - 12×2 kg = 174
-  // kg") otomatik yazılıyordu; kullanıcı o alanı kendi notu için istiyor.
-  // Boş bırakılırsa Vega'da da boş kalır.
+  // Satır açıklaması PROGRAM ÜRETMİYOR; kullanıcı notu yalnızca uygulamanın
+  // BD_BelgeSatir günlüğünde ve ayrıntılı raporunda saklanır. 03.09.2026
+  // isteğiyle gerçek Vega belge satırına aktarımı kaldırıldı.
   const satirAciklamasi = (s) => {
     const m = String(s.aciklama == null ? '' : s.aciklama).trim();
     return m ? m.substring(0, 250) : null;
@@ -991,7 +990,8 @@ async function belgeYaz(secenek) {
           birim: s.birim || k.birim || '',
           birimEx: s.birimEx != null ? Number(s.birimEx) : Number(k.birimEx || 0),
           carpan: Number(k.carpan || 1),
-          aciklama: satirAciklamasi(s)
+          // Kullanıcının rapor notu gerçek Vega fatura satırına yazılmaz.
+          aciklama: null
         };
       });
 

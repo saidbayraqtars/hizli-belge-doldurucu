@@ -517,9 +517,9 @@ function satirEkle() {
   kasaTutarHucre.className = 'hesaplanan';
   kasaTutarHucre.textContent = '0,00';
 
-  // Açıklama artık elle yazılıyor. 27.08.2026'ya kadar program buraya dara
-  // hesabını ("198 kg - 12×2 kg = 174 kg") otomatik yazıyordu; kullanıcı alanı
-  // kendi notu için istedi, otomatik metin kaldırıldı (bkz. db/yazma.js).
+  // Açıklama elle yazılan rapor notudur. 27.08.2026'ya kadar program buraya
+  // dara hesabını otomatik yazıyordu; 03.09.2026'dan itibaren not yalnızca
+  // uygulama günlüğü/ayrıntılı raporda tutulur, gerçek Vega satırına yazılmaz.
   const aciklamaHucre = document.createElement('td');
   const aciklama = document.createElement('input');
   aciklama.type = 'text';

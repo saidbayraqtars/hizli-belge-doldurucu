@@ -116,7 +116,10 @@ async function hareketleriTemizle() {
 
 async function yardimciTablolariTemizle() {
   const v = VEGA_TEST;
-  for (const t of ['BD_KasaHareket', 'BD_Islem']) {
+  // BD_BelgeSatir geri alma sırasında silinmez, yalnız işaretlenir. Her
+  // sınama temiz bir rapor günlüğüyle başlasın diye test veritabanında bunu
+  // da fiziksel olarak temizliyoruz.
+  for (const t of ['BD_KasaHareket', 'BD_Islem', 'BD_BelgeSatir']) {
     await sql.calistir(`
       IF OBJECT_ID('[${v}].dbo.${t}', 'U') IS NOT NULL DELETE FROM [${v}].dbo.${t}
     `);
@@ -318,15 +321,21 @@ async function calistir() {
       String(faturaKasaSatiri[0].GERCEKTOPLAM));
   }
 
-  // Satir aciklamasi artik ELLE yaziliyor (kullanici istegi 27.08.2026);
-  // program otomatik dara hesabi yazmiyor. Kullanicinin yazdigi metin
-  // oldugu gibi Vega'ya gecmeli.
+  // Elle yazilan satir aciklamasi yalniz uygulama rapor notudur; 03.09.2026
+  // istegiyle gercek Vega fatura satirina aktarimi kaldirildi.
   const satirAciklamalari = await sql.sorgu(
     `SELECT ACIKLAMA FROM ${vtAdi('TBLSATFATHAREKET', true)} WHERE MIKTAR=10.8`);
-  kontrol('Satir aciklamasi kullanicinin yazdigi metin',
+  kontrol('Kullanici notu Vega fatura satirina yazilmiyor',
     satirAciklamalari.length === 1 &&
-      String(satirAciklamalari[0].ACIKLAMA || '').trim() === 'ELLE YAZILAN NOT',
-    satirAciklamalari.length ? satirAciklamalari[0].ACIKLAMA : 'bulunamadi');
+      !String(satirAciklamalari[0].ACIKLAMA || '').trim(),
+    satirAciklamalari.length ? `"${satirAciklamalari[0].ACIKLAMA || ''}"` : 'bulunamadi');
+
+  const raporNotlari = await sql.sorgu(
+    `SELECT Aciklama FROM [${VEGA_TEST}].dbo.BD_BelgeSatir WHERE DaraliMiktar=10.8`);
+  kontrol('Kullanici notu ayrintili rapor gunlugunde saklaniyor',
+    raporNotlari.length === 1 &&
+      String(raporNotlari[0].Aciklama || '').trim() === 'ELLE YAZILAN NOT',
+    raporNotlari.length ? raporNotlari[0].Aciklama : 'bulunamadi');
 
   // Aciklama girilmemis satirda program bir sey uydurmamali.
   const bosAciklamali = await sql.sorgu(

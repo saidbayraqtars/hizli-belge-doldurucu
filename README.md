@@ -24,7 +24,7 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 | Fiyat | elle girilir (Vega'da sebze-meyve için günlük değişen bir satış fiyatı tutulmuyor); ürün kartında bir fiyat varsa öneri olarak gelir |
 | Tutar | daralı miktar × fiyat, kendiliğinden hesaplanır |
 | Kasa Tutarı | kasa adedi × depozito bedeli, kendiliğinden hesaplanır |
-| Açıklama | **elle yazılır**, isteğe bağlı. Yazılan not olduğu gibi Vega'daki belge satırının açıklamasına ve ayrıntılı rapora geçer. (Program 27.08.2026'ya kadar buraya dara hesabını kendisi yazıyordu; artık yazmıyor — alan kullanıcının.) |
+| Açıklama | **elle yazılır**, isteğe bağlı. Yalnızca uygulamanın ayrıntılı raporunda görünür; gerçek Vega belge satırının açıklamasına yazılmaz. (Program 27.08.2026'ya kadar buraya dara hesabını kendisi yazıyordu; artık yazmıyor — alan kullanıcının rapor notudur.) |
 
 Ayrıca **Tahsilat** alanı var: ürün satılıp aynı anda ödeme de alınıyorsa,
 buraya girilen tutar kadar ayrı bir **cari giriş (tahsilat)** dekontu yazılır
