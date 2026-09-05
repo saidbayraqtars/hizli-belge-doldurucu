@@ -14,12 +14,12 @@
 //      Ayrıntı yok: "ne kadar almış, ne kadar vermiş, borcu ne" tek satır.
 //
 //   2. Müşteri dönem dökümü (haftalikDetay) — Ekstre ekranındaki ayrıntılı rapor
-//      CİNSİ | SAFİ KG | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO
+//      CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | SAFİ KG | FİYAT | TUTAR |
+//      AÇIKLAMA | FİŞ NO
 //      + DEVİR, KASA ÖZETİ, S.TUTARI, ÖDEME bloğu, BAKİYE
-//      05.09.2026 (kullanıcı isteği): satırdaki K.ADET / K.TÜRÜ / K.TUTAR
-//      sütunları kaldırıldı, yerine satılan ürünün SAFİ KG'ı (dara düşülmüş
-//      kilo) kondu. Kasa bilgisi alttaki KASA ADEDİ / KASA TUTARI özetinde
-//      duruyor; hem sütun hem özet olarak iki kez verilmiyor.
+//      05.09.2026 (kullanıcı isteği): satılan ürünün SAFİ KG'ı (dara düşülmüş
+//      kilo) FİYAT'ın önüne sütun olarak kondu. Ayrı "Verilen Kasalar" bloğu
+//      kaldırıldı — kasa zaten satırlarda ve özet kalemlerinde duruyordu.
 //
 // SÜTUNLARIN TANIMI — eski programın gerçek çıktısıyla doğrulandı
 // (AHMET TAMALLIOĞLU: 348.451,20 + 1.300,00 + 21.243,00 = 370.994,20):

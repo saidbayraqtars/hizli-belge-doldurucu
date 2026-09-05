@@ -1602,11 +1602,11 @@ function raporMusteriyeGec(s) {
 // Tasarım daraltıldı: satır yüksekliği ve yazı boyu küçültüldü — ürünü çok
 // olan müşteride çıktı sayfalarca sürüyordu.
 //
-// 05.09.2026 kullanıcı isteği: satırdaki K.ADET / K.TÜRÜ / K.TUTAR sütunları
-// kaldırıldı ("verilen kasalar için ayrıca sekme gözükmesin"), yerine satılan
-// ürünün SAFİ KG'ı (dara düşülmüş kilo) kondu. Kasa yalnızca alttaki
-// KASA ADEDİ / KASA TUTARI özetinde duruyor; ürünü olmayan saf kasa satırları
-// tabloya hiç yazılmıyor.
+// 05.09.2026 kullanıcı isteği: satılan ürünün SAFİ KG'ı (dara düşülmüş kilo)
+// FİYAT'ın hemen önüne sütun olarak eklendi. Fiş satırlarındaki
+// K.ADET / K.TÜRÜ / K.TUTAR yerinde duruyor — kaldırılan, alttaki ayrı
+// "Verilen Kasalar" bloğuydu (kullanıcı çıktı üzerinde "iptal" diye işaretledi):
+// aynı kasa bilgisi hem satırda hem o blokta iki kez veriliyordu.
 
 el('ekstreRaporGetir').addEventListener('click', () => ekstreRaporGetir());
 el('ekstreRaporYazdir').addEventListener('click', () => yazdir());
@@ -1633,7 +1633,7 @@ async function ekstreRaporGetir() {
   el('ekstreRapor').classList.remove('gizli');
   el('ekstreRaporUst').textContent = '';
   el('ekstreRaporAlt').textContent = '';
-  boslukTemizle(el('ekstreRaporGovde'), 6, 'Hazırlanıyor…');
+  boslukTemizle(el('ekstreRaporGovde'), 9, 'Hazırlanıyor…');
 
   try {
     const d = await cagir('rapor:haftalikDetay', {
@@ -1645,7 +1645,7 @@ async function ekstreRaporGetir() {
     });
     ekstreRaporCiz(d);
   } catch (e) {
-    boslukTemizle(el('ekstreRaporGovde'), 6, 'Döküm okunamadı: ' + e.message);
+    boslukTemizle(el('ekstreRaporGovde'), 9, 'Döküm okunamadı: ' + e.message);
   }
 }
 
@@ -1689,27 +1689,22 @@ function ekstreRaporCiz(d) {
 
   // Satırlar — fiş fiş. Her fişin sonunda ara toplam, sonra ince bir ayraç
   // (kullanıcı isteği: "fiş sırası bitince sonunda boşluk bıraksın, o seriyi
-  // toplasın, sonra öyle öyle devam etsin"). Kasa sütunu yok, SAFİ KG var.
+  // toplasın, sonra öyle öyle devam etsin"). SAFİ KG sütunu FİYAT'tan önce.
   const govde = el('ekstreRaporGovde');
   govde.innerHTML = '';
 
-  // Salt kasa satırı (ürün yok): kasa artık ayrı sütun değil, alttaki özette
-  // toplanıyor — tabloya boş bir satır olarak düşmesin. Yalnızca kasadan oluşan
-  // fiş de tabloda hiç görünmesin (ara toplamı da boş çıkardı).
-  const urunSatiriMi = (s) => Boolean(s.netKg || s.tutar);
-  const gruplar = d.gruplar
-    .map((g) => ({ ...g, satirlar: g.satirlar.filter(urunSatiriMi) }))
-    .filter((g) => g.satirlar.length);
-
-  if (!gruplar.length) {
-    boslukTemizle(govde, 6, 'Bu aralıkta bu müşteriye belge girilmemiş.');
+  if (!d.gruplar.length) {
+    boslukTemizle(govde, 9, 'Bu aralıkta bu müşteriye belge girilmemiş.');
   } else {
-    const genel = { netKg: 0, tutar: 0 };
+    const genel = { kasaAdedi: 0, kasaTutari: 0, netKg: 0, tutar: 0 };
 
-    gruplar.forEach((g, sira) => {
+    d.gruplar.forEach((g, sira) => {
       for (const s of g.satirlar) {
         raporSatiriEkle(govde, [
           [s.cinsi, ''],
+          [s.kasaAdedi ? miktarYaz(s.kasaAdedi) : '', 'sayi'],
+          [s.kasaTipiKod, ''],
+          [s.kasaTutari ? para(s.kasaTutari) : '', 'sayi'],
           [s.netKg ? miktarYaz(s.netKg) : '', 'sayi'],
           [para(s.fiyat), 'sayi'],
           [para(s.tutar), 'sayi'],
@@ -1718,33 +1713,35 @@ function ekstreRaporCiz(d) {
         ]);
       }
 
-      // Ara toplam görünen satırlardan hesaplanıyor: g.araToplam kasa
-      // tutarını da taşıyor, o artık bu tabloda yer almıyor.
-      const ara = {
-        netKg: g.satirlar.reduce((t, s) => t + s.netKg, 0),
-        tutar: g.satirlar.reduce((t, s) => t + s.tutar, 0)
-      };
       raporSatiriEkle(govde, [
         [`FİŞ ${g.fisNo} TOPLAMI`, ''],
-        [miktarYaz(ara.netKg), 'sayi'],
+        [miktarYaz(g.araToplam.kasaAdedi), 'sayi'],
+        ['', ''],
+        [para(g.araToplam.kasaTutari), 'sayi'],
+        [miktarYaz(g.araToplam.netKg), 'sayi'],
         ['', 'sayi'],
-        [para(ara.tutar), 'sayi'],
+        [para(g.araToplam.tutar), 'sayi'],
         ['', ''],
         [g.fisNo, 'sayi']
       ], 'fisAra');
 
-      genel.netKg += ara.netKg;
-      genel.tutar += ara.tutar;
+      genel.kasaAdedi += g.araToplam.kasaAdedi;
+      genel.kasaTutari += g.araToplam.kasaTutari;
+      genel.netKg += g.araToplam.netKg;
+      genel.tutar += g.araToplam.tutar;
 
       // Son fişten sonra ayraç yok; genel toplam hemen altında dursun.
       // 05.09.2026 kullanıcı isteği: iki fiş arası boşluk yerine belirgin çizgi.
-      if (sira < gruplar.length - 1) {
-        raporSatiriEkle(govde, [['', '', 6]], 'fisAyrac');
+      if (sira < d.gruplar.length - 1) {
+        raporSatiriEkle(govde, [['', '', 9]], 'fisAyrac');
       }
     });
 
     raporSatiriEkle(govde, [
       ['GENEL TOPLAM', ''],
+      [miktarYaz(genel.kasaAdedi), 'sayi'],
+      ['', ''],
+      [para(genel.kasaTutari), 'sayi'],
       [miktarYaz(genel.netKg), 'sayi'],
       ['', 'sayi'],
       [para(genel.tutar), 'sayi'],
