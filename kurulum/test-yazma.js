@@ -253,8 +253,16 @@ async function calistir() {
   kontrol('Genel hareket izahat kodlari dogru (21, 13)',
     genelHareket.map((r) => Number(r.BELGEIZAHAT)).join(',') === '21,13',
     genelHareket.map((r) => r.BELGEIZAHAT).join(','));
-  kontrol('Genel hareket BELGEIZAHAT = ISLEMIZAHAT her satirda',
-    genelHareket.every((r) => Number(r.BELGEIZAHAT) === Number(r.ISLEMIZAHAT)));
+  // ISLEMIZAHAT fatura/stok belgelerinde belge tipiyle AYNI, cari giris/cikis
+  // belgelerinde ODEME ARACI kodudur (canli Vega kayitlariyla dogrulandi:
+  // 13/1 = nakit tahsilat, 13/11 = kart-havale). Nakit tahsilat fisinde 1
+  // bekliyoruz.
+  kontrol('Fatura satirinda BELGEIZAHAT = ISLEMIZAHAT',
+    genelHareket[0] && Number(genelHareket[0].BELGEIZAHAT) === Number(genelHareket[0].ISLEMIZAHAT),
+    genelHareket[0] ? `${genelHareket[0].BELGEIZAHAT}/${genelHareket[0].ISLEMIZAHAT}` : '—');
+  kontrol('Nakit tahsilat satirinda ISLEMIZAHAT = 1 (odeme araci)',
+    genelHareket[1] && Number(genelHareket[1].ISLEMIZAHAT) === 1,
+    genelHareket[1] ? `${genelHareket[1].BELGEIZAHAT}/${genelHareket[1].ISLEMIZAHAT}` : '—');
   kontrol('Tahsilat satiri BELGELINK=-1, fatura satiri NULL',
     genelHareket[1] && genelHareket[1].BELGELINK === -1 && genelHareket[0].BELGELINK === null,
     genelHareket.map((r) => r.BELGELINK).join(','));
@@ -421,6 +429,30 @@ async function calistir() {
         WHERE ISNULL(IZAHAT, 0) <> 0 OR ISNULL(PORTNO, 0) <> 0) AS adet`);
   kontrol('Odeme araci alanlari bos (kasaya postalanmiyor)',
     Number(arac[0].adet) === 0, `${arac[0].adet} satirda dolu`);
+
+  // ŞUBE / KASA — Vega'nin ekraninda bos olamaz. Bos birakilinca kullanici
+  // belgeyi acip elle dolduruyor, kaydedince Vega cariye IKINCI bir hareket
+  // yaziyor ("mukerrer belge", 05.09.2026). Basligin OZELKOD1/OZELKOD2'si.
+  const subeKasa = await sql.sorgu(`
+    SELECT ISNULL(OZELKOD1, '') AS sube, ISNULL(OZELKOD2, '') AS kasa,
+           ISNULL(UID, '') AS uid
+    FROM ${vtAdi('TBLCARGIRBASLIK', true)}`);
+  kontrol('Cari giris basliginda sube ve kasa dolu',
+    subeKasa.every((r) => String(r.sube).trim() && String(r.kasa).trim()),
+    subeKasa.map((r) => `${r.sube}/${r.kasa}`).join(' · ') || '—');
+  kontrol('Cari giris basliginda UID uretildi',
+    subeKasa.every((r) => /^\{.+\}$/.test(String(r.uid).trim())),
+    subeKasa.map((r) => r.uid).join(' · ') || '—');
+
+  // Hareket satiri Vega'nin kendi kestigi satirlarla ayni kalipta olmali:
+  // BELGENO satirda BOS, BELGELINK = -1, STATUS = 0, VADE dolu.
+  const girisSatiri = await sql.sorgu(`
+    SELECT ISNULL(BELGENO, '') AS belgeNo, BELGELINK, STATUS, VADE
+    FROM ${vtAdi('TBLCARGIRHAREKET', true)}`);
+  kontrol('Giris satiri Vega kalibinda (BELGENO bos, BELGELINK=-1, STATUS=0, VADE dolu)',
+    girisSatiri.every((r) => String(r.belgeNo).trim() === '' && Number(r.BELGELINK) === -1 &&
+      Number(r.STATUS) === 0 && !!r.VADE),
+    girisSatiri.map((r) => `"${r.belgeNo}"/${r.BELGELINK}/${r.STATUS}`).join(' · ') || '—');
 
   const bakiyeB = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
   kontrol('Cari bakiyesi urun + kasa kadar artti',

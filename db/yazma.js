@@ -282,7 +282,7 @@ async function siradakiBelgeNo(t, v, firma, donem, onek) {
 async function cariHareketEkle(t, ayrinti) {
   const {
     v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd,
-    ozelKod, belgeLink, gecikmeHesapla
+    ozelKod, belgeLink, gecikmeHesapla, islemInd, islemIzahat
   } = ayrinti;
   const tam = tablo(v, firma, donem, 'TBLCARIHAREKETLERI');
 
@@ -328,7 +328,7 @@ async function cariHareketEkle(t, ayrinti) {
 
   const genel = await cariGenelHareketEkle(t, {
     v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd,
-    belgeLink, gecikmeHesapla
+    belgeLink, gecikmeHesapla, islemInd, islemIzahat
   });
   if (genel) kayitlar.push(genel);
 
@@ -353,7 +353,7 @@ async function cariHareketEkle(t, ayrinti) {
 async function cariGenelHareketEkle(t, ayrinti) {
   const {
     v, firma, donem, cariInd, izahat, borc, alacak, belgeNo, tarih, aciklama, headerInd,
-    belgeLink, gecikmeHesapla
+    belgeLink, gecikmeHesapla, islemInd, islemIzahat
   } = ayrinti;
   if (!(await tabloVarMi(firma, donem, 'TBLCARIGENELHAREKET'))) return null;
 
@@ -368,9 +368,12 @@ async function cariGenelHareketEkle(t, ayrinti) {
       TARIH: tarih,
       VADE: tarih,
       BELGEIND: headerInd != null ? Number(headerInd) : null,
-      ISLEMIND: headerInd != null ? Number(headerInd) : null,
+      // Cari giriş/çıkışta hareket satırının IND'i, diğer belgelerde başlık IND'i.
+      ISLEMIND: islemInd != null ? Number(islemInd)
+                                 : (headerInd != null ? Number(headerInd) : null),
       BELGEIZAHAT: Number(izahat),
-      ISLEMIZAHAT: Number(izahat),
+      // Cari giriş/çıkışta ödeme aracı kodu (1 = nakit), diğerlerinde belge tipi.
+      ISLEMIZAHAT: islemIzahat !== undefined ? Number(islemIzahat) : Number(izahat),
       // Gerçek Vega kayıtlarında bu ikisi ALACAK'ın işaretiyle değil, belge
       // TİPİYLE belirleniyor (tahsilat/giriş dekontu → -1/1; Stok Giriş İade
       // Fişi'nde her ikisi de NULL, ALACAK>0 olsa bile — 24.08.2026'da
@@ -462,6 +465,35 @@ async function kasaAdlariniOku(kasaTablosu) {
   return bekleyen;
 }
 
+// Belge başlığındaki Şube (OZELKOD1) / Kasa (OZELKOD2) adı. Kılavuz §22.6:
+// sabit 'MERKEZ' yazmak yerine o tabloda en çok geçen değer okunur — çok şubeli
+// kurulumda yanlış şube yazmayalım. Hiç belge yoksa 'MERKEZ'e düşülür (Vega'nın
+// tek şubeli kurulumlarda kullandığı ad).
+const subeKasaOnbellek = new Map();
+
+async function subeKasaAdiOku(baslikTablosu) {
+  if (subeKasaOnbellek.has(baslikTablosu)) return subeKasaOnbellek.get(baslikTablosu);
+  const bekleyen = (async () => {
+    try {
+      const r = await sorgu(
+        `SELECT TOP 1 LTRIM(RTRIM(ISNULL(OZELKOD1, ''))) AS sube,
+                      LTRIM(RTRIM(ISNULL(OZELKOD2, ''))) AS kasa
+         FROM ${baslikTablosu}
+         WHERE LTRIM(RTRIM(ISNULL(OZELKOD1, ''))) <> ''
+         GROUP BY LTRIM(RTRIM(ISNULL(OZELKOD1, ''))), LTRIM(RTRIM(ISNULL(OZELKOD2, '')))
+         ORDER BY COUNT(*) DESC`
+      );
+      const s = r[0] || {};
+      const sube = String(s.sube || '').trim() || 'MERKEZ';
+      return { sube, kasa: String(s.kasa || '').trim() || sube };
+    } catch (e) {
+      return { sube: 'MERKEZ', kasa: 'MERKEZ' };
+    }
+  })();
+  subeKasaOnbellek.set(baslikTablosu, bekleyen);
+  return bekleyen;
+}
+
 // Sütun kalıbı, Vega'nın kendi kestiği nakit cari giriş fişlerinden birebir
 // alındı: ISLEM = -2 gelir / -3 gider, BELGELINK = başlığın IND'i,
 // LINELINK = hareket satırının IND'i, BELGEIZAHAT = belge tipi (13/11),
@@ -473,7 +505,11 @@ async function kasaDefterineYaz(t, ayrinti) {
   if (!(await tabloVarMi(firma, donem, 'TBLKASA'))) return null;
 
   const kasaTablosu = tablo(v, firma, donem, 'TBLKASA');
-  const adlar = await kasaAdlariniOku(kasaTablosu);
+  // Kasa satırının şube/kasa adı belgenin başlığındakiyle AYNI olmalı; yoksa
+  // Vega kasa raporunda para başka kasada görünür.
+  const adlar = (ayrinti.sube && ayrinti.kasa)
+    ? { sube: ayrinti.sube, kasa: ayrinti.kasa }
+    : await kasaAdlariniOku(kasaTablosu);
 
   return ekle(
     t,
@@ -521,6 +557,16 @@ async function cariDekontuYaz(t, ayrinti) {
   const hareketTam = tablo(v, firma, donem, hareketAdi);
   const belgeNo = await siradakiBelgeNo(t, v, firma, donem, onek || belgeOneki());
 
+  // ŞUBE / KASA — Vega'nın ekranında bu iki alan BOŞ OLAMAZ. Cari giriş/çıkış
+  // başlığında karşılıkları OZELKOD1 (Şube) ve OZELKOD2 (Kasa); kılavuz §22.6
+  // ile aynı desen, canlı veriyle de doğrulandı (bu kurulumdaki 159 cari giriş
+  // ve 59 cari çıkış başlığının HEPSİ 'MERKEZ'/'MERKEZ'). Boş bırakılınca
+  // kullanıcı belgeyi Vega'da açıp elle doldurmak zorunda kalıyor ve kaydedince
+  // Vega belgeyi yeniden postalayıp cariye İKİNCİ bir hareket yazıyor
+  // (05.09.2026 kullanıcı raporu: "şube ve kasa boş olamaz" + "cariye mükerrer
+  // geliyor"). Ad sabit yazılmıyor, o firmanın kendi belgelerinden okunuyor.
+  const yer = await subeKasaAdiOku(baslikTam);
+
   const baslikInd = await ekle(
     t,
     baslikTam,
@@ -536,25 +582,42 @@ async function cariDekontuYaz(t, ayrinti) {
       IADE: 0,
       PARABIRIMI: 'TL',
       KUR: 1,
+      AYLIKVADE: 0,
+      MUHASEBELESMEYECEK: 0,
+      OZELKOD1: yer.sube,  // Şube
+      OZELKOD2: yer.kasa,  // Kasa
+      OZELKOD3: '',
+      OZELKOD4: '',
       USERNO: Number(userNo || 0)
     },
     {
       zorunlu: ['BELGENO', 'FIRMANO', 'BELGETIPI', 'TUTAR'],
-      ozel: { CREDATE: 'GETDATE()' }
+      // UID: Vega kendi kestiği her belgeye '{GUID}' biçiminde bir kimlik
+      // yazıyor; boş bırakılan belgeler bazı ekranlarda eşleşmiyor.
+      ozel: { CREDATE: 'GETDATE()', UID: "'{' + CAST(NEWID() AS NVARCHAR(36)) + '}'" }
     }
   );
 
   const kayitlar = [{ tablo: baslikAdi, ind: baslikInd, donemli: true }];
+  let ilkSatirInd = null;
 
   for (const k of kalemler) {
+    // Alanlar Vega'nın kendi kestiği cari giriş/çıkış satırlarından birebir:
+    // BELGENO satırda BOŞ (numara başlıkta durur), BELGELINK = -1, STATUS = 0,
+    // VADE = belge tarihi. Satıra belge numarası yazmak Vega'nın belgeyi
+    // tanımasını bozuyor.
     const alanlar = {
       EVRAKNO: baslikInd,
-      BELGENO: belgeNo,
+      BELGENO: '',
       FIRMANO: Number(cariInd),
       TUTAR: Number(k.tutar) || 0,
       ACIKLAMA: k.aciklama || aciklama || null,
       PARABIRIMI: 'TL',
-      KUR: 1
+      KUR: 1,
+      VADE: tarih,
+      AYLIKVADE: 0,
+      BELGELINK: -1,
+      STATUS: 0
     };
     // Ödeme aracı yalnızca gerçekten para alınan/verilen fişte doldurulur
     // (tahsilat). Mal satışını cari giriş olarak yazan dekontta para el
@@ -568,6 +631,7 @@ async function cariDekontuYaz(t, ayrinti) {
 
     const satirInd = await ekle(t, hareketTam, alanlar, { zorunlu: ['EVRAKNO', 'TUTAR'] });
     kayitlar.push({ tablo: hareketAdi, ind: satirInd, donemli: true });
+    if (ilkSatirInd == null) ilkSatirInd = satirInd;
 
     if (nakit) {
       const kasaInd = await kasaDefterineYaz(t, {
@@ -575,6 +639,8 @@ async function cariDekontuYaz(t, ayrinti) {
         baslikInd,
         satirInd,
         belgeTipi,
+        sube: yer.sube,
+        kasa: yer.kasa,
         tutar: Number(k.tutar) || 0,
         aciklama: 'Nakit Ödeme'
       });
@@ -593,7 +659,17 @@ async function cariDekontuYaz(t, ayrinti) {
     belgeNo,
     tarih,
     aciklama,
-    headerInd: baslikInd
+    headerInd: baslikInd,
+    // TBLCARIGENELHAREKET'te cari giriş/çıkış belgeleri fatura/stok
+    // belgelerinden AYRI davranıyor (canlı veriyle doğrulandı):
+    //   fatura/stok (20,21,22,32,33…): BELGEIND = ISLEMIND = başlık IND,
+    //                                  BELGEIZAHAT = ISLEMIZAHAT = belge tipi
+    //   cari giriş/çıkış (13, 11)   : ISLEMIND = HAREKET satırının IND'i,
+    //                                  ISLEMIZAHAT = ÖDEME ARACI (1 = nakit)
+    // İkincisini başlık IND'i ve belge tipiyle doldurmak, Vega'nın belgeyi
+    // kendi satırlarıyla eşleştirmesini bozuyordu.
+    islemInd: ilkSatirInd,
+    islemIzahat: nakit ? ODEME_NAKIT : undefined
   });
   kayitlar.push(...cari);
 

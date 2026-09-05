@@ -348,6 +348,12 @@ tabanını okumak zorlaşıyor.
 - Kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski Access
   programının kendi kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR; Ayarlar
   ekranından elle eklenir (kod, ad, dara, depozito).
+- Cari giriş/çıkış başlığında **Şube** (`OZELKOD1`) ve **Kasa** (`OZELKOD2`)
+  doldurulur — Vega'nın ekranında bu iki alan boş olamaz. Ad sabit yazılmaz, o
+  firmanın kendi belgelerinden en çok geçen değer okunur (tek şubeli
+  kurulumlarda `MERKEZ`). Boş bırakılırsa kullanıcı belgeyi Vega'da açıp elle
+  doldurmak zorunda kalıyor ve kaydedince Vega belgeyi yeniden postalayarak
+  cariye **ikinci bir hareket** yazıyor (mükerrer belge).
 - Ödeme aracı alanları (`IZAHAT`, `PORTNO`, `BANKANO`) yalnızca **tahsilat**
   dekontunda doldurulur (nakit) ve o zaman Vega'nın kasa defterine de satır
   yazılır. Müşteriyi borçlandıran ürün/kasa dekontunda bilerek boş bırakılır —
