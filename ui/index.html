@@ -192,6 +192,8 @@
         </div>
         <button class="dugme birincil buyuk" id="raporGetir">Raporu Getir</button>
         <button class="dugme ikincil" id="raporYazdir">Yazdır</button>
+        <button class="dugme ikincil" id="raporTopluEkstre">Seçilenlerin Ekstresi</button>
+        <button class="dugme ucuncul" id="raporSecimTemizle">Seçimi Temizle</button>
       </div>
       <p class="ipucu">
         Hafta <b>Pazar</b> başlar, <b>Cumartesi</b> biter. Bu ekran çok müşterili
@@ -199,6 +201,13 @@
         kalmış. Fiş fiş ayrıntılı döküm <b>Ekstre</b> sekmesinde — listede bir
         müşteriye tıklayınca oraya, o hafta seçili olarak geçilir.
       </p>
+      <p class="ipucu">
+        Soldaki kutucuklardan <b>birden fazla müşteri</b> işaretlenebilir:
+        <b>Yazdır</b> yalnız işaretlileri kâğıda basar,
+        <b>Seçilenlerin Ekstresi</b> her biri için fiş bazlı ayrıntılı dökümü
+        arka arkaya hazırlar (her müşteri ayrı sayfa).
+      </p>
+      <p class="ipucu secimBilgi gizli" id="raporSecimBilgi"></p>
     </div>
 
     <!-- GENEL MÜŞTERİYE GÖRE KALAN — çok müşterili borç dökümü -->
@@ -207,6 +216,7 @@
       <table class="veri rapor dar" id="raporGenelTablo">
         <thead>
           <tr>
+            <th class="secimSutun"><input type="checkbox" id="raporHepsiSec" title="Hepsini seç"></th>
             <th class="tarihSutun" id="raporGenelTarih">—</th>
             <th class="genis">ADI_SOYADI</th>
             <th class="sayi">ESKİ BORÇ</th>
@@ -226,6 +236,18 @@
         <span>GENEL TOPLAM</span>
         <b id="raporGenelToplam">0,00</b>
       </div>
+    </div>
+
+    <!-- Seçili müşterilerin ayrıntılı ekstreleri — arka arkaya, her biri ayrı sayfa -->
+    <div class="kutu yazdirilir gizli" id="topluEkstre">
+      <div class="baslikSatir yazdirilmaz">
+        <h2 id="topluEkstreBaslik">Seçilenlerin Ekstresi</h2>
+        <div class="eylemler">
+          <button class="dugme ikincil" id="topluEkstreYazdir">Yazdır</button>
+          <button class="dugme ucuncul" id="topluEkstreKapat">Kapat</button>
+        </div>
+      </div>
+      <div id="topluEkstreGovde"></div>
     </div>
   </section>
 

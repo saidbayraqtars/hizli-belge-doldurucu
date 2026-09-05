@@ -444,6 +444,21 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
 .raporGenelToplam span { font-style: italic; font-weight: 600; color: #1e3a8a; }
 .raporGenelToplam b { font-size: 20px; font-variant-numeric: tabular-nums; }
 
+/* ─── Çoklu müşteri seçimi (haftalık rapor) ─── */
+
+.secimSutun { width: 32px; text-align: center; }
+.secimSutun input { cursor: pointer; margin: 0; }
+table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
+.ipucu.secimBilgi { color: #1d4ed8; font-weight: 600; }
+
+/* Toplu ekstre: her müşteri kendi bloğunda, ekranda çizgiyle ayrılır. */
+.ekstreBlok + .ekstreBlok {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 2px solid #cbd2dc;
+}
+.topluEkstreDurum { color: #64748b; margin: 0 0 10px; }
+
 .raporUst {
   display: flex;
   gap: 26px;
@@ -528,6 +543,23 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
   /* Yazdır tuşuna basıldığında yalnızca rapor kutusu kâğıda gider — ekstre
      ekranındaki süzgeçler, hareket tablosu ve haftalık özet basılmasın. */
   body.yazdirmaModu .sayfa.etkin > .kutu:not(.yazdirilir) { display: none !important; }
+
+  /* Aynı sayfada birden çok yazdırılabilir kutu varsa (haftalık rapor +
+     seçilenlerin ekstresi) yalnız Yazdır'a basılan kutu kâğıda gider. */
+  body.yazdirmaModu.hedefliYazdirma .sayfa.etkin > .kutu:not(.yazdirmaHedefi) {
+    display: none !important;
+  }
+
+  /* Seçim kutucukları kâğıda basılmaz; seçim varsa yalnız işaretli
+     müşteriler basılır (eski Access programındaki davranış). */
+  .secimSutun { display: none !important; }
+  #raporGenelTablo.yalnizSecili tbody tr:not(.secili) { display: none !important; }
+  table.veri.rapor tbody tr.secili > td { background: transparent !important; }
+
+  /* Her müşterinin ekstresi ayrı sayfada başlasın. */
+  .ekstreBlok { page-break-after: always; border-top: 0 !important; padding-top: 0 !important; }
+  .ekstreBlok:last-child { page-break-after: auto; }
+  .topluEkstreDurum { display: none !important; }
 
   /* Daraltılmış çıktı: aynı müşteride sayfa sayısı yarıya iner. */
   table.veri.rapor { font-size: 9.5px; }

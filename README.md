@@ -77,6 +77,16 @@ TOP.BAKİYE` + tablonun altında genel toplam satırı.
 Listede bir müşteriye tıklamak, o müşteriyi **Ekstre** sekmesinde aynı hafta
 seçili olarak açar ve fiş bazlı ayrıntılı raporu hazırlar.
 
+Satırların solundaki kutucuklarla **birden fazla müşteri seçilebilir**
+(eski Access programındaki *GENEL KALAN* ekranının davranışı). Seçim varken:
+
+- **Yazdır** yalnız işaretli müşterileri basar, alttaki GENEL TOPLAM da
+  yalnız onlardan hesaplanır.
+- **Seçilenlerin Ekstresi** her işaretli müşteri için fiş bazlı ayrıntılı
+  dökümü arka arkaya hazırlar; yazdırınca her müşteri ayrı sayfaya düşer.
+  Sunucuda yeni bir uç yok, her müşteri için `rapor:haftalikDetay` sırayla
+  çağrılır.
+
 Sütunların tanımı (eski programın gerçek çıktısıyla doğrulandı):
 
 | Sütun | Nedir |

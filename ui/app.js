@@ -1439,7 +1439,15 @@ function ekstreHaftalariCiz() {
 // tıklamak o müşteriyi Ekstre sekmesinde, aynı hafta seçili olarak açar.
 // Sütun tanımları için bkz. db/rapor.js başındaki açıklama.
 
-const raporDurum = { hafta: haftaBasi(new Date()), ozet: null, ilkAcilis: true };
+// secili: isaretlenen musterilerin cariInd'leri. Eski Access programinda
+// listenin solunda kutucuklar vardi; birkac musteri isaretlenip tek cikti
+// aliniyordu — ayni davranis (05.09.2026 kullanici istegi).
+const raporDurum = {
+  hafta: haftaBasi(new Date()),
+  ozet: null,
+  ilkAcilis: true,
+  secili: new Set()
+};
 
 el('raporGetir').addEventListener('click', () => raporGetir());
 el('raporBuHafta').addEventListener('click', () => raporHaftayaGit(new Date()));
@@ -1447,7 +1455,27 @@ el('raporOncekiHafta').addEventListener('click', () => raporHaftaKaydir(-7));
 el('raporSonrakiHafta').addEventListener('click', () => raporHaftaKaydir(7));
 el('raporTip').addEventListener('change', () => raporGetir());
 el('raporArama').addEventListener('input', () => raporGenelCiz());
-el('raporYazdir').addEventListener('click', () => yazdir());
+el('raporYazdir').addEventListener('click', () => {
+  raporSecimiGorunurYap();
+  yazdir(el('raporGenel'));
+});
+el('raporSecimTemizle').addEventListener('click', () => {
+  raporDurum.secili.clear();
+  raporGenelCiz();
+});
+el('raporTopluEkstre').addEventListener('click', () => topluEkstreGetir());
+el('raporHepsiSec').addEventListener('change', (olay) => {
+  // Yalniz ekranda gorunen (arama suzgecinden gecen) satirlar isaretlenir.
+  for (const s of raporGorunenSatirlar()) {
+    if (olay.target.checked) raporDurum.secili.add(s.cariInd);
+    else raporDurum.secili.delete(s.cariInd);
+  }
+  raporGenelCiz();
+});
+el('topluEkstreYazdir').addEventListener('click', () => yazdir(el('topluEkstre')));
+el('topluEkstreKapat').addEventListener('click', () => {
+  el('topluEkstre').classList.add('gizli');
+});
 
 function raporSayfasiAcildi() {
   raporHaftaEtiketiniGuncelle();
@@ -1489,7 +1517,10 @@ async function raporGetir() {
   const dugme = el('raporGetir');
   dugme.disabled = true;
   el('raporGenelAyak').innerHTML = '';
-  boslukTemizle(el('raporGenelGovde'), 9, 'Hazırlanıyor…');
+  // Liste degisiyor: eski secim yeni haftada anlamsiz.
+  raporDurum.secili.clear();
+  el('topluEkstre').classList.add('gizli');
+  boslukTemizle(el('raporGenelGovde'), 11, 'Hazırlanıyor…');
 
   try {
     raporDurum.ozet = await cagir('rapor:haftalikOzet', {
@@ -1503,11 +1534,38 @@ async function raporGetir() {
     raporGenelCiz();
   } catch (e) {
     raporDurum.ozet = null;
-    boslukTemizle(el('raporGenelGovde'), 10, 'Rapor okunamadı: ' + e.message);
+    boslukTemizle(el('raporGenelGovde'), 11, 'Rapor okunamadı: ' + e.message);
     el('raporGenelToplam').textContent = '0,00';
   } finally {
     dugme.disabled = false;
   }
+}
+
+// Ekranda o an duran (arama süzgecinden geçmiş) satırlar.
+function raporGorunenSatirlar() {
+  if (!raporDurum.ozet) return [];
+  const parcalar = aramaParcalari(el('raporArama').value);
+  return parcalar.length
+    ? aramayaGoreSirala(raporDurum.ozet.satirlar, parcalar, (s) => s.ad + ' ' + s.kod)
+    : raporDurum.ozet.satirlar;
+}
+
+// İşaretli müşteriler — arama kutusu değişince seçim kaybolmasın diye
+// süzgeçten değil, tüm listeden çıkarılır.
+function raporSeciliSatirlar() {
+  if (!raporDurum.ozet) return [];
+  return raporDurum.ozet.satirlar.filter((s) => raporDurum.secili.has(s.cariInd));
+}
+
+// Arama süzgeci yüzünden ekranda durmayan seçili müşteri varsa kâğıda da
+// düşmezdi. Yazdırmadan önce süzgeç kaldırılıyor: işaretlenen herkes bassın.
+function raporSecimiGorunurYap() {
+  if (!raporDurum.secili.size) return;
+  const gorunen = new Set(raporGorunenSatirlar().map((s) => s.cariInd));
+  const eksikVar = raporSeciliSatirlar().some((s) => !gorunen.has(s.cariInd));
+  if (!eksikVar) return;
+  el('raporArama').value = '';
+  raporGenelCiz();
 }
 
 function raporGenelCiz() {
@@ -1515,26 +1573,45 @@ function raporGenelCiz() {
   const ayak = el('raporGenelAyak');
   if (!raporDurum.ozet) return;
 
-  const parcalar = aramaParcalari(el('raporArama').value);
-  const satirlar = parcalar.length
-    ? aramayaGoreSirala(raporDurum.ozet.satirlar, parcalar, (s) => s.ad + ' ' + s.kod)
-    : raporDurum.ozet.satirlar;
+  const satirlar = raporGorunenSatirlar();
 
   govde.innerHTML = '';
   ayak.innerHTML = '';
   if (!satirlar.length) {
-    boslukTemizle(govde, 10, 'Bu haftada gösterilecek müşteri yok.');
+    boslukTemizle(govde, 11, 'Bu haftada gösterilecek müşteri yok.');
     el('raporGenelToplam').textContent = '0,00';
+    raporSecimBilgisi();
     return;
   }
 
   const tarihMetni = tarihYaz(haftaSonu(raporDurum.hafta));
-  const toplam = { eskiBorc: 0, kasaAdedi: 0, kasa: 0, safiKg: 0, yeniBorc: 0, odeme: 0, topBakiye: 0 };
 
   for (const s of satirlar) {
     const tr = document.createElement('tr');
     tr.className = 'tiklanir';
+    const isaretli = raporDurum.secili.has(s.cariInd);
+    if (isaretli) tr.classList.add('secili');
     tr.title = 'Ayrıntılı dökümü Ekstre ekranında aç';
+
+    const secimHucre = document.createElement('td');
+    secimHucre.className = 'secimSutun';
+    const kutu = document.createElement('input');
+    kutu.type = 'checkbox';
+    kutu.checked = isaretli;
+    kutu.title = 'Bu müşteriyi seç';
+    // Kutucuk satırın kendi tıklamasını (Ekstre'ye geçiş) tetiklemesin.
+    kutu.addEventListener('click', (olay) => olay.stopPropagation());
+    kutu.addEventListener('change', () => {
+      if (kutu.checked) raporDurum.secili.add(s.cariInd);
+      else raporDurum.secili.delete(s.cariInd);
+      // Tabloyu baştan çizmiyoruz: kutucuk odağı kaybolmasın ve çok
+      // müşterili listede her tıklama takılmasın.
+      tr.classList.toggle('secili', kutu.checked);
+      raporToplamlariCiz();
+    });
+    secimHucre.appendChild(kutu);
+    tr.appendChild(secimHucre);
+
     const hucreler = [
       [tarihMetni, ''],
       [s.ad, ''],
@@ -1555,7 +1632,21 @@ function raporGenelCiz() {
     }
     tr.addEventListener('click', () => raporMusteriyeGec(s));
     govde.appendChild(tr);
+  }
 
+  raporToplamlariCiz();
+}
+
+// Alt toplam satırı. Seçim varsa yalnız işaretli müşterilerden hesaplanır —
+// kâğıda da yalnız onlar bastığı için GENEL TOPLAM tutarlı kalsın.
+function raporToplamlariCiz() {
+  const ayak = el('raporGenelAyak');
+  const satirlar = raporGorunenSatirlar();
+  const secimVar = raporDurum.secili.size > 0;
+  const toplam = { eskiBorc: 0, kasaAdedi: 0, kasa: 0, safiKg: 0, yeniBorc: 0, odeme: 0, topBakiye: 0 };
+
+  for (const s of satirlar) {
+    if (secimVar && !raporDurum.secili.has(s.cariInd)) continue;
     toplam.eskiBorc += s.eskiBorc;
     toplam.kasaAdedi += s.kasaAdedi || 0;
     toplam.kasa += s.kasa;
@@ -1567,9 +1658,11 @@ function raporGenelCiz() {
 
   // Toplam satırı tablonun içinde: yazdırınca her sayı kendi sütununun
   // altına denk gelsin.
+  ayak.innerHTML = '';
   const ayakSatiri = document.createElement('tr');
   ayakSatiri.className = 'genelToplam';
   const ayakHucreleri = [
+    ['', 'secimSutun'],
     ['', ''],
     ['GENEL TOPLAM', ''],
     [para(toplam.eskiBorc), 'sayi'],
@@ -1590,6 +1683,25 @@ function raporGenelCiz() {
   ayak.appendChild(ayakSatiri);
 
   el('raporGenelToplam').textContent = para(toplam.topBakiye);
+  el('raporGenelTablo').classList.toggle('yalnizSecili', secimVar);
+  raporSecimBilgisi();
+}
+
+// Seçim sayısı + "hepsini seç" kutusunun üç durumu (boş / kısmi / dolu).
+function raporSecimBilgisi() {
+  const gorunen = raporGorunenSatirlar();
+  const sayi = raporDurum.secili.size;
+  const bilgi = el('raporSecimBilgi');
+  bilgi.classList.toggle('gizli', sayi === 0);
+  if (sayi) {
+    bilgi.textContent =
+      `${sayi} müşteri seçili — Yazdır ve Seçilenlerin Ekstresi yalnız bunları alır. ` +
+      'Alttaki GENEL TOPLAM da seçilenlerin toplamıdır.';
+  }
+  const hepsi = el('raporHepsiSec');
+  const isaretliGorunen = gorunen.filter((s) => raporDurum.secili.has(s.cariInd)).length;
+  hepsi.checked = gorunen.length > 0 && isaretliGorunen === gorunen.length;
+  hepsi.indeterminate = isaretliGorunen > 0 && isaretliGorunen < gorunen.length;
 }
 
 // Haftalık rapordan ayrıntıya geçiş: müşteri Ekstre ekranında, aynı hafta
@@ -1621,7 +1733,7 @@ function raporMusteriyeGec(s) {
 // aynı kasa bilgisi hem satırda hem o blokta iki kez veriliyordu.
 
 el('ekstreRaporGetir').addEventListener('click', () => ekstreRaporGetir());
-el('ekstreRaporYazdir').addEventListener('click', () => yazdir());
+el('ekstreRaporYazdir').addEventListener('click', () => yazdir(el('ekstreRapor')));
 el('ekstreRaporKapat').addEventListener('click', () => {
   el('ekstreRapor').classList.add('gizli');
 });
@@ -1688,8 +1800,14 @@ function raporSatiriEkle(govde, hucreler, sinif) {
 }
 
 function ekstreRaporCiz(d) {
+  ekstreIcerigiCiz(d, el('ekstreRaporUst'), el('ekstreRaporGovde'), el('ekstreRaporAlt'));
+}
+
+// Bir müşterinin ayrıntılı dökümünü verilen kaplara çizer. Kaplar dışarıdan
+// geliyor: aynı çizim hem tek müşterilik Ekstre ekranında, hem de haftalık
+// rapordan seçilen müşterilerin toplu ekstresinde kullanılıyor.
+function ekstreIcerigiCiz(d, ust, govde, alt) {
   // Üst bilgi — eski programın başlığıyla aynı sıra.
-  const ust = el('ekstreRaporUst');
   ust.innerHTML = '';
   ust.append(
     bilgiKutusu('ADI_SOYADI', d.cari.ad, true),
@@ -1702,7 +1820,6 @@ function ekstreRaporCiz(d) {
   // Satırlar — fiş fiş. Her fişin sonunda ara toplam, sonra ince bir ayraç
   // (kullanıcı isteği: "fiş sırası bitince sonunda boşluk bıraksın, o seriyi
   // toplasın, sonra öyle öyle devam etsin"). SAFİ KG sütunu FİYAT'tan önce.
-  const govde = el('ekstreRaporGovde');
   govde.innerHTML = '';
 
   if (!d.gruplar.length) {
@@ -1765,7 +1882,6 @@ function ekstreRaporCiz(d) {
   // Alt blok: geri gelen kasalar, ödemeler, bakiye. Verilen kasalar için ayrı
   // bir blok yok (05.09.2026 kullanıcı isteği) — tek yerde, aşağıdaki
   // KASA ADEDİ / KASA TUTARI özet kalemlerinde veriliyor.
-  const alt = el('ekstreRaporAlt');
   alt.innerHTML = '';
 
   const kasaBloklari = document.createElement('div');
@@ -1842,11 +1958,103 @@ function kucukTablo(baslik, basliklar, satirlar) {
   return sarma;
 }
 
-// Yazdırma — yalnızca "yazdirilir" işaretli kutu basılır (haftalık rapor
-// tablosu ya da ekstredeki ayrıntılı rapor). Gövdeye geçici bir sınıf
-// eklenip yazdırma bitince kaldırılıyor.
-async function yazdir() {
+// ═══════════════════ SEÇİLENLERİN TOPLU EKSTRESİ ═══════════════════
+//
+// 05.09.2026 kullanıcı isteği: eski Access programındaki gibi listeden
+// birden çok müşteri işaretlenip hepsinin ekstresi tek seferde alınabilsin.
+// Sunucuda yeni bir uç yok — her müşteri için mevcut `rapor:haftalikDetay`
+// sırayla çağrılıyor; tek sorguda birleştirmek fiş gruplama mantığını
+// baştan yazmayı gerektirirdi.
+
+function ekstreBloguOlustur() {
+  const sarma = document.createElement('div');
+  sarma.className = 'ekstreBlok';
+
+  const ust = document.createElement('div');
+  ust.className = 'raporUst';
+
+  // Sütun başlıkları tek yerde dursun diye tekil ekstre tablosu kopyalanıyor.
+  const tablo = el('ekstreRaporTablo').cloneNode(true);
+  tablo.removeAttribute('id');
+  const govde = tablo.querySelector('tbody');
+  govde.removeAttribute('id');
+  govde.innerHTML = '';
+
+  const alt = document.createElement('div');
+  alt.className = 'raporAlt';
+
+  sarma.append(ust, tablo, alt);
+  return { sarma, ust, govde, alt };
+}
+
+async function topluEkstreGetir() {
+  if (!firmaSecildiMi()) {
+    bildir('Önce Ayarlar ekranından firma ve dönem seçin.', 'hata');
+    return sekmeAc('ayar');
+  }
+  const secilenler = raporSeciliSatirlar();
+  if (!secilenler.length) {
+    return bildir('Önce listeden en az bir müşteri işaretleyin.', 'hata');
+  }
+
+  const kutu = el('topluEkstre');
+  const kap = el('topluEkstreGovde');
+  const dugme = el('raporTopluEkstre');
+
+  kutu.classList.remove('gizli');
+  kap.innerHTML = '';
+  const durumSatiri = document.createElement('p');
+  durumSatiri.className = 'ipucu topluEkstreDurum';
+  kap.appendChild(durumSatiri);
+  el('topluEkstreBaslik').textContent =
+    `Seçilenlerin Ekstresi (${secilenler.length} müşteri) · ${haftaEtiketi(raporDurum.hafta)}`;
+
+  const baslangic = tarihKutusu(haftaBasi(raporDurum.hafta));
+  const bitis = tarihKutusu(haftaSonu(raporDurum.hafta));
+
+  dugme.disabled = true;
+  let okunamayan = 0;
+  try {
+    for (let i = 0; i < secilenler.length; i++) {
+      const s = secilenler[i];
+      durumSatiri.textContent = `${i + 1} / ${secilenler.length} hazırlanıyor — ${s.ad}`;
+      const blok = ekstreBloguOlustur();
+      try {
+        const d = await cagir('rapor:haftalikDetay', {
+          firma: firmaKodu(),
+          donem: donemKodu(),
+          cariInd: s.cariInd,
+          baslangic,
+          bitis
+        });
+        ekstreIcerigiCiz(d, blok.ust, blok.govde, blok.alt);
+      } catch (e) {
+        // Bir müşteri okunamazsa kalanlar yine hazırlansın.
+        okunamayan++;
+        blok.ust.appendChild(bilgiKutusu('ADI_SOYADI', s.ad, true));
+        boslukTemizle(blok.govde, 9, 'Döküm okunamadı: ' + e.message);
+      }
+      kap.appendChild(blok.sarma);
+    }
+    durumSatiri.textContent = okunamayan
+      ? `${secilenler.length} müşteri hazırlandı, ${okunamayan} tanesi okunamadı.`
+      : `${secilenler.length} müşterinin ekstresi hazır — Yazdır'da her biri ayrı sayfaya basılır.`;
+  } finally {
+    dugme.disabled = false;
+  }
+
+  kutu.scrollIntoView({ block: 'start' });
+}
+
+// Yazdırma — yalnızca "yazdirilir" işaretli kutu basılır. Sayfada birden çok
+// böyle kutu varsa (haftalık rapor + seçilenlerin ekstresi) hedef verilir ve
+// yalnız o basılır. Gövdeye geçici sınıflar eklenip bitince kaldırılıyor.
+async function yazdir(hedef) {
   document.body.classList.add('yazdirmaModu');
+  if (hedef) {
+    hedef.classList.add('yazdirmaHedefi');
+    document.body.classList.add('hedefliYazdirma');
+  }
   try {
     window.print();
   } catch (e) {
@@ -1856,7 +2064,11 @@ async function yazdir() {
       bildir('Yazdırılamadı: ' + e2.message, 'hata');
     }
   } finally {
-    setTimeout(() => document.body.classList.remove('yazdirmaModu'), 500);
+    setTimeout(() => {
+      document.body.classList.remove('yazdirmaModu');
+      document.body.classList.remove('hedefliYazdirma');
+      if (hedef) hedef.classList.remove('yazdirmaHedefi');
+    }, 500);
   }
 }
 
