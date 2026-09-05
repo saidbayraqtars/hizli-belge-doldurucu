@@ -1,6 +1,6 @@
 {
   "name": "hizli-belge-doldurucu",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "description": "Haftalık ürün satış girişi ve kasa depozito takibi — belge oluşunca VegaWin (VEGADB) veritabanına yazar",
   "author": "Bayraktar Yazılım",

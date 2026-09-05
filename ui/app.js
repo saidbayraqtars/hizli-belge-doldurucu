@@ -320,7 +320,9 @@ function cariKutusuKur(aramaId, sonucId, seciliId, secildiginde, ekParametre) {
 
   return {
     secili: () => seciliCari,
-    temizle: () => { secimiGoster(null); arama.value = ''; },
+    temizle: () => { secimiGoster(null); arama.value = ''; kapat(); },
+    // Belge kaydedildikten sonra imleç doğrudan müşteri kutusuna gelsin.
+    odakla: () => { arama.focus(); },
     // Toptan/perakende süzgeci değişince açık listeyi tazelemek için.
     tekrarAra: () => { if (!sonuc.classList.contains('gizli')) ara(); },
     // Müşteri listesi penceresinden ya da yeni açılan cari kartından
@@ -777,14 +779,21 @@ el('satirEkle').addEventListener('click', () => satirEkle());
 el('tahsilat').addEventListener('input', () => toplamlariGuncelle());
 el('kdvDahil').addEventListener('change', () => toplamlariGuncelle());
 
-el('formTemizle').addEventListener('click', () => {
+// Formu boşaltır. sonKaydiGizle=false ise "Kaydedilen Belge" kutusu ekranda
+// kalır: belge kaydedildikten hemen sonra form temizlenir ama kullanıcı yazılan
+// belge numarasını görebilsin ve gerekirse "Geri Al" diyebilsin.
+function belgeFormunuTemizle(sonKaydiGizle) {
   el('satirGovde').innerHTML = '';
   satirEkle();
   el('fisNo').value = '';
   el('tahsilat').value = '';
   belgeCari.temizle();
-  el('sonKayit').classList.add('gizli');
+  if (sonKaydiGizle) el('sonKayit').classList.add('gizli');
   toplamlariGuncelle();
+}
+
+el('formTemizle').addEventListener('click', () => {
+  belgeFormunuTemizle(true);
   uyariKapat();
 });
 
@@ -877,7 +886,10 @@ async function belgeKaydet(belgeTuru) {
       'basarili'
     );
     sonKaydiGoster(sonuc, belgeTuru);
-    await belgeCari.yenile();
+    // 05.09.2026 kullanıcı isteği: kayıttan sonra sıradaki müşteriye hemen
+    // geçilebilsin — ürün satırları ve önceki müşteri ekranda kalmasın.
+    belgeFormunuTemizle(false);
+    belgeCari.odakla();
   } catch (e) {
     bildir("Vega'ya yazılamadı: " + e.message, 'hata');
   } finally {
