@@ -44,12 +44,10 @@
             <button type="button" class="dugme mini ikincil" data-cari-yeni="belge">+ Yeni Cari Kartı</button>
           </div>
         </div>
-        <div class="alan">
-          <label for="musteriTipi">Toptan / Perakende</label>
-          <select id="musteriTipi">
-            <option value="TOPTAN" selected>Toptan</option>
-            <option value="PERAKENDE">Perakende</option>
-            <option value="">Hepsi</option>
+        <div class="alan" id="musteriTipiAlani">
+          <label for="musteriTipi">Özel Kod 1</label>
+          <select id="musteriTipi" title="Cari kartındaki Özel Kod 1 (TOPTAN, PERAKENDE…)">
+            <option value="" selected>Hepsi</option>
           </select>
         </div>
         <div class="alan">
@@ -186,12 +184,10 @@
             <option value="satici">Satıcı (tedarikçi)</option>
           </select>
         </div>
-        <div class="alan kucuk">
-          <label for="raporMusteriTipi">Toptan / Perakende</label>
-          <select id="raporMusteriTipi">
+        <div class="alan kucuk" id="raporMusteriTipiAlani">
+          <label for="raporMusteriTipi">Özel Kod 1</label>
+          <select id="raporMusteriTipi" title="Cari kartındaki Özel Kod 1 (TOPTAN, PERAKENDE…)">
             <option value="" selected>Hepsi</option>
-            <option value="TOPTAN">Toptan</option>
-            <option value="PERAKENDE">Perakende</option>
           </select>
         </div>
         <div class="alan buyu">

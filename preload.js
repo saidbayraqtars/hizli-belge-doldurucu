@@ -14,6 +14,7 @@ const KANALLAR = [
   'vega:stoklar',
   'vega:bakiye',
   'vega:ekstre',
+  'vega:ozelKod1',
   'yardimci:kasaTipleri',
   'yardimci:kasaTipiKaydet',
   'yardimci:kasaTipiSil',

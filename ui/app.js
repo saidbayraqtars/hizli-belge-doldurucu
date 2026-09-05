@@ -163,6 +163,8 @@ function boslukTemizle(govde, sutunSayisi, mesaj) {
 const durum = {
   ayar: null,
   firmalar: [],
+  // Cari kartlarında Özel Kod 1'de geçen değerler (süzgeç kutuları buradan dolar)
+  ozelKod1: [],
   depolar: [],
   kasaKartlari: [],   // canlı Vega'dan: {id(=stokNo), kod, ad, depozito, dara}
   stoklar: [],
@@ -345,10 +347,10 @@ function cariKutusuKur(aramaId, sonucId, seciliId, secildiginde, ekParametre) {
   };
 }
 
-// Belge ekranındaki müşteri kutusu, Tarih'in yanındaki Toptan/Perakende
-// süzgecine bağlı (05.09.2026 kullanıcı isteği): program varsayılan olarak
-// cari kartında Özel Kod 1 = TOPTAN olanları getirir, istenirse perakende
-// ya da hepsi seçilir.
+// Belge ekranındaki müşteri kutusu, Tarih'in yanındaki Özel Kod 1 süzgecine
+// bağlı (05.09.2026 kullanıcı isteği). Seçenekler sabit değil: cari
+// kartlarının KOD1 alanında ne yazıyorsa o listeleniyor (ozelKodlariYukle).
+// Açılışta TOPTAN varsa o seçili gelir — günlük iş toptan müşterilerle.
 function musteriTipi() {
   const s = el('musteriTipi');
   return s ? s.value : '';
@@ -1584,8 +1586,8 @@ function raporGenelCiz() {
     // kartlarında Özel Kod 1'in boş olmasıdır — kullanıcı raporu bozuk sanmasın.
     const secilenTip = el('raporMusteriTipi').value;
     boslukTemizle(govde, 11, secilenTip && !el('raporArama').value.trim()
-      ? `Bu haftada gösterilecek müşteri yok. Cari kartlarında Özel Kod 1 = ${secilenTip} ` +
-        'yazmıyorsa Toptan / Perakende süzgecini "Hepsi" yapın.'
+      ? `Bu haftada gösterilecek müşteri yok. Özel Kod 1 = ${secilenTip} olan ` +
+        'müşterilerde bu hafta hareket yoksa süzgeci "Hepsi" yapın.'
       : 'Bu haftada gösterilecek müşteri yok.');
     el('raporGenelToplam').textContent = '0,00';
     raporSecimBilgisi();
@@ -2698,6 +2700,49 @@ function ustCubugunuGuncelle() {
   yazmaEt.className = 'etiket ' + (durum.yazmaAcik ? 'acik' : 'kapali');
 }
 
+// Süzgeç kutularını cari kartlarındaki gerçek Özel Kod 1 değerleriyle doldurur.
+// Hiç değer yoksa (ya da kurulumda KOD1 sütunu yoksa) süzgeç alanı gizlenir.
+let ozelKodIlkYukleme = true;
+
+async function ozelKodlariYukle() {
+  try {
+    durum.ozelKod1 = await cagir('vega:ozelKod1', {
+      firma: firmaKodu(), donem: donemKodu()
+    });
+  } catch (e) {
+    durum.ozelKod1 = [];
+  }
+  ozelKodSecimiDoldur(el('musteriTipi'), el('musteriTipiAlani'),
+    ozelKodIlkYukleme ? 'TOPTAN' : null);
+  ozelKodSecimiDoldur(el('raporMusteriTipi'), el('raporMusteriTipiAlani'), null);
+  ozelKodIlkYukleme = false;
+}
+
+function ozelKodSecimiDoldur(secim, alan, varsayilan) {
+  const eski = secim.value;
+  secim.innerHTML = '';
+  const hepsi = document.createElement('option');
+  hepsi.value = '';
+  hepsi.textContent = 'Hepsi';
+  secim.appendChild(hepsi);
+
+  for (const k of durum.ozelKod1) {
+    const o = document.createElement('option');
+    o.value = k.deger;
+    o.textContent = `${k.deger} (${k.adet})`;
+    secim.appendChild(o);
+  }
+
+  // İlk yüklemede varsayılan denenir, sonrakilerde kullanıcının seçimi korunur.
+  // Firma değişip değer listede kalmadıysa "Hepsi"ye düşülür.
+  const aday = String(varsayilan == null ? eski : varsayilan);
+  const bulunan = durum.ozelKod1.find(
+    (k) => k.deger.toLocaleLowerCase('tr') === aday.toLocaleLowerCase('tr')
+  );
+  secim.value = bulunan ? bulunan.deger : '';
+  if (alan) alan.classList.toggle('gizli', durum.ozelKod1.length === 0);
+}
+
 async function kasaKartlariniYukle() {
   try {
     durum.kasaKartlari = await cagir('yardimci:kasaTipleri', {
@@ -2761,6 +2806,7 @@ async function baslangicVerisiniYukle() {
   }
 
   await kasaKartlariniYukle();
+  await ozelKodlariYukle();
 
   try {
     durum.stoklar = await cagir('vega:stoklar', {

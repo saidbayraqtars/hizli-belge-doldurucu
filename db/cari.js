@@ -183,9 +183,10 @@ async function carileriListele(secenek) {
   let bakiyeFiltresi = '';
   if (secenek && secenek.sadeceBakiyeli) bakiyeFiltresi = 'AND ISNULL(B.bakiye, 0) <> 0';
 
-  // Toptan / perakende (cari kartındaki Özel Kod 1 = KOD1) — bkz. db/vega.js.
+  // Özel Kod 1 süzgeci (cari kartındaki KOD1) — bkz. db/vega.js.
+  const parametreler = {};
   const musteriTipi = await musteriTipiFiltresi(
-    cariTablosu, secenek && secenek.musteriTipi, 'C'
+    cariTablosu, secenek && secenek.musteriTipi, 'C', parametreler
   );
 
   const adIfadesi = `
@@ -216,7 +217,7 @@ async function carileriListele(secenek) {
     WHERE ISNULL(C.DELETED, 0) = 0 AND ISNULL(C.STATUS, 1) <> 2 AND C.IND >= 100
       ${tipFiltresi} ${bakiyeFiltresi} ${musteriTipi}
     ORDER BY ${adIfadesi}
-  `);
+  `, parametreler);
 
   return satirlar.map((s) => ({
     cariInd: Number(s.cariInd),

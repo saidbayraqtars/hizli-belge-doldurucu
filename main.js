@@ -112,6 +112,7 @@ uc('vega:cariler', async (girdi) => vega.carileriGetir(girdi));
 uc('vega:stoklar', async (girdi) => vega.stoklariGetir(girdi));
 uc('vega:bakiye', async (girdi) => vega.cariBakiye(girdi));
 uc('vega:ekstre', async (girdi) => vega.cariEkstre(girdi));
+uc('vega:ozelKod1', async (girdi) => vega.ozelKod1Degerleri(girdi));
 
 // --- Yardımcı (VEGADB içindeki küçük tablolar — kasa tipi, kasa defteri, günlük) -
 //

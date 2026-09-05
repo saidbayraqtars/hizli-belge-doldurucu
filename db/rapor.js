@@ -104,10 +104,11 @@ async function haftalikOzet(secenek) {
   if (secenek && secenek.tip === 'alici') tipFiltresi = 'AND (ISNULL(C.FIRMATIPI, 0) & 1) = 1';
   if (secenek && secenek.tip === 'satici') tipFiltresi = 'AND (ISNULL(C.FIRMATIPI, 0) & 2) = 2';
 
-  // Toptan/perakende süzgeci — belge ekranındaki ile aynı alan (cari kartında
+  // Özel Kod 1 süzgeci — belge ekranındaki ile aynı alan (cari kartında
   // Özel Kod 1 / KOD1). Kurulumda sütun yoksa süzgeç sessizce uygulanmaz.
+  const parametreler = { bas: baslangic, ertesi };
   const musteriTipi = await musteriTipiFiltresi(
-    cariTablosu, secenek && secenek.musteriTipi, 'C'
+    cariTablosu, secenek && secenek.musteriTipi, 'C', parametreler
   );
 
   const satirlar = await sorgu(
@@ -135,7 +136,7 @@ async function haftalikOzet(secenek) {
       ${tipFiltresi} ${musteriTipi}
     ORDER BY ${AD_IFADESI}
   `,
-    { bas: baslangic, ertesi }
+    parametreler
   );
 
   // KASA sütunu: Vega'nın cari hareketinde ürün ve kasa TEK borç satırı olarak

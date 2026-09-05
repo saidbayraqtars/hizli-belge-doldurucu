@@ -124,8 +124,10 @@ async function carileriGetir(secenek) {
   const limit = Math.min(Number((secenek && secenek.limit) || 300), 2000);
 
   const filtre = await silinmemis(cariTablosu, 'C');
-  const tipFiltresi = await musteriTipiFiltresi(cariTablosu, secenek && secenek.musteriTipi, 'C');
   const parametreler = {};
+  const tipFiltresi = await musteriTipiFiltresi(
+    cariTablosu, secenek && secenek.musteriTipi, 'C', parametreler
+  );
   const aramaFiltresi = aramaFiltresiKur(
     `(ISNULL(C.FIRMAADI, '') + ' ' + ISNULL(C.UNVAN, '') + ' ' + ISNULL(C.FIRMAKODU, ''))`,
     aramaParcalari(arama),
@@ -187,14 +189,43 @@ async function carileriGetir(secenek) {
 //
 // Harman Latin1_General_CI_AI: Türkçe büyük/küçük "i" ve şapkalı harf farkı
 // yüzünden "Toptan"/"TOPTAN"/"toptan" ayrışmasın (bkz. aramaFiltresiKur).
-const MUSTERI_TIPLERI = ['TOPTAN', 'PERAKENDE'];
+//
+// 05.09.2026 kullanıcı isteği: seçenekler artık sabit TOPTAN/PERAKENDE değil.
+// Kartlarda KOD1 alanında ne yazıyorsa (ozelKod1Degerleri) o listeleniyor ve
+// süzgeç seçilen değerin kendisiyle karşılaştırılıyor. Değer artık serbest
+// metin olduğu için sorguya gömülmüyor, parametre olarak veriliyor.
 
-async function musteriTipiFiltresi(cariTablosu, tip, takma) {
-  const secilen = String(tip || '').trim().toUpperCase();
-  if (!MUSTERI_TIPLERI.includes(secilen)) return '';
+async function musteriTipiFiltresi(cariTablosu, tip, takma, parametreler) {
+  const secilen = String(tip == null ? '' : tip).trim();
+  if (!secilen) return '';
   if (!(await kolonVarMi(cariTablosu, 'KOD1'))) return '';
+  if (parametreler) parametreler.ozelKod1 = secilen;
   return ` AND LTRIM(RTRIM(ISNULL(${takma}.KOD1, ''))) COLLATE Latin1_General_CI_AI
-             = '${secilen}' COLLATE Latin1_General_CI_AI`;
+             = @ozelKod1 COLLATE Latin1_General_CI_AI`;
+}
+
+// Cari kartlarında Özel Kod 1'de geçen değerler — süzgeç kutularını doldurmak
+// için. Çok kullanılan değer üstte olsun diye kart sayısına göre sıralanıyor.
+// Aynı değerin farklı yazımları (Toptan / TOPTAN) tek satırda birleşiyor:
+// süzgeç zaten CI_AI karşılaştırdığı için ikisi de aynı kartları getirir.
+async function ozelKod1Degerleri(secenek) {
+  const { firma } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
+  const v = vt();
+  const cariTablosu = kart(v, firma, 'TBLCARI');
+  if (!(await kolonVarMi(cariTablosu, 'KOD1'))) return [];
+
+  const satirlar = await sorgu(
+    `SELECT MIN(LTRIM(RTRIM(C.KOD1))) AS deger, COUNT(*) AS adet
+     FROM ${cariTablosu} C
+     WHERE ISNULL(C.DELETED, 0) = 0 AND ISNULL(C.STATUS, 1) <> 2 AND C.IND >= 100
+       AND LTRIM(RTRIM(ISNULL(C.KOD1, ''))) <> ''
+     GROUP BY LTRIM(RTRIM(C.KOD1)) COLLATE Latin1_General_CI_AI
+     ORDER BY COUNT(*) DESC`
+  );
+
+  return satirlar
+    .map((s) => ({ deger: String(s.deger || '').trim(), adet: Number(s.adet) || 0 }))
+    .filter((s) => s.deger);
 }
 
 async function cariBakiye(secenek) {
@@ -529,5 +560,6 @@ module.exports = {
   izahatAdi,
   kolonVarMi,
   musteriTipiFiltresi,
+  ozelKod1Degerleri,
   satisSerisiTespitEt
 };

@@ -13,11 +13,15 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 
 **Belge Gir** — tek ve asıl ekran. Müşteri seçilir, satırlar girilir.
 
-Tarihin yanındaki **Toptan / Perakende** süzgeci müşteri listesini daraltır:
-program varsayılan olarak cari kartında **Özel Kod 1 = TOPTAN** yazan kartları
-getirir, gerekirse *Perakende* ya da *Hepsi* seçilir. (Vega'nın kart ekranındaki
-"Özel Kod 1" alanı veritabanında `KOD1` sütunudur; kurulumda o sütun yoksa
-süzgeç uygulanmaz.)
+Tarihin yanındaki **Özel Kod 1** süzgeci müşteri listesini daraltır.
+Seçenekler sabit değildir: cari kartlarının **Özel Kod 1** alanında ne
+yazıyorsa (TOPTAN, PERAKENDE, ne konulmuşsa) o değerler, yanlarında kaç kart
+olduğuyla listelenir; en çok kullanılan üstte durur. Açılışta listede `TOPTAN`
+varsa o seçili gelir, yoksa *Hepsi*.
+
+Vega'nın kart ekranındaki "Özel Kod 1" alanı veritabanında `KOD1` sütunudur.
+Kartlarda bu alan hiç doldurulmamışsa süzgecin listeleyecek değeri olmaz ve
+alan ekranda hiç görünmez — liste eksilmez.
 
 | Alan | Açıklama |
 |---|---|
@@ -71,10 +75,10 @@ almış, ne kadar ödemiş, borcu ne kalmış" sorusunu yanıtlar. Hafta **Pazar
 başlar, Cumartesi biter** ("pazardan pazara"); ok tuşlarıyla hafta
 değiştirilir, "Yazdır" doğrudan çıktı alır.
 
-Üstteki **Kart tipi** (alıcı/satıcı) ve **Toptan / Perakende** süzgeçleri
-listeyi daraltır. Toptan/Perakende, belge ekranındakiyle aynı alanı okur
-(cari kartında Özel Kod 1 / `KOD1`); bu ekranda varsayılan **Hepsi**'dir,
-kartlarda Özel Kod 1 boş olan müşteriler rapordan düşmesin diye.
+Üstteki **Kart tipi** (alıcı/satıcı) ve **Özel Kod 1** süzgeçleri listeyi
+daraltır. Özel Kod 1 kutusu belge ekranındakiyle aynı listeyi gösterir
+(kartlarda gerçekten yazan değerler); bu ekranda varsayılan **Hepsi**'dir,
+kartlarda Özel Kod 1 boş olan müşteriler genel dökümden düşmesin diye.
 
 `Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA | YENİ BORÇ | ÖDEME |
 TOP.BAKİYE` + tablonun altında genel toplam satırı.
