@@ -36,7 +36,7 @@
 const { sorgu } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
-const { izahatAdi } = require('./vega');
+const { izahatAdi, musteriTipiFiltresi } = require('./vega');
 
 function vt() {
   return ayarOku().vegaVeritabani;
@@ -104,6 +104,12 @@ async function haftalikOzet(secenek) {
   if (secenek && secenek.tip === 'alici') tipFiltresi = 'AND (ISNULL(C.FIRMATIPI, 0) & 1) = 1';
   if (secenek && secenek.tip === 'satici') tipFiltresi = 'AND (ISNULL(C.FIRMATIPI, 0) & 2) = 2';
 
+  // Toptan/perakende süzgeci — belge ekranındaki ile aynı alan (cari kartında
+  // Özel Kod 1 / KOD1). Kurulumda sütun yoksa süzgeç sessizce uygulanmaz.
+  const musteriTipi = await musteriTipiFiltresi(
+    cariTablosu, secenek && secenek.musteriTipi, 'C'
+  );
+
   const satirlar = await sorgu(
     `
     SELECT
@@ -126,7 +132,7 @@ async function haftalikOzet(secenek) {
     WHERE ISNULL(C.DELETED, 0) = 0
       AND ISNULL(C.STATUS, 1) <> 2
       AND C.IND >= 100
-      ${tipFiltresi}
+      ${tipFiltresi} ${musteriTipi}
     ORDER BY ${AD_IFADESI}
   `,
     { bas: baslangic, ertesi }

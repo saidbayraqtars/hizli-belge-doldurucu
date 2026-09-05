@@ -1454,6 +1454,7 @@ el('raporBuHafta').addEventListener('click', () => raporHaftayaGit(new Date()));
 el('raporOncekiHafta').addEventListener('click', () => raporHaftaKaydir(-7));
 el('raporSonrakiHafta').addEventListener('click', () => raporHaftaKaydir(7));
 el('raporTip').addEventListener('change', () => raporGetir());
+el('raporMusteriTipi').addEventListener('change', () => raporGetir());
 el('raporArama').addEventListener('input', () => raporGenelCiz());
 el('raporYazdir').addEventListener('click', () => {
   raporSecimiGorunurYap();
@@ -1528,7 +1529,8 @@ async function raporGetir() {
       donem: donemKodu(),
       baslangic: tarihKutusu(haftaBasi(raporDurum.hafta)),
       bitis: tarihKutusu(haftaSonu(raporDurum.hafta)),
-      tip: el('raporTip').value || null
+      tip: el('raporTip').value || null,
+      musteriTipi: el('raporMusteriTipi').value || null
     });
     raporHaftaEtiketiniGuncelle();
     raporGenelCiz();
@@ -1578,7 +1580,13 @@ function raporGenelCiz() {
   govde.innerHTML = '';
   ayak.innerHTML = '';
   if (!satirlar.length) {
-    boslukTemizle(govde, 11, 'Bu haftada gösterilecek müşteri yok.');
+    // Toptan/perakende süzgeci açıkken liste boşsa sebebi çoğunlukla cari
+    // kartlarında Özel Kod 1'in boş olmasıdır — kullanıcı raporu bozuk sanmasın.
+    const secilenTip = el('raporMusteriTipi').value;
+    boslukTemizle(govde, 11, secilenTip && !el('raporArama').value.trim()
+      ? `Bu haftada gösterilecek müşteri yok. Cari kartlarında Özel Kod 1 = ${secilenTip} ` +
+        'yazmıyorsa Toptan / Perakende süzgecini "Hepsi" yapın.'
+      : 'Bu haftada gösterilecek müşteri yok.');
     el('raporGenelToplam').textContent = '0,00';
     raporSecimBilgisi();
     return;

@@ -71,6 +71,11 @@ almış, ne kadar ödemiş, borcu ne kalmış" sorusunu yanıtlar. Hafta **Pazar
 başlar, Cumartesi biter** ("pazardan pazara"); ok tuşlarıyla hafta
 değiştirilir, "Yazdır" doğrudan çıktı alır.
 
+Üstteki **Kart tipi** (alıcı/satıcı) ve **Toptan / Perakende** süzgeçleri
+listeyi daraltır. Toptan/Perakende, belge ekranındakiyle aynı alanı okur
+(cari kartında Özel Kod 1 / `KOD1`); bu ekranda varsayılan **Hepsi**'dir,
+kartlarda Özel Kod 1 boş olan müşteriler rapordan düşmesin diye.
+
 `Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA | YENİ BORÇ | ÖDEME |
 TOP.BAKİYE` + tablonun altında genel toplam satırı.
 
