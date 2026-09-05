@@ -9,15 +9,17 @@
 // sekmesinde, fiş bazlı ayrıntı "Ekstre" sekmesinde.
 //
 //   1. "GENEL MÜŞTERİYE GÖRE KALAN" (haftalikOzet) — çok müşterili borç dökümü
-//      Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA |
+//      Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA | SAFİ KG |
 //      YENİ BORÇ | ÖDEME | TOP.BAKİYE
 //      Ayrıntı yok: "ne kadar almış, ne kadar vermiş, borcu ne" tek satır.
 //
 //   2. Müşteri dönem dökümü (haftalikDetay) — Ekstre ekranındaki ayrıntılı rapor
-//      CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO
+//      CİNSİ | SAFİ KG | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO
 //      + DEVİR, KASA ÖZETİ, S.TUTARI, ÖDEME bloğu, BAKİYE
-//      NET KG sütunu 27.08.2026'da kaldırıldı (kullanıcı isteği: gerekmiyor,
-//      ayrıca çıktı sayfa sayısını şişiriyordu).
+//      05.09.2026 (kullanıcı isteği): satırdaki K.ADET / K.TÜRÜ / K.TUTAR
+//      sütunları kaldırıldı, yerine satılan ürünün SAFİ KG'ı (dara düşülmüş
+//      kilo) kondu. Kasa bilgisi alttaki KASA ADEDİ / KASA TUTARI özetinde
+//      duruyor; hem sütun hem özet olarak iki kez verilmiyor.
 //
 // SÜTUNLARIN TANIMI — eski programın gerçek çıktısıyla doğrulandı
 // (AHMET TAMALLIOĞLU: 348.451,20 + 1.300,00 + 21.243,00 = 370.994,20):
@@ -186,8 +188,45 @@ async function haftalikOzet(secenek) {
     for (const s of faturaKasa) kasaEkle(s.cariInd, s.tur, s.adet, s.kasa);
   }
 
+  // SAFİ KG sütunu — hafta içinde satılan ürünün net (dara düşülmüş) kilosu.
+  // Kaynaklar KASA sütunuyla aynı: önce programın günlüğü (BD_BelgeSatir.
+  // DaraliMiktar = brüt − dara), sonra günlükte olmayan Vega faturalarının
+  // ürün kalemleri (KASA açıklamalı satırlar hariç; onlar kilo değil).
+  const kiloHaftalik = new Map();
+  const kiloEkle = (cariInd, kg) => {
+    const no = Number(cariInd);
+    kiloHaftalik.set(no, (kiloHaftalik.get(no) || 0) + (Number(kg) || 0));
+  };
+
+  const gunlukKilo = await sorgu(
+    `SELECT CariInd, SUM(ISNULL(DaraliMiktar, 0)) AS kg
+     FROM [${v}].dbo.BD_BelgeSatir
+     WHERE Firma = @firma AND GeriAlindi = 0 AND Tarih >= @bas AND Tarih <= @bitis
+     GROUP BY CariInd`,
+    { firma, bas: baslangic, bitis }
+  );
+  for (const s of gunlukKilo) kiloEkle(s.CariInd, s.kg);
+
+  if (await tabloVarMi(firma, donem, 'TBLSATFATBASLIK') &&
+      await tabloVarMi(firma, donem, 'TBLSATFATHAREKET')) {
+    const faturaKilo = await sorgu(
+      `SELECT B.FIRMANO AS cariInd, SUM(ISNULL(H.MIKTAR, 0)) AS kg
+       FROM ${tablo(v, firma, donem, 'TBLSATFATBASLIK')} B
+       JOIN ${tablo(v, firma, donem, 'TBLSATFATHAREKET')} H ON H.EVRAKNO = B.IND
+       WHERE B.TARIH >= @bas AND B.TARIH < @ertesi AND ISNULL(B.IPTAL, 0) = 0
+         AND CAST(H.ACIKLAMA AS NVARCHAR(60)) <> 'KASA'
+         AND NOT EXISTS (
+           SELECT 1 FROM [${v}].dbo.BD_BelgeSatir G
+           WHERE G.Firma = @firma AND G.GeriAlindi = 0 AND G.BelgeNo = B.BELGENO
+         )
+       GROUP BY B.FIRMANO`,
+      { firma, bas: baslangic, ertesi }
+    );
+    for (const s of faturaKilo) kiloEkle(s.cariInd, s.kg);
+  }
+
   const sonuc = [];
-  let toplam = { eskiBorc: 0, kasaAdedi: 0, kasa: 0, yeniBorc: 0, odeme: 0, topBakiye: 0 };
+  let toplam = { eskiBorc: 0, kasaAdedi: 0, kasa: 0, safiKg: 0, yeniBorc: 0, odeme: 0, topBakiye: 0 };
 
   for (const s of satirlar) {
     const oncekiBakiye = Number(s.oncekiBakiye) || 0;
@@ -195,6 +234,7 @@ async function haftalikOzet(secenek) {
     const haftaAlacak = Number(s.haftaAlacak) || 0;
     const k = kasaHaftalik.get(Number(s.cariInd)) || { tutar: 0, adet: 0, turler: new Map() };
     const kasa = k.tutar;
+    const safiKg = kiloHaftalik.get(Number(s.cariInd)) || 0;
 
     const eskiBorc = oncekiBakiye - haftaAlacak;
     const yeniBorc = haftaBorc - kasa;
@@ -207,7 +247,7 @@ async function haftalikOzet(secenek) {
       cariInd: Number(s.cariInd),
       kod: String(s.kod || '').trim(),
       ad: String(s.ad || '').trim(),
-      eskiBorc, kasa, yeniBorc, topBakiye,
+      eskiBorc, kasa, yeniBorc, topBakiye, safiKg,
       kasaAdedi: k.adet,
       kasaTurleri: [...k.turler.entries()].map(([tur, adet]) => ({ tur, adet })),
       odeme: haftaAlacak
@@ -215,6 +255,7 @@ async function haftalikOzet(secenek) {
     toplam.eskiBorc += eskiBorc;
     toplam.kasaAdedi += k.adet;
     toplam.kasa += kasa;
+    toplam.safiKg += safiKg;
     toplam.yeniBorc += yeniBorc;
     toplam.odeme += haftaAlacak;
     toplam.topBakiye += topBakiye;
@@ -403,6 +444,9 @@ async function haftalikDetay(secenek) {
 
   const kasaTutari = tumSatirlar.reduce((t, s) => t + s.kasaTutari, 0);
   const urunTutari = tumSatirlar.reduce((t, s) => t + s.tutar, 0);
+  // SAFİ KG — dara düşülmüş satış kilosu (05.09.2026 kullanıcı isteğiyle
+  // çıktıya geri kondu, kasa sütunlarının yerine).
+  const safiKg = tumSatirlar.reduce((t, s) => t + s.netKg, 0);
 
   // Verilen kasaların türe göre özeti — kullanıcı çıktıda "kasa sayısı, kasa
   // türü, kasa toplam tutarı"nı ayrıca istiyor (27.08.2026). Satırların
@@ -463,6 +507,7 @@ async function haftalikDetay(secenek) {
     satirSayisi: tumSatirlar.length,
     kasaTutari,
     kasaAdedi,
+    safiKg,
     kasaVerilenleri,
     urunTutari,
     toplam: urunTutari + kasaTutari,
