@@ -402,9 +402,13 @@ table.veri.rapor tr.fisAra td {
   font-weight: 600;
   border-top: 2px solid #cbd2dc;
 }
-table.veri.rapor tr.fisBoslugu td {
-  height: 14px;
+/* İki fiş arası: boşluk değil belirgin çizgi (05.09.2026 kullanıcı isteği —
+   çıktıda fişlerin nerede bittiği boşlukla yeterince ayırt edilemiyordu). */
+table.veri.rapor tr.fisAyrac td {
+  height: 0;
+  padding: 0;
   border: 0;
+  border-top: 3px solid #1e3a8a;
   background: transparent;
 }
 table.veri.rapor tr.genelToplam td {
@@ -535,17 +539,17 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
 
   /* Yazıcıda açık gri hücre çizgileri kayboluyordu. Ayrıntılı fiş
      tablosundaki her mal satırı artık belirgin bir yatay çizgiyle ayrılır. */
-  #ekstreRaporGovde > tr:not(.fisAra):not(.fisBoslugu):not(.genelToplam) > td {
+  #ekstreRaporGovde > tr:not(.fisAra):not(.fisAyrac):not(.genelToplam) > td {
     border-bottom: 1px solid #64748b !important;
   }
 
-  /* Fiş toplamından sonraki boşluk: önceki 5 px yerine yaklaşık iki boş satır.
-     Son fişin ardından eklenmez; genel toplam bitişik kalır. */
-  table.veri.rapor tr.fisBoslugu td {
-    height: 24px;
-    min-height: 24px;
+  /* Fiş bitişi: kâğıtta da kalın bir çizgi. Son fişin ardından eklenmez;
+     genel toplam bitişik kalır. */
+  table.veri.rapor tr.fisAyrac td {
+    height: 0 !important;
     padding: 0 !important;
     border: 0 !important;
+    border-top: 2.5px solid #000 !important;
   }
   table.veri.rapor tr.genelToplam td { font-size: 11px; }
 

@@ -53,6 +53,21 @@ const TIP_CARI_CIKIS = 11;
 const TIP_CARI_GIRIS = 13;
 const TIP_STOK_GIRIS_IADE = 34; // Stok Giriş İade Fişi — bkz. stokGirisIadesiYaz
 
+// --- Ödeme aracı (cari giriş/çıkış HAREKET satırındaki IZAHAT) --------------
+//
+// DİKKAT: bu alan belge tipi değil, ÖDEME ARACIDIR — başlıktaki BELGETIPI ile
+// karıştırılmasın. Canlı Vega kayıtlarından çıkarıldı: nakit ödemeli
+// satırlarda IZAHAT = 1 (açıklama "Nakit Ödeme") ve satırın TBLKASA'da bir
+// gelir karşılığı var; IZAHAT = 11 olanlar kredi kartı/diğer araçlar ve
+// kasaya düşmüyor. PORTNO her iki durumda -1, BANKANO 0.
+//
+// 05.09.2026 kullanıcı isteği: program yazdığı tahsilat fişinde ödeme aracı
+// boş ("-") kalıyordu; varsayılan NAKİT olacak ve para Vega'nın kasasına da
+// girecek.
+const ODEME_NAKIT = 1;
+const KASA_ISLEM_GELIR = -2;
+const KASA_ISLEM_GIDER = -3;
+
 // ================================================================
 //  Şema uyumu
 // ================================================================
@@ -418,8 +433,78 @@ async function cariGenelHareketEkle(t, ayrinti) {
 // faturasındaki çoklu satır deseniyle aynı mantık (bkz. satisFaturasiYaz).
 // `tutar` (tekil) hâlâ desteklenir — tahsilat ve kasaIadesiYaz gibi tek
 // kalemli çağrılar için kısayol, içeride tek elemanlı kalemler'e çevrilir.
+// Vega'nın kasa defteri (dönemli TBLKASA) — nakit satırın para çekmecesi
+// karşılığı. Şube/kasa adı uydurulmuyor, o firmada zaten kullanılan addan
+// okunuyor (tek kasalı kurulumlarda hep aynı ad çıkıyor: "MERKEZ").
+const kasaAdiOnbellek = new Map();
+
+async function kasaAdlariniOku(kasaTablosu) {
+  if (kasaAdiOnbellek.has(kasaTablosu)) return kasaAdiOnbellek.get(kasaTablosu);
+  const bekleyen = (async () => {
+    try {
+      const r = await sorgu(
+        `SELECT TOP 1 ISNULL(SUBEADI, '') AS sube, ISNULL(KASAADI, '') AS kasa
+         FROM ${kasaTablosu}
+         WHERE ISNULL(KASAADI, '') <> ''
+         GROUP BY ISNULL(SUBEADI, ''), ISNULL(KASAADI, '')
+         ORDER BY COUNT(*) DESC`
+      );
+      const s = r[0] || {};
+      return {
+        sube: String(s.sube || '').trim() || 'MERKEZ',
+        kasa: String(s.kasa || '').trim() || 'MERKEZ'
+      };
+    } catch (e) {
+      return { sube: 'MERKEZ', kasa: 'MERKEZ' };
+    }
+  })();
+  kasaAdiOnbellek.set(kasaTablosu, bekleyen);
+  return bekleyen;
+}
+
+// Sütun kalıbı, Vega'nın kendi kestiği nakit cari giriş fişlerinden birebir
+// alındı: ISLEM = -2 gelir / -3 gider, BELGELINK = başlığın IND'i,
+// LINELINK = hareket satırının IND'i, BELGEIZAHAT = belge tipi (13/11),
+// BELGENEVI = 'NAKİT'. Tablo yoksa (kurulum farkı) sessizce atlanır — belge
+// yine de yazılır, yalnız kasa raporuna düşmez.
+async function kasaDefterineYaz(t, ayrinti) {
+  const { v, firma, donem, tarih, userNo, baslikInd, satirInd, belgeTipi, tutar, giris } = ayrinti;
+  if (!(Number(tutar) > 0)) return null;
+  if (!(await tabloVarMi(firma, donem, 'TBLKASA'))) return null;
+
+  const kasaTablosu = tablo(v, firma, donem, 'TBLKASA');
+  const adlar = await kasaAdlariniOku(kasaTablosu);
+
+  return ekle(
+    t,
+    kasaTablosu,
+    {
+      TARIH: tarih,
+      ISLEM: giris ? KASA_ISLEM_GELIR : KASA_ISLEM_GIDER,
+      GELIR: giris ? Number(tutar) : 0,
+      GIDER: giris ? 0 : Number(tutar),
+      PARABIRIMI: 'TL',
+      KUR: 1,
+      ACIKLAMA: ayrinti.aciklama || 'Nakit Ödeme',
+      BELGELINK: Number(baslikInd),
+      BELGEIZAHAT: Number(belgeTipi),
+      LINELINK: Number(satirInd),
+      USERNO: Number(userNo || 0),
+      ISLEMTIPI: 1,
+      SUBEADI: adlar.sube,
+      KASAADI: adlar.kasa,
+      BELGENEVI: 'NAKİT'
+    },
+    {
+      zorunlu: ['ISLEM', 'GELIR', 'GIDER', 'BELGELINK', 'LINELINK'],
+      ozel: { ISLEMTARIHI: 'GETDATE()' }
+    }
+  );
+}
+
 async function cariDekontuYaz(t, ayrinti) {
   const { v, firma, donem, cariInd, tutar, aciklama, tarih, userNo, giris, borcMu, onek } = ayrinti;
+  const nakit = !!ayrinti.nakit;
   const kalemler = (ayrinti.kalemler && ayrinti.kalemler.length)
     ? ayrinti.kalemler.filter((k) => Number(k.tutar) !== 0)
     : [{ tutar: Number(tutar) || 0, aciklama }];
@@ -462,21 +547,39 @@ async function cariDekontuYaz(t, ayrinti) {
   const kayitlar = [{ tablo: baslikAdi, ind: baslikInd, donemli: true }];
 
   for (const k of kalemler) {
-    const satirInd = await ekle(
-      t,
-      hareketTam,
-      {
-        EVRAKNO: baslikInd,
-        BELGENO: belgeNo,
-        FIRMANO: Number(cariInd),
-        TUTAR: Number(k.tutar) || 0,
-        ACIKLAMA: k.aciklama || aciklama || null,
-        PARABIRIMI: 'TL',
-        KUR: 1
-      },
-      { zorunlu: ['EVRAKNO', 'TUTAR'] }
-    );
+    const alanlar = {
+      EVRAKNO: baslikInd,
+      BELGENO: belgeNo,
+      FIRMANO: Number(cariInd),
+      TUTAR: Number(k.tutar) || 0,
+      ACIKLAMA: k.aciklama || aciklama || null,
+      PARABIRIMI: 'TL',
+      KUR: 1
+    };
+    // Ödeme aracı yalnızca gerçekten para alınan/verilen fişte doldurulur
+    // (tahsilat). Mal satışını cari giriş olarak yazan dekontta para el
+    // değiştirmediği için burası boş kalır — yoksa alınmamış para kasaya
+    // girmiş görünürdü.
+    if (nakit) {
+      alanlar.IZAHAT = ODEME_NAKIT;
+      alanlar.PORTNO = -1;
+      alanlar.BANKANO = 0;
+    }
+
+    const satirInd = await ekle(t, hareketTam, alanlar, { zorunlu: ['EVRAKNO', 'TUTAR'] });
     kayitlar.push({ tablo: hareketAdi, ind: satirInd, donemli: true });
+
+    if (nakit) {
+      const kasaInd = await kasaDefterineYaz(t, {
+        v, firma, donem, tarih, userNo, giris,
+        baslikInd,
+        satirInd,
+        belgeTipi,
+        tutar: Number(k.tutar) || 0,
+        aciklama: 'Nakit Ödeme'
+      });
+      if (kasaInd) kayitlar.push({ tablo: 'TBLKASA', ind: kasaInd, donemli: true });
+    }
   }
 
   const cari = await cariHareketEkle(t, {
@@ -898,7 +1001,8 @@ async function belgeYaz(secenek) {
   await yardimci.hazirla();
 
   const satirlar = Array.isArray(secenek.satirlar) ? secenek.satirlar : [];
-  if (!satirlar.length) throw new Error('Belgeye en az bir satır girilmeli.');
+  // Satırsız belgeye izin var: yalnız tahsilat girilen belge de yazılabilir
+  // (05.09.2026 kullanıcı isteği). Aşağıda tahsilat okunduktan sonra denetlenir.
   if (!Number(secenek.cariInd)) throw new Error('Müşteri seçilmeli.');
   if (secenek.belgeTuru !== 'satisFaturasi' && secenek.belgeTuru !== 'cariCikis') {
     throw new Error('Belge türü "satisFaturasi" veya "cariCikis" olmalı.');
@@ -914,12 +1018,18 @@ async function belgeYaz(secenek) {
   const cariAd = secenek.cariAd || null;
   const tahsilat = Number(secenek.tahsilat) || 0;
 
-  const urunSatirlari = satirlar.filter((s) => Number(s.tutar) !== 0);
+  // Ürün satırı olmayan (yalnız kasa ya da yalnız tahsilat) belge de geçerli;
+  // stok kartı olmayan satır fatura/stok tarafına hiç gitmez.
+  const urunSatirlari = satirlar.filter((s) => Number(s.stokNo) && Number(s.tutar) !== 0);
   const kasaSatirlari = satirlar.filter((s) => Number(s.kasaAdedi) > 0 && s.kasaStokNo);
-  const urunTutari = satirlar.reduce((t2, s) => t2 + (Number(s.tutar) || 0), 0);
+  const urunTutari = urunSatirlari.reduce((t2, s) => t2 + (Number(s.tutar) || 0), 0);
   const kasaTutari = satirlar.reduce((t2, s) => t2 + (Number(s.kasaTutari) || 0), 0);
 
-  if (secenek.belgeTuru === 'satisFaturasi') {
+  if (!urunSatirlari.length && !kasaSatirlari.length && !tahsilat) {
+    throw new Error('Belgeye en az bir satır ya da tahsilat girilmeli.');
+  }
+
+  if (secenek.belgeTuru === 'satisFaturasi' && (urunSatirlari.length || kasaSatirlari.length)) {
     if (!depo) {
       throw new Error('Satış faturası için depo seçilmelidir. Ayarlar ekranından depo seçin.');
     }
@@ -972,7 +1082,11 @@ async function belgeYaz(secenek) {
   const sonuc = await islem(async (t) => {
     const yazilan = [];
 
-    if (secenek.belgeTuru === 'satisFaturasi') {
+    // Ürün de kasa da yoksa (yalnız tahsilat girilmiş) belge yazılmaz,
+    // aşağıdaki tahsilat dekontu tek başına kalır.
+    const belgeSatiriVar = !!(urunSatirlari.length || kasaSatirlari.length);
+
+    if (secenek.belgeTuru === 'satisFaturasi' && belgeSatiriVar) {
       const fatSatirlari = urunSatirlari.map((s) => {
         const k = maliyetHaritasi.get(Number(s.stokNo)) || {};
         const tutar = Number(s.tutar) || 0;
@@ -1024,7 +1138,7 @@ async function belgeYaz(secenek) {
         satirlar: fatSatirlari, tarih, depo, userNo, aciklama, onek
       });
       yazilan.push({ ad: 'Ürün satışı', tur: 'satisFaturasi', ...f });
-    } else if (urunTutari !== 0 || kasaTutari !== 0) {
+    } else if (belgeSatiriVar && (urunTutari !== 0 || kasaTutari !== 0)) {
       // "Cari Giriş Olarak Kaydet" (fatura yok): ürün VE kasa tek belgede,
       // tek başlık altında iki kalem — kullanıcı isteğiyle 24.08.2026'da
       // birleştirildi (önceden ikisi ayrı belgeydi). Yön Cari GİRİŞ: "bize
@@ -1048,7 +1162,10 @@ async function belgeYaz(secenek) {
     if (tahsilat > 0) {
       const d = await cariDekontuYaz(t, {
         v, firma, donem, cariInd, tutar: tahsilat, tarih, userNo,
-        giris: true, aciklama: 'Tahsilat', onek
+        giris: true, aciklama: 'Tahsilat', onek,
+        // Alınan ödeme varsayılan olarak NAKİT: fişte ödeme aracı boş
+        // kalmasın ve para Vega'nın kasasına da girsin (05.09.2026).
+        nakit: true
       });
       yazilan.push({ ad: 'Tahsilat', tur: 'tahsilat', ...d });
       tahsilatBelgeNo = d.belgeNo;

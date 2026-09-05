@@ -55,7 +55,10 @@ GO
 DECLARE @firma SYSNAME = N'F0102';
 DECLARE @donem SYSNAME = N'D0001';
 
-DECLARE @kart TABLE (ad SYSNAME, veriIle BIT, sinir INT);
+/* sart: veriyle kopyalanan tablolarda WHERE kosulu. Cari kartlarinda gerek
+   var: program yalnizca IND >= 100 ve STATUS <> 2 olan kartlari listeliyor,
+   rastgele ilk 5 satir kopyalaninca sinamaya tek bir pasif kart dusuyordu. */
+DECLARE @kart TABLE (ad SYSNAME, veriIle BIT, sinir INT, sart NVARCHAR(200));
 DECLARE @sql NVARCHAR(MAX);
 DECLARE @tam SYSNAME;
 DECLARE @kaynak SYSNAME;
@@ -65,37 +68,41 @@ DECLARE @sinir INT;
 
 /* Global tablolar (ön eksiz) — firma ve depo listesi veriyle gelmeli,
    yoksa program firmayi bulamaz. */
-INSERT INTO @kart (ad, veriIle, sinir) VALUES
-  (N'TBLFIRMA',   1, NULL),
-  (N'TBLDONEM',   1, NULL),
-  (N'TBLDEPOLAR', 1, NULL);
+INSERT INTO @kart (ad, veriIle, sinir, sart) VALUES
+  (N'TBLFIRMA',   1, NULL, NULL),
+  (N'TBLDONEM',   1, NULL, NULL),
+  (N'TBLDEPOLAR', 1, NULL, NULL);
 
 /* Kart tablolari (F{firma}...) — ornek satirlarla. */
-INSERT INTO @kart (ad, veriIle, sinir) VALUES
-  (@firma + N'TBLCARI',       1, 5),
-  (@firma + N'TBLSTOKLAR',    1, 5),
-  (@firma + N'TBLBIRIMLEREX', 1, 50);
+INSERT INTO @kart (ad, veriIle, sinir, sart) VALUES
+  (@firma + N'TBLCARI',       1, 5, N'IND >= 100 AND ISNULL(STATUS, 1) <> 2'),
+  (@firma + N'TBLSTOKLAR',    1, 5, NULL),
+  (@firma + N'TBLBIRIMLEREX', 1, 50, NULL);
 
 /* Hareket tablolari (F{firma}D{donem}...) — BOS. */
-INSERT INTO @kart (ad, veriIle, sinir) VALUES
-  (@firma + @donem + N'TBLCARIHAREKETLERI', 0, NULL),
-  (@firma + @donem + N'TBLCARCIKBASLIK',    0, NULL),
-  (@firma + @donem + N'TBLCARCIKHAREKET',   0, NULL),
-  (@firma + @donem + N'TBLCARGIRBASLIK',    0, NULL),
-  (@firma + @donem + N'TBLCARGIRHAREKET',   0, NULL),
-  (@firma + @donem + N'TBLSATFATBASLIK',    0, NULL),
-  (@firma + @donem + N'TBLSATFATHAREKET',   0, NULL),
-  (@firma + @donem + N'TBLSTOKHAREKETLERI', 0, NULL),
-  (@firma + @donem + N'TBLDEPOENVANTER',    0, NULL),
-  (@firma + @donem + N'TBLCARIGENELHAREKET', 0, NULL),
-  (@firma + @donem + N'TBLSTKGIRBASLIK',    0, NULL),
-  (@firma + @donem + N'TBLSTKGIRHAREKET',   0, NULL);
+INSERT INTO @kart (ad, veriIle, sinir, sart) VALUES
+  (@firma + @donem + N'TBLCARIHAREKETLERI',  0, NULL, NULL),
+  (@firma + @donem + N'TBLCARCIKBASLIK',     0, NULL, NULL),
+  (@firma + @donem + N'TBLCARCIKHAREKET',    0, NULL, NULL),
+  (@firma + @donem + N'TBLCARGIRBASLIK',     0, NULL, NULL),
+  (@firma + @donem + N'TBLCARGIRHAREKET',    0, NULL, NULL),
+  (@firma + @donem + N'TBLSATFATBASLIK',     0, NULL, NULL),
+  (@firma + @donem + N'TBLSATFATHAREKET',    0, NULL, NULL),
+  (@firma + @donem + N'TBLSTOKHAREKETLERI',  0, NULL, NULL),
+  (@firma + @donem + N'TBLDEPOENVANTER',     0, NULL, NULL),
+  (@firma + @donem + N'TBLCARIGENELHAREKET', 0, NULL, NULL),
+  (@firma + @donem + N'TBLSTKGIRBASLIK',     0, NULL, NULL),
+  (@firma + @donem + N'TBLSTKGIRHAREKET',    0, NULL, NULL),
+  /* Nakit tahsilat Vega'nin kasa defterine de dusuyor (05.09.2026). */
+  (@firma + @donem + N'TBLKASA',             0, NULL, NULL);
+
+DECLARE @sart NVARCHAR(200);
 
 DECLARE gezgin CURSOR LOCAL FAST_FORWARD FOR
-  SELECT ad, veriIle, sinir FROM @kart;
+  SELECT ad, veriIle, sinir, sart FROM @kart;
 
 OPEN gezgin;
-FETCH NEXT FROM gezgin INTO @ad, @veriIle, @sinir;
+FETCH NEXT FROM gezgin INTO @ad, @veriIle, @sinir, @sart;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
@@ -111,7 +118,9 @@ BEGIN
            THEN N'TOP ' + CAST(@sinir AS NVARCHAR(10)) + N' ' ELSE N'' END +
       N'* INTO [VEGA_TEST].dbo.' + QUOTENAME(@ad) +
       N' FROM [VEGADB].dbo.' + QUOTENAME(@ad) +
-      CASE WHEN @veriIle = 1 THEN N';' ELSE N' WHERE 1 = 0;' END;
+      CASE WHEN @veriIle = 1
+           THEN CASE WHEN @sart IS NULL THEN N';' ELSE N' WHERE ' + @sart + N';' END
+           ELSE N' WHERE 1 = 0;' END;
 
     EXEC sp_executesql @sql;
 
@@ -122,7 +131,7 @@ BEGIN
     PRINT N'  kopyalandi: ' + @ad + N'  (' + CAST(@adet AS NVARCHAR(10)) + N' satir)';
   END
 
-  FETCH NEXT FROM gezgin INTO @ad, @veriIle, @sinir;
+  FETCH NEXT FROM gezgin INTO @ad, @veriIle, @sinir, @sart;
 END
 
 CLOSE gezgin;

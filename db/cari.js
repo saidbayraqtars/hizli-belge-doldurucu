@@ -30,7 +30,7 @@
 const { sorgu } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, kart, tablo } = require('./firma');
-const { kolonVarMi } = require('./vega');
+const { kolonVarMi, musteriTipiFiltresi } = require('./vega');
 const yazma = require('./yazma');
 
 function vt() {
@@ -183,6 +183,11 @@ async function carileriListele(secenek) {
   let bakiyeFiltresi = '';
   if (secenek && secenek.sadeceBakiyeli) bakiyeFiltresi = 'AND ISNULL(B.bakiye, 0) <> 0';
 
+  // Toptan / perakende (cari kartındaki Özel Kod 1 = KOD1) — bkz. db/vega.js.
+  const musteriTipi = await musteriTipiFiltresi(
+    cariTablosu, secenek && secenek.musteriTipi, 'C'
+  );
+
   const adIfadesi = `
     COALESCE(
       NULLIF(LTRIM(RTRIM(C.FIRMAADI)), ''),
@@ -209,7 +214,7 @@ async function carileriListele(secenek) {
       GROUP BY FIRMANO
     ) B ON B.FIRMANO = C.IND
     WHERE ISNULL(C.DELETED, 0) = 0 AND ISNULL(C.STATUS, 1) <> 2 AND C.IND >= 100
-      ${tipFiltresi} ${bakiyeFiltresi}
+      ${tipFiltresi} ${bakiyeFiltresi} ${musteriTipi}
     ORDER BY ${adIfadesi}
   `);
 

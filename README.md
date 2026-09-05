@@ -11,7 +11,13 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 
 ## Ne yapar
 
-**Belge Gir** — tek ve asıl ekran. Müşteri seçilir, satırlar girilir:
+**Belge Gir** — tek ve asıl ekran. Müşteri seçilir, satırlar girilir.
+
+Tarihin yanındaki **Toptan / Perakende** süzgeci müşteri listesini daraltır:
+program varsayılan olarak cari kartında **Özel Kod 1 = TOPTAN** yazan kartları
+getirir, gerekirse *Perakende* ya da *Hepsi* seçilir. (Vega'nın kart ekranındaki
+"Özel Kod 1" alanı veritabanında `KOD1` sütunudur; kurulumda o sütun yoksa
+süzgeç uygulanmaz.)
 
 | Alan | Açıklama |
 |---|---|
@@ -28,7 +34,12 @@ diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
 
 Ayrıca **Tahsilat** alanı var: ürün satılıp aynı anda ödeme de alınıyorsa,
 buraya girilen tutar kadar ayrı bir **cari giriş (tahsilat)** dekontu yazılır
-— borç ve tahsilat aynı belgeyle birlikte Vega'ya gider.
+— borç ve tahsilat aynı belgeyle birlikte Vega'ya gider. Tahsilat dekontu
+Vega'ya **NAKİT** olarak yazılır (`IZAHAT=1`, `PORTNO=-1`) ve tutar Vega'nın
+kasa defterine (`TBLKASA`, `ISLEMTIPI=1`) gelir olarak düşer.
+
+**Ürün seçmek zorunlu değil:** yalnız kasa verilen satır ya da hiç satır
+olmadan yalnız tahsilat girilen belge de kaydedilebilir.
 
 **Klavye:** `Tab` sağa ilerler, `↓` alttaki satırın aynı sütununa geçer —
 son satırdaysanız yeni satır açar, `↑` üste çıkar, `Enter` `↓` ile aynı işi
@@ -49,7 +60,9 @@ borcuna eklenir; kasalar geri geldiğinde buradan tek tuşla düşülür ve Vega
 yazılır. Ekranda hangi müşteride kaç kasa durduğu görünür.
 
 **Son Belgeler** — yazılan belgelerin günlüğü: tarih, tür, müşteri, Vega belge
-no, tutar. Her satırda bir **Geri Al** düğmesi var — yanlış girilen belge tek
+no, tutar. Üstteki **arama** kutusu müşteri, belge no, fiş no, tür ve kullanıcı
+alanlarında birlikte arar (müşteri kutusuyla aynı mantık: kelimeler ayrı ayrı,
+sırasız, Türkçe harf farkı yok sayılır). Her satırda bir **Geri Al** düğmesi var — yanlış girilen belge tek
 tuşla Vega'dan silinir, müşterinin bakiyesi işlem öncesi haline döner.
 
 **Haftalık Rapor** — *GENEL MÜŞTERİYE GÖRE KALAN*: çok müşterili **borç
@@ -89,10 +102,11 @@ tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayr�
 - **Ayrıntılı Rapor (fiş bazlı)** — asıl ayrıntılı çıktı burada. Seçili
   müşterinin, ekrandaki tarih aralığındaki ürün dökümü: `CİNSİ | K.ADET |
   K.TÜRÜ | K.TUTAR | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO`, **fiş fiş
-  gruplanmış** — her fişin sonunda o fişin ara toplamı, en altta genel toplam.
-  Üstte müşterinin adı/adresi/telefonu ve DEVİR; altta *Verilen Kasalar* ve
-  *Geri Gelen Kasalar* blokları (kasa sayısı / türü / tutarı ayrı ayrı),
-  ÖDEME bloğu ve BAKİYE. Çıktı bilerek dar tutuldu: NET KG sütunu yok, satır
+  gruplanmış** — her fişin sonunda o fişin ara toplamı, fişler arasında
+  belirgin bir ayraç çizgisi, en altta genel toplam. Üstte müşterinin
+  adı/adresi/telefonu ve DEVİR; altta *Geri Gelen Kasalar* bloğu, ÖDEME bloğu
+  ve BAKİYE (verilen kasalar ayrı blok olarak basılmıyor — aynı bilgi fiş
+  satırlarında ve alttaki KASA ADEDİ / KASA TUTARI özetinde duruyor). Çıktı bilerek dar tutuldu: NET KG sütunu yok, satır
   yüksekliği küçük — ürünü çok olan müşteride sayfa sayısı düşük kalsın diye.
   "Yazdır" yalnızca bu kutuyu basar.
 
@@ -334,9 +348,11 @@ tabanını okumak zorlaşıyor.
 - Kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski Access
   programının kendi kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR; Ayarlar
   ekranından elle eklenir (kod, ad, dara, depozito).
-- Kasa iadesi cari giriş dekontu (tip 13) olarak yazılıyor. Ödeme aracı alanları
-  (`IZAHAT`, `PORTNO`) bilerek boş bırakılıyor ki Vega bunu kasaya postalamasın;
-  gerekçesi `BELGE-DESENI.md` §5'te.
+- Ödeme aracı alanları (`IZAHAT`, `PORTNO`, `BANKANO`) yalnızca **tahsilat**
+  dekontunda doldurulur (nakit) ve o zaman Vega'nın kasa defterine de satır
+  yazılır. Müşteriyi borçlandıran ürün/kasa dekontunda bilerek boş bırakılır —
+  yoksa Vega'nın kasa raporunda karşılığı olmayan bir para görünür; gerekçesi
+  `BELGE-DESENI.md` §5'te.
 - Program simgesi yok, varsayılan Electron simgesi kullanılıyor.
 - Otomatik güncelleme yok. Gerekirse `electron-updater` 5.x eklenebilir
   (6.x Windows 7 ile denenmedi); kurulum dosyaları için ayrı ve **açık** bir

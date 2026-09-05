@@ -124,6 +124,7 @@ async function carileriGetir(secenek) {
   const limit = Math.min(Number((secenek && secenek.limit) || 300), 2000);
 
   const filtre = await silinmemis(cariTablosu, 'C');
+  const tipFiltresi = await musteriTipiFiltresi(cariTablosu, secenek && secenek.musteriTipi, 'C');
   const parametreler = {};
   const aramaFiltresi = aramaFiltresiKur(
     `(ISNULL(C.FIRMAADI, '') + ' ' + ISNULL(C.UNVAN, '') + ' ' + ISNULL(C.FIRMAKODU, ''))`,
@@ -160,7 +161,7 @@ async function carileriGetir(secenek) {
       WHERE ISNULL(OZELKOD, '') <> 'KREDIHESABI'
       GROUP BY FIRMANO
     ) B ON B.FIRMANO = C.IND
-    WHERE ISNULL(C.STATUS, 1) <> 2 AND C.IND >= 100 ${filtre} ${aramaFiltresi}
+    WHERE ISNULL(C.STATUS, 1) <> 2 AND C.IND >= 100 ${filtre} ${tipFiltresi} ${aramaFiltresi}
     ORDER BY ${adIfadesi}
   `,
     parametreler
@@ -175,6 +176,25 @@ async function carileriGetir(secenek) {
     firmaTipi: Number(s.firmaTipi) || 0,
     bakiye: Number(s.bakiye) || 0
   }));
+}
+
+// Toptan / perakende süzgeci.
+//
+// Vega'nın cari kartı ekranındaki "Özel Kod 1" alanı veritabanında OZELKOD1
+// DEĞİL, KOD1 sütunudur — canlı şemada doğrulandı (TBLCARI'de KOD1..KOD7 var,
+// OZELKOD1 yalnızca belge başlığı tablolarında). Sütun her kurulumda
+// olmayabilir; yoksa süzgeç sessizce uygulanmaz, liste eksilmez.
+//
+// Harman Latin1_General_CI_AI: Türkçe büyük/küçük "i" ve şapkalı harf farkı
+// yüzünden "Toptan"/"TOPTAN"/"toptan" ayrışmasın (bkz. aramaFiltresiKur).
+const MUSTERI_TIPLERI = ['TOPTAN', 'PERAKENDE'];
+
+async function musteriTipiFiltresi(cariTablosu, tip, takma) {
+  const secilen = String(tip || '').trim().toUpperCase();
+  if (!MUSTERI_TIPLERI.includes(secilen)) return '';
+  if (!(await kolonVarMi(cariTablosu, 'KOD1'))) return '';
+  return ` AND LTRIM(RTRIM(ISNULL(${takma}.KOD1, ''))) COLLATE Latin1_General_CI_AI
+             = '${secilen}' COLLATE Latin1_General_CI_AI`;
 }
 
 async function cariBakiye(secenek) {
@@ -508,5 +528,6 @@ module.exports = {
   cariEkstre,
   izahatAdi,
   kolonVarMi,
+  musteriTipiFiltresi,
   satisSerisiTespitEt
 };

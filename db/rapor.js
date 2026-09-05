@@ -257,7 +257,7 @@ async function cariBasligi(v, firma, cariInd) {
 async function gunlukSatirlari(v, firma, cariInd, baslangic, bitis) {
   const r = await sorgu(
     `SELECT Id, Tarih, BelgeNo, ISNULL(FisNo, '') AS FisNo, SiraNo,
-            ISNULL(StokAdi, ISNULL(StokKodu, '')) AS Cinsi,
+            ISNULL(StokAdi, ISNULL(StokKodu, ISNULL(KasaTipiKod, ''))) AS Cinsi,
             KasaAdedi, ISNULL(KasaTipiKod, '') AS KasaTipiKod, KasaTutari,
             DaraliMiktar, Fiyat, Tutar, ISNULL(Aciklama, '') AS Aciklama
      FROM [${v}].dbo.BD_BelgeSatir

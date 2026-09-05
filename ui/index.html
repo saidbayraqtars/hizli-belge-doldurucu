@@ -45,6 +45,14 @@
           </div>
         </div>
         <div class="alan">
+          <label for="musteriTipi">Toptan / Perakende</label>
+          <select id="musteriTipi">
+            <option value="TOPTAN" selected>Toptan</option>
+            <option value="PERAKENDE">Perakende</option>
+            <option value="">Hepsi</option>
+          </select>
+        </div>
+        <div class="alan">
           <label for="belgeTarih">Tarih</label>
           <input type="date" id="belgeTarih">
         </div>
@@ -231,6 +239,16 @@
         Her kayıt doğrudan Vega'ya yazılır — burada bekleyen belge olmaz, yalnızca
         yazılanların günlüğü ve gerektiğinde geri alma durur.
       </p>
+      <div class="satirlar-ust">
+        <div class="alan buyuk">
+          <label for="belgelerArama">Ara</label>
+          <input type="text" id="belgelerArama" autocomplete="off"
+                 placeholder="Müşteri, belge no, tür ya da kullanıcı…">
+        </div>
+        <div class="alan">
+          <span class="ipucu" id="belgelerBilgi"></span>
+        </div>
+      </div>
       <table class="veri" id="belgelerTablo">
         <thead>
           <tr>
