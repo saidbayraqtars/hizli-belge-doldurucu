@@ -272,6 +272,9 @@ td.hesaplanan {
 
 .dugme.tehlike { background: #fff; color: #b91c1c; border-color: #fca5a5; }
 .dugme.tehlike:hover:not(:disabled) { background: #fef2f2; }
+.duzenlemeBilgi { background: #fff7ed; border-color: #fdba74; color: #9a3412; font-weight: 600; }
+.belgeEylemleri { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.kalemDugmesi { min-width: 34px; padding-left: 9px; padding-right: 9px; font-size: 18px; line-height: 1; }
 
 .dugme.buyuk { padding: 12px 22px; font-size: 15px; font-weight: 600; }
 .dugme.mini { padding: 4px 10px; font-size: 12px; }
@@ -290,7 +293,7 @@ td.hesaplanan {
 
 .eksi { color: #b91c1c; }
 
-/* ─── Alan altındaki küçük düğmeler (Listeden Seç / Yeni Cari) ─── */
+/* ─── Alan altındaki küçük düğmeler (Listeden Seç) ─── */
 
 .altDugmeler { display: flex; gap: 6px; margin-top: 2px; }
 
@@ -427,6 +430,22 @@ table.veri.rapor.dar th { font-size: 11px; padding: 4px 5px; }
 table.veri.rapor.dar td { padding: 2px 5px; line-height: 1.25; }
 table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
 
+/* Çok müşterili haftalık özet, eski rapor örneği gibi sayfada ortalı ve
+   belirgin kutulu görünür. Bu ayarlar ayrıntılı Ekstre tablolarını etkilemez. */
+#raporGenel {
+  width: min(1180px, calc(100% - 32px));
+  margin-left: auto;
+  margin-right: auto;
+}
+#raporGenelTablo { border: 2px solid #475569; }
+#raporGenelTablo th,
+#raporGenelTablo td { border: 2px solid #475569; }
+#raporGenel .raporGenelToplam {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: 0;
+}
+
 /* Verilen / geri gelen kasa blokları yan yana — kasa sayısı, türü ve tutarı
    çıktıda ayrıca görünsün diye eklendi. */
 .kasaBloklari { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
@@ -556,9 +575,32 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
   #raporGenelTablo.yalnizSecili tbody tr:not(.secili) { display: none !important; }
   table.veri.rapor tbody tr.secili > td { background: transparent !important; }
 
-  /* Her müşterinin ekstresi ayrı sayfada başlasın. */
-  .ekstreBlok { page-break-after: always; border-top: 0 !important; padding-top: 0 !important; }
-  .ekstreBlok:last-child { page-break-after: auto; }
+  /* Haftalık genel rapora iki yanda eşit pay bırak; içerik sayfanın soluna
+     yaslanmasın. Kutular yazıcıda kaybolmasın diye siyah ve kalın basılır. */
+  #raporGenel {
+    width: calc(100% - 12mm);
+    margin: 0 auto 8px !important;
+  }
+  #raporGenelTablo { font-size: 11px; }
+  #raporGenelTablo,
+  #raporGenelTablo th,
+  #raporGenelTablo td { border: 2px solid #000 !important; }
+  #raporGenelTablo th,
+  #raporGenelTablo td { padding: 3px 5px; line-height: 1.25; }
+  #raporGenel .raporBaslik { font-size: 20px; margin-bottom: 8px; }
+
+  /* İlk müşteriden sonra yalnız yeni müşteri başlamadan sayfa atlat.
+     Son bloktan sonra zorunlu atlama yapılmadığı için boş son sayfa oluşmaz. */
+  .ekstreBlok {
+    page-break-after: auto;
+    break-after: auto;
+    border-top: 0 !important;
+    padding-top: 0 !important;
+  }
+  .ekstreBlok + .ekstreBlok {
+    page-break-before: always;
+    break-before: page;
+  }
   .topluEkstreDurum { display: none !important; }
 
   /* Daraltılmış çıktı: aynı müşteride sayfa sayısı yarıya iner. */

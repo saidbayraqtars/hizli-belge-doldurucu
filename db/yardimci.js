@@ -326,11 +326,78 @@ async function islemGetir(id) {
   return r[0];
 }
 
-async function islemGeriAlindiIsaretle(id) {
-  await calistir(
-    `UPDATE [${vt()}].dbo.BD_Islem SET GeriAlindi = 1 WHERE Id = @id`,
-    { id: Number(id) }
-  );
+// Son Belgeler'deki kalem düğmesi için güvenli, düzenlenebilir belge özeti.
+// Vega bağlantı listesi (Yazilan) arayüze açılmaz; yalnız formu yeniden
+// doldurmak için gereken müşteri, satır ve tahsilat bilgileri döner.
+async function islemDetayGetir(secenek) {
+  const id = Number(secenek && secenek.islemId);
+  const kayit = await islemGetir(id);
+  if (kayit.GeriAlindi) throw new Error('Geri alınmış belge düzenlenemez.');
+  if (kayit.Konu !== 'satisFaturasi' && kayit.Konu !== 'cariCikis') {
+    throw new Error('Bu belge türü düzenlenemez.');
+  }
+
+  const satirlar = await sorgu(`
+    SELECT S.Id, S.Tarih, S.FisNo, S.SiraNo, S.StokNo, S.StokKodu, S.StokAdi,
+           S.KasaAdedi, S.KasaTipiKod, S.KasaDepozito, S.KasaTutari,
+           S.BrutMiktar, S.Dara, S.DaraliMiktar, S.Fiyat, S.Tutar, S.Aciklama,
+           K.Id AS KasaStokNo, K.Ad AS KasaTipiAdi
+    FROM [${vt()}].dbo.BD_BelgeSatir S
+    OUTER APPLY (
+      SELECT TOP 1 KT.Id, KT.Ad
+      FROM [${vt()}].dbo.BD_KasaTipi KT
+      WHERE UPPER(ISNULL(KT.Kod, '')) = UPPER(ISNULL(S.KasaTipiKod, ''))
+      ORDER BY KT.Aktif DESC, KT.Id DESC
+    ) K
+    WHERE S.IslemId = @islemId AND ISNULL(S.GeriAlindi, 0) = 0
+    ORDER BY ISNULL(S.SiraNo, 2147483647), S.Id
+  `, { islemId: id });
+
+  let yazilan = [];
+  try { yazilan = JSON.parse(kayit.Yazilan || '[]'); } catch (e) { yazilan = []; }
+  const tahsilatKaydi = yazilan.find((y) => y && y.tur === 'tahsilat');
+  const fisNo = satirlar[0] && satirlar[0].FisNo
+    ? String(satirlar[0].FisNo).trim()
+    : String(kayit.Aciklama || '').replace(/^Fiş\s+/i, '').trim();
+  let bakiye = 0;
+  try {
+    bakiye = await vega.cariBakiye({
+      firma: kayit.Firma,
+      donem: kayit.Donem,
+      cariInd: Number(kayit.CariInd)
+    });
+  } catch (e) { /* Form yine açılır; bakiye yalnız bilgilendirme amaçlı. */ }
+
+  return {
+    islemId: id,
+    firma: kayit.Firma,
+    donem: kayit.Donem,
+    belgeTuru: kayit.Konu,
+    tarih: satirlar[0] ? satirlar[0].Tarih : kayit.Tarih,
+    fisNo,
+    cari: { cariInd: Number(kayit.CariInd), ad: kayit.CariAd || '', bakiye },
+    tahsilat: tahsilatKaydi ? Number(tahsilatKaydi.toplam) || 0 : 0,
+    tahsilatAciklama: tahsilatKaydi && tahsilatKaydi.aciklama
+      ? String(tahsilatKaydi.aciklama)
+      : (tahsilatKaydi ? 'Tahsilat' : ''),
+    satirlar: satirlar.map((s) => ({
+      stokNo: s.StokNo == null ? null : Number(s.StokNo),
+      stokKodu: s.StokKodu || null,
+      stokAdi: s.StokAdi || null,
+      kasaAdedi: Number(s.KasaAdedi) || 0,
+      kasaStokNo: s.KasaStokNo == null ? null : Number(s.KasaStokNo),
+      kasaTipiKod: s.KasaTipiKod || null,
+      kasaTipiAdi: s.KasaTipiAdi || null,
+      kasaDepozito: Number(s.KasaDepozito) || 0,
+      kasaTutari: Number(s.KasaTutari) || 0,
+      brutMiktar: Number(s.BrutMiktar) || 0,
+      dara: Number(s.Dara) || 0,
+      daraliMiktar: Number(s.DaraliMiktar) || 0,
+      fiyat: Number(s.Fiyat) || 0,
+      tutar: Number(s.Tutar) || 0,
+      aciklama: s.Aciklama || ''
+    }))
+  };
 }
 
 async function sonIslemleriGetir(secenek) {
@@ -417,16 +484,22 @@ async function kasaBakiyesi(secenek) {
   }));
 }
 
-// Müşteride bu tipten kaç kasa açık? İade adedi bunu aşamaz.
-async function acikKasaAdedi(firma, cariInd, stokNo) {
+// Müşteride bu tipten kaç kasa ve bu kasalara ait kaç TL depozito borcu açık?
+// İade hem adedi hem de verildiği günkü gerçek açık tutarı kapatır.
+async function acikKasaDurumu(firma, cariInd, stokNo, t) {
   await hazirla();
-  const r = await sorgu(
-    `SELECT ISNULL(SUM(Adet), 0) AS acikAdet
-     FROM [${vt()}].dbo.BD_KasaHareket
+  const sorgula = t ? t.sorgu.bind(t) : sorgu;
+  const kilit = t ? ' WITH (UPDLOCK, HOLDLOCK)' : '';
+  const r = await sorgula(
+    `SELECT ISNULL(SUM(Adet), 0) AS acikAdet, ISNULL(SUM(Tutar), 0) AS acikTutar
+     FROM [${vt()}].dbo.BD_KasaHareket${kilit}
      WHERE Firma = @firma AND CariInd = @cariInd AND StokNo = @stokNo`,
     { firma, cariInd: Number(cariInd), stokNo: Number(stokNo) }
   );
-  return Number(r[0] ? r[0].acikAdet : 0);
+  return {
+    acikAdet: Number(r[0] ? r[0].acikAdet : 0) || 0,
+    acikTutar: Number(r[0] ? r[0].acikTutar : 0) || 0
+  };
 }
 
 // --- Belge satır günlüğü (ayrıntılı rapor kaynağı) ---------------------------
@@ -477,22 +550,23 @@ async function belgeSatirYaz(t, ayrinti) {
   else await calistir(sorguMetni, alanlar);
 }
 
-// Geri alınan belge raporda görünmesin. Silmiyoruz — ne yazılıp ne geri
-// alındığı BD_Islem'deki günlükle tutarlı kalsın diye işaretliyoruz.
-async function belgeSatirlariniGeriAlIsaretle(t, islemId) {
-  const sorguMetni =
-    `UPDATE [${vt()}].dbo.BD_BelgeSatir SET GeriAlindi = 1 WHERE IslemId = @islemId`;
+// Geri alma ve düzenleme artık yardımcı günlükte de iz bırakmaz. Üç tablo aynı
+// SQL transaction'ında temizlenir; sonraki yazım başarısız olursa düzenlemede
+// eski kayıtlar otomatik geri gelir.
+async function islemKayitlariniTamSil(t, islemId) {
   const parametreler = { islemId: Number(islemId) };
-  if (t) await t.calistir(sorguMetni, parametreler);
-  else await calistir(sorguMetni, parametreler);
-}
-
-// İşlem geri alınırken o işleme bağlı kasa hareketlerini de siler.
-async function kasaHareketleriniSil(t, islemId) {
-  const sorguMetni = `DELETE FROM [${vt()}].dbo.BD_KasaHareket WHERE IslemId = @islemId`;
-  const parametreler = { islemId: Number(islemId) };
-  if (t) await t.calistir(sorguMetni, parametreler);
-  else await calistir(sorguMetni, parametreler);
+  const sonuc = { kasa: 0, satir: 0, islem: 0 };
+  const k = await t.calistir(
+    `DELETE FROM [${vt()}].dbo.BD_KasaHareket WHERE IslemId = @islemId`, parametreler);
+  sonuc.kasa = Number(k[0]) || 0;
+  const s = await t.calistir(
+    `DELETE FROM [${vt()}].dbo.BD_BelgeSatir WHERE IslemId = @islemId`, parametreler);
+  sonuc.satir = Number(s[0]) || 0;
+  const i = await t.calistir(
+    `DELETE FROM [${vt()}].dbo.BD_Islem WHERE Id = @islemId`, parametreler);
+  sonuc.islem = Number(i[0]) || 0;
+  if (sonuc.islem !== 1) throw new Error('İşlem günlüğü tamamen silinemedi.');
+  return sonuc;
 }
 
 module.exports = {
@@ -502,12 +576,11 @@ module.exports = {
   kasaTipiSil,
   islemYaz,
   islemGetir,
-  islemGeriAlindiIsaretle,
+  islemDetayGetir,
   sonIslemleriGetir,
   kasaHareketiYaz,
   kasaBakiyesi,
-  acikKasaAdedi,
-  kasaHareketleriniSil,
-  belgeSatirYaz,
-  belgeSatirlariniGeriAlIsaretle
+  acikKasaDurumu,
+  islemKayitlariniTamSil,
+  belgeSatirYaz
 };

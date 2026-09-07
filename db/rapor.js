@@ -9,13 +9,13 @@
 // sekmesinde, fiş bazlı ayrıntı "Ekstre" sekmesinde.
 //
 //   1. "GENEL MÜŞTERİYE GÖRE KALAN" (haftalikOzet) — çok müşterili borç dökümü
-//      Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA | SAFİ KG |
-//      YENİ BORÇ | ÖDEME | TOP.BAKİYE
+//      Tarih | ADI_SOYADI | ESKİ BORÇ | KASA | YENİ BORÇ | TOP.BAKİYE
 //      Ayrıntı yok: "ne kadar almış, ne kadar vermiş, borcu ne" tek satır.
 //
 //   2. Müşteri dönem dökümü (haftalikDetay) — Ekstre ekranındaki ayrıntılı rapor
 //      CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | SAFİ KG | FİYAT | TUTAR |
-//      AÇIKLAMA | FİŞ NO
+//      AÇIKLAMA | FİŞ NO. Aynı fişte aynı kasa türü tek kez toplam adet ve
+//      toplam tutarla gösterilir.
 //      + DEVİR, KASA ÖZETİ, S.TUTARI, ÖDEME bloğu, BAKİYE
 //      05.09.2026 (kullanıcı isteği): satılan ürünün SAFİ KG'ı (dara düşülmüş
 //      kilo) FİYAT'ın önüne sütun olarak kondu. Ayrı "Verilen Kasalar" bloğu
@@ -318,7 +318,9 @@ async function gunlukSatirlari(v, firma, cariInd, baslangic, bitis) {
     kaynak: 'gunluk',
     tarih: s.Tarih,
     belgeNo: String(s.BelgeNo || '').trim(),
-    fisNo: String(s.FisNo || '').trim(),
+    // Eski/elle yazılmış günlüklerde FisNo boş olabiliyor; raporun fişsiz
+    // görünmemesi için o durumda Vega belge numarasına düş.
+    fisNo: fisNoCoz(s.FisNo, s.BelgeNo),
     cinsi: String(s.Cinsi || '').trim(),
     kasaAdedi: Number(s.KasaAdedi) || 0,
     kasaTipiKod: String(s.KasaTipiKod || '').trim(),
@@ -328,6 +330,10 @@ async function gunlukSatirlari(v, firma, cariInd, baslangic, bitis) {
     tutar: Number(s.Tutar) || 0,
     aciklama: String(s.Aciklama || '').trim()
   }));
+}
+
+function fisNoCoz(fisNo, belgeNo) {
+  return String(fisNo || belgeNo || '').trim();
 }
 
 // Doğrudan VegaWin ekranından kesilmiş satış faturaları — bu programın
@@ -405,7 +411,33 @@ function fislereBol(satirlar) {
     simdiki.araToplam.netKg += s.netKg;
     simdiki.araToplam.tutar += s.tutar;
   }
+
+  for (const grup of gruplar) {
+    grup.kasaTurleri = kasaTurleriniTopla(grup.satirlar);
+  }
   return gruplar;
+}
+
+function kasaTuruAnahtari(tur) {
+  return String(tur || '—').trim().toLocaleUpperCase('tr-TR') || '—';
+}
+
+// Bir fişte aynı kasa türü birden çok ürün satırında tekrar edebilir. Çıktıda
+// her türü tek kez göstermek için adet ve tutarı fiş içinde birleştir.
+function kasaTurleriniTopla(satirlar) {
+  const toplamlar = new Map();
+  for (const s of satirlar || []) {
+    const adet = Number(s.kasaAdedi) || 0;
+    const tutar = Number(s.kasaTutari) || 0;
+    if (!adet && !tutar) continue;
+    const tur = String(s.kasaTipiKod || '').trim() || '—';
+    const anahtar = kasaTuruAnahtari(tur);
+    if (!toplamlar.has(anahtar)) toplamlar.set(anahtar, { anahtar, tur, adet: 0, tutar: 0 });
+    const toplam = toplamlar.get(anahtar);
+    toplam.adet += adet;
+    toplam.tutar += tutar;
+  }
+  return [...toplamlar.values()];
 }
 
 async function haftalikDetay(secenek) {
@@ -530,5 +562,6 @@ async function haftalikDetay(secenek) {
 module.exports = {
   haftaAraligi,
   haftalikOzet,
-  haftalikDetay
+  haftalikDetay,
+  _test: { fisNoCoz, kasaTurleriniTopla, fislereBol }
 };

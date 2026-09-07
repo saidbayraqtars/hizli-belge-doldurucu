@@ -541,9 +541,15 @@ async function kasaDefterineYaz(t, ayrinti) {
 async function cariDekontuYaz(t, ayrinti) {
   const { v, firma, donem, cariInd, tutar, aciklama, tarih, userNo, giris, borcMu, onek } = ayrinti;
   const nakit = !!ayrinti.nakit;
+  // Tahsilat açıklaması belge başlığına aittir. `satirAciklamasi` açıkça
+  // verilirse hareket satırına başlık açıklamasını kopyalamayız.
+  const satirAciklamasiBelirlendi = Object.prototype.hasOwnProperty.call(ayrinti, 'satirAciklamasi');
   const kalemler = (ayrinti.kalemler && ayrinti.kalemler.length)
     ? ayrinti.kalemler.filter((k) => Number(k.tutar) !== 0)
-    : [{ tutar: Number(tutar) || 0, aciklama }];
+    : [{
+        tutar: Number(tutar) || 0,
+        aciklama: satirAciklamasiBelirlendi ? ayrinti.satirAciklamasi : aciklama
+      }];
   const toplamTutar = kalemler.reduce((s, k) => s + (Number(k.tutar) || 0), 0);
 
   // borcMu verilmezse eski davranış korunur (giris=false→borç, true→alacak).
@@ -611,7 +617,9 @@ async function cariDekontuYaz(t, ayrinti) {
       BELGENO: '',
       FIRMANO: Number(cariInd),
       TUTAR: Number(k.tutar) || 0,
-      ACIKLAMA: k.aciklama || aciklama || null,
+      ACIKLAMA: satirAciklamasiBelirlendi
+        ? (k.aciklama || null)
+        : (k.aciklama || aciklama || null),
       PARABIRIMI: 'TL',
       KUR: 1,
       VADE: tarih,
@@ -1093,6 +1101,20 @@ async function belgeYaz(secenek) {
   const cariInd = Number(secenek.cariInd);
   const cariAd = secenek.cariAd || null;
   const tahsilat = Number(secenek.tahsilat) || 0;
+  const tahsilatAciklama = String(secenek.tahsilatAciklama || '').trim() || 'Tahsilat';
+  const duzenlenenIslemId = Number(secenek.duzenlenenIslemId) || null;
+  let duzenlenenKayit = null;
+  if (duzenlenenIslemId) {
+    duzenlenenKayit = await yardimci.islemGetir(duzenlenenIslemId);
+    if (duzenlenenKayit.GeriAlindi) throw new Error('Geri alınmış belge düzenlenemez.');
+    if (duzenlenenKayit.Konu !== 'satisFaturasi' && duzenlenenKayit.Konu !== 'cariCikis') {
+      throw new Error('Bu belge türü düzenlenemez.');
+    }
+    if (duzenlenenKayit.Firma !== firma || duzenlenenKayit.Donem !== donem ||
+        Number(duzenlenenKayit.CariInd) !== cariInd || duzenlenenKayit.Konu !== secenek.belgeTuru) {
+      throw new Error('Düzenlemede firma, dönem, müşteri veya belge türü değiştirilemez.');
+    }
+  }
 
   // Ürün satırı olmayan (yalnız kasa ya da yalnız tahsilat) belge de geçerli;
   // stok kartı olmayan satır fatura/stok tarafına hiç gitmez.
@@ -1156,6 +1178,16 @@ async function belgeYaz(secenek) {
   const onek = await onekTespitEt(firma, donem);
 
   const sonuc = await islem(async (t) => {
+    // Düzenleme, eski belgeyi silip yenisini yazmayı TEK transaction içinde
+    // yapar. Aşağıdaki herhangi bir INSERT hata verirse eski belge geri gelir.
+    if (duzenlenenKayit) {
+      let eskiYazilan;
+      try { eskiYazilan = JSON.parse(duzenlenenKayit.Yazilan || '[]'); }
+      catch (e) { throw new Error('Düzenlenecek belgenin bağlantı kaydı bozuk.'); }
+      await vegaKaydiniGeriAl(t, eskiYazilan, firma, donem);
+      await yardimci.islemKayitlariniTamSil(t, duzenlenenIslemId);
+    }
+
     const yazilan = [];
 
     // Ürün de kasa da yoksa (yalnız tahsilat girilmiş) belge yazılmaz,
@@ -1238,12 +1270,12 @@ async function belgeYaz(secenek) {
     if (tahsilat > 0) {
       const d = await cariDekontuYaz(t, {
         v, firma, donem, cariInd, tutar: tahsilat, tarih, userNo,
-        giris: true, aciklama: 'Tahsilat', onek,
+        giris: true, aciklama: tahsilatAciklama, satirAciklamasi: null, onek,
         // Alınan ödeme varsayılan olarak NAKİT: fişte ödeme aracı boş
         // kalmasın ve para Vega'nın kasasına da girsin (05.09.2026).
         nakit: true
       });
-      yazilan.push({ ad: 'Tahsilat', tur: 'tahsilat', ...d });
+      yazilan.push({ ad: 'Tahsilat', tur: 'tahsilat', aciklama: tahsilatAciklama, ...d });
       tahsilatBelgeNo = d.belgeNo;
     }
 
@@ -1317,7 +1349,8 @@ async function belgeYaz(secenek) {
     islemId: sonuc.islemId,
     urunTutari, kasaTutari, tahsilat,
     toplam: urunTutari + kasaTutari,
-    yazilan: sonuc.yazilan
+    yazilan: sonuc.yazilan,
+    duzenlendi: !!duzenlenenIslemId
   };
 }
 
@@ -1335,9 +1368,9 @@ async function belgeYaz(secenek) {
 // seçili değilse eski yola (yalnız cari dekont) düşülür — geriye dönük
 // uyumluluk için.
 //
-// Depozito bedeli tanımsız/sıfırsa Vega'ya hiç belge yazılmaz, ama kasa
-// defterinde iade yine de işlenir (fiziksel kasa geri geldi bilgisi
-// kaybolmasın).
+// İade bedeli kasa kartının güncel fiyatından değil BD_KasaHareket'teki açık
+// adet/tutardan hesaplanır. Açık tutar sıfırsa Vega'ya parasal belge yazılmaz,
+// ama fiziksel kasa iadesi deftere yine işlenir.
 async function kasaIadesiYaz(secenek) {
   kilitKontrol();
   await yardimci.hazirla();
@@ -1352,15 +1385,6 @@ async function kasaIadesiYaz(secenek) {
   const cariInd = Number(secenek.cariInd);
   const tarih = new Date(secenek.tarih || Date.now());
 
-  const acikAdet = await yardimci.acikKasaAdedi(firma, cariInd, secenek.stokNo);
-  if (adet > acikAdet) {
-    throw new Error(
-      `Bu müşteride bu tipten ${acikAdet} kasa açık görünüyor; ${adet} kasa iade alınamaz.`
-    );
-  }
-
-  const depozito = Number(secenek.depozito) || 0;
-  const tutar = adet * depozito;
   const onek = await onekTespitEt(firma, donem);
   const a = ayarOku();
   const depo = Number(secenek.depo != null ? secenek.depo : a.varsayilanDepo) || 0;
@@ -1371,6 +1395,22 @@ async function kasaIadesiYaz(secenek) {
     (await tabloVarMi(firma, donem, 'TBLSTKGIRHAREKET'));
 
   const sonuc = await islem(async (t) => {
+    // Güncel kasa kartı fiyatı iade borcunu değiştirmez. Örneğin 9 kasa
+    // 500 TL'den verildiyse, kart bugün 300 TL olsa bile 9'u geri geldiğinde
+    // açık 4.500 TL'nin tamamı kapanır. Kısmi iadede açık tutarın adet başına
+    // ortalaması kullanılır; son iadede kuruş kalmaması için tamamı alınır.
+    const acik = await yardimci.acikKasaDurumu(firma, cariInd, secenek.stokNo, t);
+    if (adet > acik.acikAdet) {
+      throw new Error(
+        `Bu müşteride bu tipten ${acik.acikAdet} kasa açık görünüyor; ${adet} kasa iade alınamaz.`
+      );
+    }
+    const tamIade = Math.abs(adet - acik.acikAdet) < 0.0005;
+    const tutar = tamIade
+      ? acik.acikTutar
+      : Math.round((acik.acikTutar / acik.acikAdet) * adet * 100) / 100;
+    const depozito = adet ? tutar / adet : 0;
+
     let dekont = null;
     if (tutar > 0 && stokGirisVarMi) {
       dekont = await stokGirisIadesiYaz(t, {
@@ -1414,7 +1454,14 @@ async function kasaIadesiYaz(secenek) {
       kullanici: secenek.kullanici
     });
 
-    return { belgeNo: dekont ? dekont.belgeNo : null, islemId };
+    return {
+      belgeNo: dekont ? dekont.belgeNo : null,
+      islemId,
+      depozito,
+      tutar,
+      kalanAdet: acik.acikAdet - adet,
+      kalanTutar: Math.round((acik.acikTutar - tutar) * 100) / 100
+    };
   });
 
   return {
@@ -1422,9 +1469,10 @@ async function kasaIadesiYaz(secenek) {
     belgeNo: sonuc.belgeNo,
     islemId: sonuc.islemId,
     adet,
-    depozito,
-    tutar,
-    kalanAdet: acikAdet - adet
+    depozito: sonuc.depozito,
+    tutar: sonuc.tutar,
+    kalanAdet: sonuc.kalanAdet,
+    kalanTutar: sonuc.kalanTutar
   };
 }
 
@@ -1465,12 +1513,9 @@ async function belgeGeriAl(secenek) {
 
   const silinen = await islem(async (t) => {
     const s = await vegaKaydiniGeriAl(t, yazilan, kayit.Firma, kayit.Donem);
-    await yardimci.kasaHareketleriniSil(t, islemId);
-    await yardimci.belgeSatirlariniGeriAlIsaretle(t, islemId);
+    await yardimci.islemKayitlariniTamSil(t, islemId);
     return s;
   });
-
-  await yardimci.islemGeriAlindiIsaretle(islemId);
 
   return { tamam: true, silinenSatir: silinen };
 }

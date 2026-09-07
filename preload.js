@@ -20,6 +20,7 @@ const KANALLAR = [
   'yardimci:kasaTipiSil',
   'yardimci:kasaBakiye',
   'yardimci:sonIslemler',
+  'yardimci:islemDetay',
   'yazma:durum',
   'yazma:belge',
   'yazma:belgeGeriAl',

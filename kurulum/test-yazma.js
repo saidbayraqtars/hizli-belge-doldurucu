@@ -116,9 +116,8 @@ async function hareketleriTemizle() {
 
 async function yardimciTablolariTemizle() {
   const v = VEGA_TEST;
-  // BD_BelgeSatir geri alma sırasında silinmez, yalnız işaretlenir. Her
-  // sınama temiz bir rapor günlüğüyle başlasın diye test veritabanında bunu
-  // da fiziksel olarak temizliyoruz.
+  // Her sınama temiz bir yardımcı günlükle başlasın diye test veritabanındaki
+  // olası eski/yarım kayıtları fiziksel olarak temizliyoruz.
   for (const t of ['BD_KasaHareket', 'BD_Islem', 'BD_BelgeSatir']) {
     await sql.calistir(`
       IF OBJECT_ID('[${v}].dbo.${t}', 'U') IS NOT NULL DELETE FROM [${v}].dbo.${t}
@@ -202,7 +201,7 @@ async function calistir() {
       {
         stokNo: stoklar[1].stokNo, stokKodu: stoklar[1].kod, stokAdi: stoklar[1].ad,
         birim: stoklar[1].birim, birimEx: stoklar[1].birimEx,
-        daraliMiktar: 5, fiyat: 20, tutar: 100,
+        brutMiktar: 5, daraliMiktar: 5, fiyat: 20, tutar: 100,
         kasaAdedi: 0, kasaStokNo: null, kasaTipiKod: null,
         kasaDepozito: 0, kasaTutari: 0
       }
@@ -212,6 +211,7 @@ async function calistir() {
   const URUN_TOPLAM = 424;   // 324 + 100
   const KASA_TOPLAM = 100;
   const TAHSILAT = 200;
+  const TAHSILAT_ACIKLAMA = 'TEST TAHSILAT BELGE ACIKLAMASI';
   const BEKLENEN_BORC = URUN_TOPLAM + KASA_TOPLAM - TAHSILAT;
 
   // ======================================================================
@@ -222,7 +222,8 @@ async function calistir() {
     cariInd: cari.cariInd, cariAd: cari.ad,
     belgeTuru: 'satisFaturasi', fisNo: 'SINAMA-A',
     satirlar: ornekSatirlar(),
-    tahsilat: TAHSILAT
+    tahsilat: TAHSILAT,
+    tahsilatAciklama: TAHSILAT_ACIKLAMA
   });
   kontrol('Vegaya yazildi', yazmaA.tamam, yazmaA.belgeNo);
   kontrol('Urun toplami dogru', yazmaA.urunTutari === URUN_TOPLAM, String(yazmaA.urunTutari));
@@ -240,6 +241,19 @@ async function calistir() {
   kontrol('Depo envanteri 3 satir', sA.TBLDEPOENVANTER === 3, String(sA.TBLDEPOENVANTER));
   kontrol('Kasa icin ayri cikis dekontu YOK (fatura icine girdi)', sA.TBLCARCIKBASLIK === 0, String(sA.TBLCARCIKBASLIK));
   kontrol('Tahsilat basligi 1 satir (giris)', sA.TBLCARGIRBASLIK === 1, String(sA.TBLCARGIRBASLIK));
+  const tahsilatAciklamaKaydi = await sql.sorgu(`
+    SELECT B.ACIKLAMA AS baslikAciklama, H.ACIKLAMA AS satirAciklama
+    FROM ${vtAdi('TBLCARGIRBASLIK', true)} B
+    JOIN ${vtAdi('TBLCARGIRHAREKET', true)} H ON H.EVRAKNO = B.IND
+    WHERE B.BELGENO = @belgeNo`, { belgeNo: yazmaA.tahsilatBelgeNo });
+  kontrol('Tahsilat aciklamasi belge basligina yazildi',
+    tahsilatAciklamaKaydi.length === 1 &&
+      String(tahsilatAciklamaKaydi[0].baslikAciklama || '').trim() === TAHSILAT_ACIKLAMA,
+    tahsilatAciklamaKaydi.length ? tahsilatAciklamaKaydi[0].baslikAciklama : 'bulunamadi');
+  kontrol('Tahsilat hareket satiri aciklamasi bos birakildi',
+    tahsilatAciklamaKaydi.length === 1 &&
+      !String(tahsilatAciklamaKaydi[0].satirAciklama || '').trim(),
+    tahsilatAciklamaKaydi.length ? `"${tahsilatAciklamaKaydi[0].satirAciklama || ''}"` : 'bulunamadi');
   kontrol('Cari hareketi 2 satir (fatura[+kasa birlesik] + tahsilat)', sA.TBLCARIHAREKETLERI === 2,
     String(sA.TBLCARIHAREKETLERI));
   kontrol('Cari genel hareketi de 2 satir (her cari harekete eslik ediyor)',
@@ -352,7 +366,7 @@ async function calistir() {
     bosAciklamali.length === 1 && !String(bosAciklamali[0].ACIKLAMA || '').trim(),
     bosAciklamali.length ? `"${bosAciklamali[0].ACIKLAMA}"` : 'bulunamadi');
 
-  const tahsilatSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf('Tahsilat') >= 0);
+  const tahsilatSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf(TAHSILAT_ACIKLAMA) >= 0);
   kontrol('Tahsilat satiri ALACAK olarak gorunuyor', !!tahsilatSatiri && tahsilatSatiri.alacak === TAHSILAT,
     tahsilatSatiri ? `${tahsilatSatiri.aciklama} · ${tahsilatSatiri.alacak} TL` : 'bulunamadi');
   kontrol('Ekstre son bakiyesi cari bakiyesiyle ayni',
@@ -369,8 +383,47 @@ async function calistir() {
   kontrol('Islem gunluge yazildi', gunlukA.length > 0 && gunlukA[0].BelgeNo === yazmaA.belgeNo + ' / ' + yazmaA.tahsilatBelgeNo,
     gunlukA.length ? gunlukA[0].BelgeNo : '—');
 
+  // --- Son Belgeler > kalem ile düzenleme ---
+  const detayA = await yardimci.islemDetayGetir({ islemId: yazmaA.islemId });
+  kontrol('Belge duzenleme icin iki satirla acildi', detayA.satirlar.length === 2,
+    `${detayA.satirlar.length} satir`);
+  kontrol('Duzenleme tahsilat aciklamasini koruyor',
+    detayA.tahsilatAciklama === TAHSILAT_ACIKLAMA, detayA.tahsilatAciklama);
+
+  const duzeltilenSatirlar = ornekSatirlar();
+  duzeltilenSatirlar[0].brutMiktar = 13.3;
+  duzeltilenSatirlar[0].daraliMiktar = 11.8;
+  duzeltilenSatirlar[0].tutar = 354;
+  const yazmaD = await yazma.belgeYaz({
+    firma: FIRMA, donem: DONEM, tarih: new Date(),
+    cariInd: cari.cariInd, cariAd: cari.ad,
+    belgeTuru: 'satisFaturasi', fisNo: 'SINAMA-A',
+    satirlar: duzeltilenSatirlar,
+    tahsilat: TAHSILAT,
+    tahsilatAciklama: TAHSILAT_ACIKLAMA,
+    duzenlenenIslemId: yazmaA.islemId
+  });
+  kontrol('Belge tek transaction ile duzenlendi', yazmaD.duzenlendi, yazmaD.belgeNo);
+  const duzeltilenFatura = await sql.sorgu(
+    `SELECT MIKTAR, GERCEKTOPLAM FROM ${vtAdi('TBLSATFATHAREKET', true)} WHERE MIKTAR=11.8`);
+  kontrol('Duzeltilen kilo ve tutar Vegaya yansidi',
+    duzeltilenFatura.length === 1 && Number(duzeltilenFatura[0].GERCEKTOPLAM) === 354,
+    duzeltilenFatura.length ? `${duzeltilenFatura[0].MIKTAR} kg / ${duzeltilenFatura[0].GERCEKTOPLAM} TL` : 'bulunamadi');
+  const duzenlemeGunlugu = await sql.sorgu(`
+    SELECT
+      (SELECT COUNT(*) FROM [${VEGA_TEST}].dbo.BD_Islem) AS islem,
+      (SELECT COUNT(*) FROM [${VEGA_TEST}].dbo.BD_BelgeSatir) AS satir,
+      (SELECT COUNT(*) FROM [${VEGA_TEST}].dbo.BD_KasaHareket) AS kasa`);
+  kontrol('Duzenleme eski yardimci kayitlari cogaltmadi',
+    Number(duzenlemeGunlugu[0].islem) === 1 &&
+      Number(duzenlemeGunlugu[0].satir) === 2 && Number(duzenlemeGunlugu[0].kasa) === 1,
+    JSON.stringify(duzenlemeGunlugu[0]));
+  const duzenlemeBakiyesi = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
+  kontrol('Duzeltilen kilo cari bakiyesini bir kez degistirdi',
+    Math.abs(duzenlemeBakiyesi - 354) < 0.01, String(duzenlemeBakiyesi));
+
   // --- Geri alma ---
-  const geriA = await yazma.belgeGeriAl({ islemId: yazmaA.islemId });
+  const geriA = await yazma.belgeGeriAl({ islemId: yazmaD.islemId });
   kontrol('Geri alindi', geriA.tamam, `${geriA.silinenSatir} satir silindi`);
 
   const sonrasiA = await tumSayilar();
@@ -383,10 +436,20 @@ async function calistir() {
   const acikKasaSifir = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
   kontrol('Kasa defteri de geri alindi', acikKasaSifir.length === 0, `${acikKasaSifir.length} kayit kaldi`);
 
+  const yardimciSifir = await sql.sorgu(`
+    SELECT
+      (SELECT COUNT(*) FROM [${VEGA_TEST}].dbo.BD_Islem) AS islem,
+      (SELECT COUNT(*) FROM [${VEGA_TEST}].dbo.BD_BelgeSatir) AS satir,
+      (SELECT COUNT(*) FROM [${VEGA_TEST}].dbo.BD_KasaHareket) AS kasa`);
+  kontrol('Geri alma yardimci kayitlari da tamamen sildi',
+    Number(yardimciSifir[0].islem) === 0 && Number(yardimciSifir[0].satir) === 0 &&
+      Number(yardimciSifir[0].kasa) === 0,
+    JSON.stringify(yardimciSifir[0]));
+
   // Aynı işlem iki kez geri alınamamalı.
   let ciftGeriAlmaReddedildi = false;
   try {
-    await yazma.belgeGeriAl({ islemId: yazmaA.islemId });
+    await yazma.belgeGeriAl({ islemId: yazmaD.islemId });
   } catch (e) {
     ciftGeriAlmaReddedildi = true;
   }
@@ -478,15 +541,15 @@ async function calistir() {
       stokNo: stoklar[0].stokNo, stokKodu: stoklar[0].kod, stokAdi: stoklar[0].ad,
       birim: stoklar[0].birim, birimEx: stoklar[0].birimEx,
       daraliMiktar: 10, fiyat: 10, tutar: 100,
-      kasaAdedi: 3, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
-      kasaDepozito: 100, kasaTutari: 300
+      kasaAdedi: 9, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
+      kasaDepozito: 500, kasaTutari: 4500
     }]
   });
   kontrol('Belge yazildi', belgeC.tamam, belgeC.belgeNo);
 
   const acik = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
-  kontrol('Musteride 3 kasa acik gorunuyor',
-    acik.length === 1 && Number(acik[0].acikAdet) === 3,
+  kontrol('Musteride 9 kasa ve 4500 TL acik gorunuyor',
+    acik.length === 1 && Number(acik[0].acikAdet) === 9 && Number(acik[0].acikTutar) === 4500,
     acik.length ? `${acik[0].kasaTipiKod} ${acik[0].acikAdet} adet · ${acik[0].acikTutar} TL` : 'yok');
 
   // Elde olandan fazlası iade alınamamalı.
@@ -494,7 +557,7 @@ async function calistir() {
   try {
     await yazma.kasaIadesiYaz({
       firma: FIRMA, donem: DONEM, cariInd: cari.cariInd, cariAd: cari.ad,
-      stokNo: kasa.id, stokKodu: kasa.kod, depozito: 100, adet: 5
+      stokNo: kasa.id, stokKodu: kasa.kod, depozito: 300, adet: 10
     });
   } catch (e) {
     fazlaIadeReddedildi = true;
@@ -503,12 +566,16 @@ async function calistir() {
 
   const bakiyeOnce = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
 
+  // Kasa kartının bugünkü bedeli 300 TL kabul edilse bile müşteri bu 9 kasayı
+  // 500 TL'den aldı. Tümünü getirince 9 × 500 = 4500 TL tamamen kapanmalı.
   const iade = await yazma.kasaIadesiYaz({
     firma: FIRMA, donem: DONEM, cariInd: cari.cariInd, cariAd: cari.ad,
-    stokNo: kasa.id, stokKodu: kasa.kod, depozito: 100, adet: 2
+    stokNo: kasa.id, stokKodu: kasa.kod, depozito: 300, adet: 9
   });
   kontrol('Iade Vegaya yazildi', iade.tamam, `${iade.adet} adet · ${iade.tutar} TL · ${iade.belgeNo}`);
-  kontrol('Kalan acik adet 1', iade.kalanAdet === 1, String(iade.kalanAdet));
+  kontrol('9 kasa iadesi eski 4500 TL borcu tamamen kapatti',
+    iade.kalanAdet === 0 && iade.kalanTutar === 0 && iade.tutar === 4500,
+    `${iade.kalanAdet} adet / ${iade.kalanTutar} TL`);
 
   const sC = await tumSayilar();
   // sC.TBLCARGIRBASLIK: belgeC'nin urun+kasa'si TEK belgede birlesik (Cari
@@ -522,34 +589,34 @@ async function calistir() {
 
   const stkGirSatir = await sql.sorgu(`SELECT TOP 1 * FROM ${vtAdi('TBLSTKGIRHAREKET', true)}`);
   kontrol('Stok giris satirinda miktar/fiyat dogru',
-    stkGirSatir.length === 1 && Number(stkGirSatir[0].MIKTAR) === 2 && Number(stkGirSatir[0].FIYATI) === 100,
+    stkGirSatir.length === 1 && Number(stkGirSatir[0].MIKTAR) === 9 && Number(stkGirSatir[0].FIYATI) === 500,
     stkGirSatir.length ? `${stkGirSatir[0].MIKTAR} adet × ${stkGirSatir[0].FIYATI} TL` : 'yok');
 
   const stokHarIade = await sql.sorgu(`
     SELECT SUM(ISNULL(GIREN,0)) AS giren, SUM(ISNULL(CIKAN,0)) AS cikan
     FROM ${vtAdi('TBLSTOKHAREKETLERI', true)} WHERE IZAHAT = '34'`);
   kontrol('Stok hareketi GIREN yoninde (kasa fiziksel stoga geri girdi)',
-    Number(stokHarIade[0].giren) === 2 && Number(stokHarIade[0].cikan) === 0,
+    Number(stokHarIade[0].giren) === 9 && Number(stokHarIade[0].cikan) === 0,
     `giren ${stokHarIade[0].giren} · cikan ${stokHarIade[0].cikan}`);
 
   const envanterIade = await sql.sorgu(`
     SELECT SUM(ENVANTER) AS envanter FROM ${vtAdi('TBLDEPOENVANTER', true)} WHERE BELGETIPI = 34`);
-  kontrol('Envanter farki arti (iade ile stok geri girer)', Number(envanterIade[0].envanter) === 2,
+  kontrol('Envanter farki arti (iade ile stok geri girer)', Number(envanterIade[0].envanter) === 9,
     String(envanterIade[0].envanter));
 
   const alacak = await sql.sorgu(`
     SELECT SUM(ISNULL(ALACAK,0)) AS alacak FROM ${vtAdi('TBLCARIHAREKETLERI', true)}
     WHERE IZAHAT = '34'`);
-  kontrol('Iade ALACAK olarak yazildi', Number(alacak[0].alacak) === 200,
+  kontrol('Iade ALACAK olarak eski depozito tutariyla yazildi', Number(alacak[0].alacak) === 4500,
     String(alacak[0].alacak));
 
   const bakiyeSonra = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
   kontrol('Cari bakiyesi iade kadar dustu',
-    Math.abs((bakiyeOnce - bakiyeSonra) - 200) < 0.01,
+    Math.abs((bakiyeOnce - bakiyeSonra) - 4500) < 0.01,
     `${bakiyeOnce} → ${bakiyeSonra}`);
 
   const acikIadeSonrasi = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
-  kontrol('Kasa defterinde 1 kasa kaldi', acikIadeSonrasi.length === 1 && acikIadeSonrasi[0].acikAdet === 1,
+  kontrol('Kasa defterinde adet ve tutar sifirlandi', acikIadeSonrasi.length === 0,
     acikIadeSonrasi.length ? `${acikIadeSonrasi[0].acikAdet} adet` : 'yok');
 
   await yazma.belgeGeriAl({ islemId: iade.islemId });

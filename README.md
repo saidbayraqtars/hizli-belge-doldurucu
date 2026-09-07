@@ -26,9 +26,9 @@ alan ekranda hiç görünmez — liste eksilmez.
 | Alan | Açıklama |
 |---|---|
 | Cinsi | VEGADB stok kartından seçilir (ALANYA MUZ, KARPUZ, KAPYA BİBER…) — arama "Google gibi": kelimeler ayrı ayrı ve sırasız aranır, Türkçe harf farkı yok sayılır |
+| Brüt Miktar | kasayla birlikte tartılan kg; ürün seçiminden sonra ilk bu alan doldurulur |
 | Kasa Adedi | kaç kasa/kap gitti |
 | Kasa Tipi | Vega'daki kasa/kap kartları — adında "KASA" ya da "DEPOZİTO" geçen stok kartları, canlı okunur |
-| Brüt Miktar | kasayla birlikte tartılan kg |
 | Dara | kasa adedi × kasa tipinin dara ağırlığı, kendiliğinden hesaplanır |
 | Daralı Miktar | brüt − dara, kendiliğinden hesaplanır |
 | Fiyat | elle girilir (Vega'da sebze-meyve için günlük değişen bir satış fiyatı tutulmuyor); ürün kartında bir fiyat varsa öneri olarak gelir |
@@ -39,35 +39,49 @@ alan ekranda hiç görünmez — liste eksilmez.
 Ayrıca **Tahsilat** alanı var: ürün satılıp aynı anda ödeme de alınıyorsa,
 buraya girilen tutar kadar ayrı bir **cari giriş (tahsilat)** dekontu yazılır
 — borç ve tahsilat aynı belgeyle birlikte Vega'ya gider. Tahsilat dekontu
+yanındaki **Tahsilat Belge Açıklaması** alanındaki metni belge başlığında
+saklar; hareket satırının açıklamasına kopyalamaz. Açıklama boş bırakılırsa
+başlıkta `Tahsilat` kullanılır. Tahsilat dekontu
 Vega'ya **NAKİT** olarak yazılır (`IZAHAT=1`, `PORTNO=-1`) ve tutar Vega'nın
 kasa defterine (`TBLKASA`, `ISLEMTIPI=1`) gelir olarak düşer.
 
 **Ürün seçmek zorunlu değil:** yalnız kasa verilen satır ya da hiç satır
 olmadan yalnız tahsilat girilen belge de kaydedilebilir.
 
-**Klavye:** `Tab` sağa ilerler, `↓` alttaki satırın aynı sütununa geçer —
-son satırdaysanız yeni satır açar, `↑` üste çıkar, `Enter` `↓` ile aynı işi
-yapar. Ürün kutusu açıkken `↑ ↓` listede gezinir, `Enter`/`Tab` seçer.
+**Klavye:** `Tab` sağa ilerler; Fiyat'tan sonra Açıklama ve Sil'i atlayıp
+alttaki satırın ürün alanına geçer, son satırdaysanız otomatik yeni satır açar.
+`↓` alttaki satırın aynı sütununa geçer, `↑` üste çıkar, `Enter` `↓` ile aynı
+işi yapar. Açıklama ve Sil fareyle kullanılabilir. Ürün kutusu açıkken `↑ ↓`
+listede gezinir, `Enter`/`Tab` seçer.
 
 Altta iki tuş var; belgenin Vega'da ne olacağını kullanıcı seçer:
 
 - **Satış Faturası Olarak Kaydet** → Vega'da satış faturası (stok da düşer)
-- **Cari Çıkış Olarak Kaydet** → Vega'da cari çıkış dekontu (stok etkilenmez)
+- **Cari Giriş Olarak Kaydet** → Vega'da cari giriş dekontu (stok etkilenmez)
 
 Tuşa basılınca belge **anında** Vega'ya yazılır — ara bir "kaydet, sonra
-gönder" adımı yok. Kasa tutarı her iki durumda da **ayrı bir dekont** olarak
+gönder" adımı yok. Kasa tutarı ürünle **aynı belge** içinde ayrı kalem olarak
 müşterinin cari defterine düşer; kasa adedi de ayrıca kasa depozito defterine
-işlenir (aşağıya bakın).
+işlenir (aşağıya bakın). Yalnız tahsilat ayrı dekonttur.
 
 **Kasa** — kasa/kap depozitosu iade edilebilir. Müşteriye verilen kasalar
 borcuna eklenir; kasalar geri geldiğinde buradan tek tuşla düşülür ve Vega'ya
-yazılır. Ekranda hangi müşteride kaç kasa durduğu görünür.
+yazılır. İade tutarı kasa kartının bugünkü bedelinden değil, o müşteride açık
+duran gerçek kasa depozito borcundan adet oranında hesaplanır. Örneğin 9 kasa
+500 TL'den verilmiş, kart bedeli sonra 300 TL olmuşsa 9 kasanın tamamı iade
+edildiğinde 4.500 TL'nin tamamı kapanır; kalan adet ve tutar sıfır olur. Ekranda
+hangi müşteride kaç kasa ve kaç TL depozito borcu durduğu, iade adedi girilince
+de bu iadede kapanacak tutar görünür.
 
 **Son Belgeler** — yazılan belgelerin günlüğü: tarih, tür, müşteri, Vega belge
 no, tutar. Üstteki **arama** kutusu müşteri, belge no, fiş no, tür ve kullanıcı
 alanlarında birlikte arar (müşteri kutusuyla aynı mantık: kelimeler ayrı ayrı,
-sırasız, Türkçe harf farkı yok sayılır). Her satırda bir **Geri Al** düğmesi var — yanlış girilen belge tek
-tuşla Vega'dan silinir, müşterinin bakiyesi işlem öncesi haline döner.
+sırasız, Türkçe harf farkı yok sayılır). Satış ve cari giriş satırındaki
+**kalem (✎)** belgeyi giriş formuna geri açar; 1–2 kg gibi hatalar düzeltilip
+yeniden kaydedilebilir. Eski kayıt ile düzeltilmiş kayıt tek SQL transaction'ı
+içinde değiştirilir; yeni yazım başarısızsa eski belge korunur. Her satırda
+ayrıca bir **Geri Al** düğmesi var — yanlış girilen belge Vega ve uygulamanın
+yardımcı tablolarından tamamen silinir, müşterinin bakiyesi işlem öncesi haline döner.
 
 **Haftalık Rapor** — *GENEL MÜŞTERİYE GÖRE KALAN*: çok müşterili **borç
 dökümü**, her müşteri tek satır. Ekstre gibi ayrıntılı değildir; "ne kadar
@@ -80,8 +94,9 @@ daraltır. Özel Kod 1 kutusu belge ekranındakiyle aynı listeyi gösterir
 (kartlarda gerçekten yazan değerler); bu ekranda varsayılan **Hepsi**'dir,
 kartlarda Özel Kod 1 boş olan müşteriler genel dökümden düşmesin diye.
 
-`Tarih | ADI_SOYADI | ESKİ BORÇ | K.ADET | K.TÜRÜ | KASA | YENİ BORÇ | ÖDEME |
-TOP.BAKİYE` + tablonun altında genel toplam satırı.
+`Tarih | ADI_SOYADI | ESKİ BORÇ | KASA | YENİ BORÇ | TOP.BAKİYE` + tablonun
+altında genel toplam. Tarih yalnız başlıkta bir kez görünür. Çıktı iki yandan
+paylı, sayfada ortalı ve belirgin kutu çizgilidir.
 
 Listede bir müşteriye tıklamak, o müşteriyi **Ekstre** sekmesinde aynı hafta
 seçili olarak açar ve fiş bazlı ayrıntılı raporu hazırlar.
@@ -101,19 +116,16 @@ Sütunların tanımı (eski programın gerçek çıktısıyla doğrulandı):
 | Sütun | Nedir |
 |---|---|
 | ESKİ BORÇ | Hafta başından önceki bakiye − hafta içinde alınan ödeme |
-| K.ADET | Hafta içinde verilen kasa/kap sayısı |
-| K.TÜRÜ | Hangi türden kaç tane (ör. `PK 12 · SBÜYÜK 3`) |
 | KASA | Hafta içindeki kasa/kap depozito tutarı |
 | YENİ BORÇ | Hafta içindeki ürün borcu (kasa hariç) |
-| ÖDEME | Hafta içinde alınan ödeme (tahsilat, kasa iadesi, satış iadesi) |
 | TOP.BAKİYE | ESKİ BORÇ + KASA + YENİ BORÇ — Vega'daki gerçek hafta sonu bakiyesine eşit |
 
 TOP.BAKİYE doğrudan `TBLCARIHAREKETLERI`'nden hesaplanır, ESKİ BORÇ ondan
 geriye doğru çıkarılır: satır her zaman tam toplanır ve Vega'nın kendi
 bakiyesiyle birebir tutar.
 
-ÖDEME sütunu bilgi içindir; ESKİ BORÇ zaten ödeme düşülmüş halidir, bu yüzden
-TOP.BAKİYE'den ayrıca çıkarılmaz.
+Ödeme, kasa adedi/türü ve safi kilo ayrıntıları bu çok müşterili özet çıktıda
+gösterilmez; veri hesabında korunur ve ayrıntılı döküm Ekstre'dedir.
 
 **Ekstre** — müşterinin cari hesap ekstresi: ürün satırı, kasa tutarı satırı,
 tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayrıca:
@@ -122,12 +134,19 @@ tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayr�
   müşterinin, ekrandaki tarih aralığındaki ürün dökümü: `CİNSİ | K.ADET |
   K.TÜRÜ | K.TUTAR | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO`, **fiş fiş
   gruplanmış** — her fişin sonunda o fişin ara toplamı, fişler arasında
-  belirgin bir ayraç çizgisi, en altta genel toplam. Üstte müşterinin
-  adı/adresi/telefonu ve DEVİR; altta *Geri Gelen Kasalar* bloğu, ÖDEME bloğu
+  belirgin bir ayraç çizgisi, en altta genel toplam. Aynı fişte aynı kasa türü
+  birden fazla ürün satırında geçiyorsa kasa adedi ve tutarı tek kez toplam
+  olarak gösterilir. Fiş No boş günlüklerde Belge No kullanılır. Üstte müşterinin
+  adı; altta *Geri Gelen Kasalar* bloğu, ÖDEME bloğu
   ve BAKİYE (verilen kasalar ayrı blok olarak basılmıyor — aynı bilgi fiş
-  satırlarında ve alttaki KASA ADEDİ / KASA TUTARI özetinde duruyor). Çıktı bilerek dar tutuldu: NET KG sütunu yok, satır
+  satırlarında ve alttaki KASA ADEDİ / KASA TUTARI özetinde duruyor). Üst
+  başlıkta yalnız firma/müşteri adı gösterilir; adres ve telefon basılmaz.
+  Çıktı bilerek dar tutuldu: NET KG sütunu yok, satır
   yüksekliği küçük — ürünü çok olan müşteride sayfa sayısı düşük kalsın diye.
   "Yazdır" yalnızca bu kutuyu basar.
+
+- **Toplu ekstre yazdırma** — her müşteri yeni sayfada başlar; son müşteriden
+  sonra sayfa atlatılmadığı için boş ikinci/son sayfa çıkarılmaz.
 
 - **Pazardan pazara gezinme** — ◀ ▶ tuşlarıyla hafta hafta, "Bu Hafta", "Tümü".
 - **Haftalık Giriş/Çıkış tablosu** — hareketler Pazar→Cumartesi haftalarına
@@ -136,13 +155,10 @@ tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayr�
 - **Süzgeçler** — işlem türü, yön (borç/alacak), açıklama-evrak no araması, en
   az tutar. Süzgeç yeni sorgu açmaz, çekilmiş satırları anında süzer.
 
-**Müşteri listesi ve cari kartı** — arama kutusunun altındaki "Listeden Seç"
-bütün müşterileri gezilebilir bir pencerede açar (alıcı/satıcı süzgeci, sadece
-bakiyesi olanlar). "+ Yeni Cari Kartı" doğrudan Vega'nın cari tablosuna kart
-açar; kart tipi alıcı / satıcı / ikisi olarak seçilir (`FIRMATIPI` bit
-maskesi). Cari kodu **elle yazılır** — bu kurulumda kod düzeni tutarsız ("8",
-"16", "148-", "332-"), program kendi numarasını uydurup işletmenin düzenini
-bozmasın diye; yalnızca aynı kodun ikinci kez kullanılması engellenir.
+**Müşteri listesi** — arama kutusunun altındaki "Listeden Seç" bütün
+müşterileri gezilebilir bir pencerede açar (alıcı/satıcı süzgeci, sadece
+bakiyesi olanlar). Yeni cari kartı bu programdan açılmaz; mevcut kartlar
+Vega'dan seçilir.
 
 **Ayarlar** — sunucu, firma/dönem, depo, Vega'ya yazma kilidi, kasa/kap
 kartlarının dara ağırlığı.
@@ -189,7 +205,8 @@ Açmadan önce **`kurulum/BELGE-DESENI.md` okunmalı.** O belgede hangi yazma
 deseninin canlı doğrulandığı, hangisinin benzer belgelerden çıkarıldığı işaretli.
 
 Yazılan her belge geri alınabilir: hangi tabloya hangi satırın yazıldığı
-`VEGADB.dbo.BD_Islem` tablosunda kaydediliyor, geri alma tam o satırları siler.
+`VEGADB.dbo.BD_Islem` tablosunda kaydediliyor, geri alma tam o satırları ve
+ona bağlı `BD_BelgeSatir` / `BD_KasaHareket` / `BD_Islem` kayıtlarını siler.
 
 ## Satış faturası serisi
 

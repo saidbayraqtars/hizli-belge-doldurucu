@@ -32,6 +32,7 @@
 
   <!-- ══════════════════ BELGE GİR ══════════════════ -->
   <section class="sayfa etkin" id="sayfa-belge">
+    <div class="kutu duzenlemeBilgi gizli" id="belgeDuzenlemeBilgi"></div>
     <div class="kutu">
       <div class="satirlar-ust">
         <div class="alan buyuk">
@@ -41,7 +42,6 @@
           <div id="cariSecili" class="secili gizli"></div>
           <div class="altDugmeler">
             <button type="button" class="dugme mini ikincil" data-cari-liste="belge">Listeden Seç</button>
-            <button type="button" class="dugme mini ikincil" data-cari-yeni="belge">+ Yeni Cari Kartı</button>
           </div>
         </div>
         <div class="alan" id="musteriTipiAlani">
@@ -62,6 +62,11 @@
           <label for="tahsilat">Tahsilat (alınan ödeme)</label>
           <input type="text" id="tahsilat" inputmode="decimal" placeholder="0,00" autocomplete="off">
         </div>
+        <div class="alan buyuk">
+          <label for="tahsilatAciklama">Tahsilat Belge Açıklaması</label>
+          <input type="text" id="tahsilatAciklama" maxlength="250"
+                 placeholder="Örn. 7 Eylül pazar tahsilatı" autocomplete="off">
+        </div>
         <div class="alan onay">
           <label><input type="checkbox" id="kdvDahil"> Girilen fiyatlara KDV dahil</label>
         </div>
@@ -73,9 +78,9 @@
         <thead>
           <tr>
             <th class="genis">Cinsi</th>
+            <th class="sayi">Brüt Miktar</th>
             <th class="sayi">Kasa Adedi</th>
             <th>Kasa Tipi</th>
-            <th class="sayi">Brüt Miktar</th>
             <th class="sayi">Dara</th>
             <th class="sayi">Daralı Miktar</th>
             <th class="sayi">Fiyat</th>
@@ -89,7 +94,8 @@
       </table>
       <button class="dugme ikincil" id="satirEkle">+ Satır Ekle</button>
       <p class="ipucu klavyeIpucu">
-        <b>Tab</b> sağa ilerler · <b>↓</b> alttaki satıra geçer, son satırdaysanız
+        <b>Tab</b> fiyat alanından sonra açıklama ve Sil'i atlayıp yeni satıra geçer ·
+        <b>↓</b> alttaki satıra geçer, son satırdaysanız
         yeni satır açar · <b>↑</b> üste çıkar · <b>Enter</b> yeni satır açar ·
         ürün kutusunda kelimeleri ayrı ayrı yazabilirsiniz ("kapya biber" / "biber kapya" aynı).
       </p>
@@ -118,7 +124,8 @@
       <h2>Kasa İadesi</h2>
       <p class="ipucu">
         Müşteriye verilen kasaların depozitosu cari borcuna eklenir. Kasalar geri
-        geldiğinde buradan düşülür.
+        geldiğinde buradan düşülür. İade, kasa kartının bugünkü fiyatından değil,
+        müşteride o adet için açık duran gerçek depozito borcundan hesaplanır.
       </p>
       <div class="satirlar-ust">
         <div class="alan buyuk">
@@ -201,8 +208,8 @@
       </div>
       <p class="ipucu">
         Hafta <b>Pazar</b> başlar, <b>Cumartesi</b> biter. Bu ekran çok müşterili
-        <b>borç dökümü</b>: ne kadar almış, ne kadar ödemiş, borcu ne kadar
-        kalmış. Fiş fiş ayrıntılı döküm <b>Ekstre</b> sekmesinde — listede bir
+        <b>borç dökümü</b>: eski borcu, haftalık kasa ve ürün borcu ile kalan
+        bakiyeyi gösterir. Fiş fiş ayrıntılı döküm <b>Ekstre</b> sekmesinde — listede bir
         müşteriye tıklayınca oraya, o hafta seçili olarak geçilir.
       </p>
       <p class="ipucu">
@@ -224,17 +231,12 @@
             <th class="tarihSutun" id="raporGenelTarih">—</th>
             <th class="genis">ADI_SOYADI</th>
             <th class="sayi">ESKİ BORÇ</th>
-            <th class="sayi">K.ADET</th>
-            <th>K.TÜRÜ</th>
             <th class="sayi">KASA</th>
-            <th class="sayi">SAFİ KG</th>
             <th class="sayi">YENİ BORÇ</th>
-            <th class="sayi">ÖDEME</th>
             <th class="sayi">TOP.BAKİYE</th>
           </tr>
         </thead>
         <tbody id="raporGenelGovde"></tbody>
-        <tfoot id="raporGenelAyak"></tfoot>
       </table>
       <div class="raporGenelToplam">
         <span>GENEL TOPLAM</span>
@@ -304,7 +306,6 @@
           <div id="ekstreCariSecili" class="secili gizli"></div>
           <div class="altDugmeler">
             <button type="button" class="dugme mini ikincil" data-cari-liste="ekstre">Listeden Seç</button>
-            <button type="button" class="dugme mini ikincil" data-cari-yeni="ekstre">+ Yeni Cari Kartı</button>
           </div>
         </div>
         <div class="alan">
@@ -578,7 +579,6 @@
       </div>
       <div class="alan dugmeAlani">
         <button class="dugme ikincil" id="cariListeYenile">Yenile</button>
-        <button class="dugme birincil" id="cariListeYeni">+ Yeni Cari Kartı</button>
       </div>
     </div>
     <div class="pencereGovde">
@@ -597,33 +597,6 @@
       </table>
     </div>
     <div class="ipucu" id="cariListeBilgi"></div>
-  </div>
-</div>
-
-<!-- ══════════════════ YENİ CARİ KARTI ══════════════════ -->
-<div class="perde gizli" id="cariYeniPerde">
-  <div class="pencere">
-    <div class="pencereBaslik">
-      <h2>Yeni Cari Kartı</h2>
-      <button class="dugme mini ucuncul" id="cariYeniKapat">Kapat</button>
-    </div>
-    <p class="ipucu">
-      Kart doğrudan Vega'ya (cari kartları tablosuna) açılır. Cari kodu elle
-      yazılır — program kendi numarasını uydurmaz, işletmenin kendi düzeni bozulmasın.
-    </p>
-    <div class="izgara" id="cariYeniAlanlar"></div>
-    <div class="alan">
-      <label for="cariYeniTip">Kart tipi</label>
-      <select id="cariYeniTip">
-        <option value="alici" selected>Alıcı (müşteri)</option>
-        <option value="satici">Satıcı (tedarikçi)</option>
-        <option value="ikisi">Alıcı + Satıcı</option>
-      </select>
-    </div>
-    <div class="eylemler sol">
-      <button class="dugme birincil buyuk" id="cariYeniKaydet">Cari Kartını Aç</button>
-    </div>
-    <div class="ipucu" id="cariYeniBilgi"></div>
   </div>
 </div>
 

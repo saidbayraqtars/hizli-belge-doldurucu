@@ -395,7 +395,8 @@ Bu yüzden VEGADB içine dördüncü bir `BD_` tablosu eklendi: belgeye girilen
 her satır, belge Vega'da fatura mı dekont mu oldu fark etmeden buraya bir kez
 yazılıyor (`db/yardimci.js` → `belgeSatirYaz`, `db/yazma.js` → `belgeYaz`
 içinden, asıl yazmayla **aynı transaction**). Geri alınan belgenin satırları
-silinmiyor, `GeriAlindi = 1` işaretleniyor.
+Vega kayıtlarıyla birlikte fiziksel olarak siliniyor; `BD_Islem`,
+`BD_BelgeSatir` ve `BD_KasaHareket` içinde de artık iz bırakılmıyor.
 
 Rapor iki kaynağı birleştiriyor (`db/rapor.js`): önce `BD_BelgeSatir`, sonra
 **günlükte olmayan** satış faturaları (doğrudan VegaWin'den kesilmiş olanlar)
@@ -452,7 +453,8 @@ numara taşımasın diye.
   adım hata verirse hiçbiri kalmaz; yarım belge oluşmaz.
 - **Yazılan her satır kaydedilir.** Hangi tabloya hangi `IND`'in yazıldığı
   `VEGADB.dbo.BD_Islem.Yazilan` alanında JSON olarak durur (`db/yardimci.js`).
-  Geri alma tam o satırları, ters sırada siler.
+  Geri alma tam o satırları ters sırada, ardından bu işleme ait üç `BD_`
+  yardımcı kaydını aynı transaction içinde siler.
 - **Var olmayan sütuna yazılmaz.** Her INSERT hedef tabloda gerçekten bulunan
   sütunlardan kurulur (`db/yazma.js` → `ekle`). Olmazsa olmaz bir sütun eksikse
   işlem net bir hatayla durur — sessizce yanlış belge yazmaz.
@@ -460,8 +462,9 @@ numara taşımasın diye.
   gerçek tablolarına yazılır. `ayarlar.json` → `vegayaYazmaAktif` kapalıyken
   program tek satır yazmaz; SQL tarafında da `belge_doldurucu` VEGADB üzerinde
   tam yetkilidir (`kurulum/sql-kullanici-olustur.sql`).
-- **Günlük.** Her yazma `VEGADB.dbo.BD_Islem` tablosuna kullanıcı, bilgisayar
-  ve satır kimlikleriyle yazılır.
+- **Günlük.** Aktif her yazma `VEGADB.dbo.BD_Islem` tablosuna kullanıcı,
+  bilgisayar ve satır kimlikleriyle yazılır; belge geri alınınca günlük kaydı
+  da tamamen kaldırılır.
 
 ### Dört sert kural ✅
 

@@ -127,6 +127,7 @@ uc('yardimci:kasaTipiKaydet', async (girdi) => yardimci.kasaTipiKaydet(girdi));
 uc('yardimci:kasaTipiSil', async (girdi) => yardimci.kasaTipiSil(girdi.id));
 uc('yardimci:kasaBakiye', async (girdi) => yardimci.kasaBakiyesi(girdi));
 uc('yardimci:sonIslemler', async (girdi) => yardimci.sonIslemleriGetir(girdi));
+uc('yardimci:islemDetay', async (girdi) => yardimci.islemDetayGetir(girdi));
 
 // --- VEGADB yazma (belge doğrudan buraya yazılır, ara veritabanı yok) ------
 
