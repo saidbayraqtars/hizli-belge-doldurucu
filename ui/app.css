@@ -172,7 +172,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 .acilir .bos { padding: 10px; color: #6b7280; font-size: 13px; }
 .acilir .kod { color: #6b7280; font-size: 12px; }
 
-.secili {
+div.secili {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -183,8 +183,8 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
   border-radius: 6px;
   font-size: 13.5px;
 }
-.secili b { font-weight: 600; }
-.secili .bakiye { font-variant-numeric: tabular-nums; white-space: nowrap; }
+div.secili b { font-weight: 600; }
+div.secili .bakiye { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ─── Tablolar ─── */
 

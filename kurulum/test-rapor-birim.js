@@ -25,4 +25,15 @@ assert.deepStrictEqual(gruplar[0].araToplam, {
   tutar: 1500
 });
 
-console.log('Rapor birim testleri geçti: fiş no yedeği ve kasa türü birleştirme.');
+assert.strictEqual(_test.odemeAciklamasi({
+  izahat: '13',
+  belgeAciklama: '7 Eylül pazar tahsilatı',
+  evrakNo: 'H0001'
+}), 'Tahsilat · 7 Eylül pazar tahsilatı · H0001');
+assert.strictEqual(_test.odemeAciklamasi({
+  izahat: '13',
+  belgeAciklama: 'Tahsilat',
+  evrakNo: 'H0002'
+}), 'Tahsilat · H0002');
+
+console.log('Rapor birim testleri geçti: fiş no, kasa türü ve tahsilat açıklaması.');

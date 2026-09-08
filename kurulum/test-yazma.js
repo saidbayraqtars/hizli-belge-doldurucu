@@ -56,6 +56,7 @@ const { ayarOku } = require('../db/ayar');
 const sql = require('../db/sql');
 const firma = require('../db/firma');
 const vega = require('../db/vega');
+const rapor = require('../db/rapor');
 const yardimci = require('../db/yardimci');
 const yazma = require('../db/yazma');
 
@@ -369,6 +370,20 @@ async function calistir() {
   const tahsilatSatiri = ekstreA.satirlar.find((s) => (s.aciklama || '').indexOf(TAHSILAT_ACIKLAMA) >= 0);
   kontrol('Tahsilat satiri ALACAK olarak gorunuyor', !!tahsilatSatiri && tahsilatSatiri.alacak === TAHSILAT,
     tahsilatSatiri ? `${tahsilatSatiri.aciklama} · ${tahsilatSatiri.alacak} TL` : 'bulunamadi');
+  const buHafta = rapor.haftaAraligi(new Date());
+  const ayrintiliEkstreA = await rapor.haftalikDetay({
+    firma: FIRMA,
+    donem: DONEM,
+    cariInd: cari.cariInd,
+    baslangic: buHafta.baslangic,
+    bitis: buHafta.bitis
+  });
+  const ayrintiliTahsilat = ayrintiliEkstreA.odemeler.find((s) =>
+    (s.aciklama || '').indexOf(TAHSILAT_ACIKLAMA) >= 0
+  );
+  kontrol('Tahsilat belge aciklamasi ayrintili Ekstre ODEME satirinda gorunuyor',
+    !!ayrintiliTahsilat,
+    ayrintiliTahsilat ? ayrintiliTahsilat.aciklama : 'bulunamadi');
   kontrol('Ekstre son bakiyesi cari bakiyesiyle ayni',
     Math.abs(ekstreA.sonBakiye - bakiyeA) < 0.01, `${ekstreA.sonBakiye}`);
 

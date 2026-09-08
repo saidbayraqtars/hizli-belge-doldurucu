@@ -36,10 +36,21 @@
 const { sorgu } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
-const { izahatAdi, musteriTipiFiltresi } = require('./vega');
+const { izahatAdi, aciklamaBaglari, musteriTipiFiltresi } = require('./vega');
 
 function vt() {
   return ayarOku().vegaVeritabani;
+}
+
+function odemeAciklamasi(satir) {
+  const parcalar = [
+    izahatAdi(satir.izahat),
+    satir.belgeAciklama,
+    satir.evrakNo
+  ].map((deger) => String(deger || '').trim()).filter(Boolean);
+  return parcalar.filter((deger, sira) =>
+    parcalar.findIndex((diger) => diger.toLocaleUpperCase('tr-TR') === deger.toLocaleUpperCase('tr-TR')) === sira
+  ).join(' · ');
 }
 
 // --- Hafta hesabı ------------------------------------------------------------
@@ -505,19 +516,27 @@ async function haftalikDetay(secenek) {
 
   // ÖDEME bloğu — hafta içindeki bütün ALACAK hareketleri (tahsilat, kasa
   // iadesi, satış iadesi). Raporun "ALINAN" sütunu bu.
+  // Belge Gir ekranındaki Tahsilat Belge Açıklaması cari hareket satırında
+  // değil, TBLCARGIRBASLIK.ACIKLAMA alanında durur. Normal Ekstre ile aynı
+  // başlık bağlarını kullanarak ayrıntılı raporun açıklama sütununa da taşırız.
+  const { joinlar: aciklamaJoinlari, aciklamaIfadesi } =
+    await aciklamaBaglari(v, firma, donem);
   const o = await sorgu(
-    `SELECT TARIH AS tarih, ISNULL(IZAHAT, '') AS izahat, ISNULL(EVRAKNO, '') AS evrakNo,
-            ISNULL(ALACAK, 0) AS alacak
-     FROM ${hareketTablosu}
-     WHERE FIRMANO = @cariInd AND ISNULL(OZELKOD, '') <> 'KREDIHESABI'
-       AND TARIH >= @bas AND TARIH < @ertesi AND ISNULL(ALACAK, 0) <> 0
-     ORDER BY TARIH, IND`,
+    `SELECT H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
+            ISNULL(H.EVRAKNO, '') AS evrakNo,
+            ${aciklamaIfadesi} AS belgeAciklama,
+            ISNULL(H.ALACAK, 0) AS alacak
+     FROM ${hareketTablosu} H
+     ${aciklamaJoinlari}
+     WHERE H.FIRMANO = @cariInd AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
+       AND H.TARIH >= @bas AND H.TARIH < @ertesi AND ISNULL(H.ALACAK, 0) <> 0
+     ORDER BY H.TARIH, H.IND`,
     { cariInd, bas: baslangic, ertesi }
   );
   const odemeler = o.map((s) => ({
     tarih: s.tarih,
     alinan: Number(s.alacak) || 0,
-    aciklama: izahatAdi(s.izahat) + (s.evrakNo ? ' · ' + String(s.evrakNo).trim() : '')
+    aciklama: odemeAciklamasi(s)
   }));
   const odemeToplam = odemeler.reduce((t, s) => t + s.alinan, 0);
 
@@ -563,5 +582,5 @@ module.exports = {
   haftaAraligi,
   haftalikOzet,
   haftalikDetay,
-  _test: { fisNoCoz, kasaTurleriniTopla, fislereBol }
+  _test: { fisNoCoz, kasaTurleriniTopla, fislereBol, odemeAciklamasi }
 };

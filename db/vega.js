@@ -558,6 +558,7 @@ module.exports = {
   kasaKartlariniGetir,
   cariEkstre,
   izahatAdi,
+  aciklamaBaglari,
   kolonVarMi,
   musteriTipiFiltresi,
   ozelKod1Degerleri,
