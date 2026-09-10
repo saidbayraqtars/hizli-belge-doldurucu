@@ -59,6 +59,7 @@ const vega = require('../db/vega');
 const rapor = require('../db/rapor');
 const yardimci = require('../db/yardimci');
 const yazma = require('../db/yazma');
+const gecmisBakim = require('./gecmis-belgeleri-duzelt');
 
 let gecen = 0;
 let kalan = 0;
@@ -75,6 +76,11 @@ function kontrol(baslik, kosul, not) {
 
 function bolum(ad) {
   console.log(`\n=== ${ad} ===`);
+}
+
+function tarihAnahtari(tarih) {
+  const d = tarih instanceof Date ? tarih : new Date(tarih);
+  return d.toISOString().slice(0, 10);
 }
 
 const FIRMA = 'F0102';
@@ -214,12 +220,15 @@ async function calistir() {
   const TAHSILAT = 200;
   const TAHSILAT_ACIKLAMA = 'TEST TAHSILAT BELGE ACIKLAMASI';
   const BEKLENEN_BORC = URUN_TOPLAM + KASA_TOPLAM - TAHSILAT;
+  // Bugünden farklı ama halen raporlanan hafta içinde bir iş tarihi. Böylece
+  // Son Belgeler'in kayıt anını değil belge tarihini gösterdiği kanıtlanır.
+  const SATIS_TARIHI = rapor.haftaAraligi(new Date()).baslangic;
 
   // ======================================================================
   bolum('A — Satis faturasi olarak yazma (+ tahsilat)');
 
   const yazmaA = await yazma.belgeYaz({
-    firma: FIRMA, donem: DONEM, tarih: new Date(),
+    firma: FIRMA, donem: DONEM, tarih: SATIS_TARIHI,
     cariInd: cari.cariInd, cariAd: cari.ad,
     belgeTuru: 'satisFaturasi', fisNo: 'SINAMA-A',
     satirlar: ornekSatirlar(),
@@ -397,6 +406,55 @@ async function calistir() {
   const gunlukA = await yardimci.sonIslemleriGetir({ firma: FIRMA, limit: 10 });
   kontrol('Islem gunluge yazildi', gunlukA.length > 0 && gunlukA[0].BelgeNo === yazmaA.belgeNo + ' / ' + yazmaA.tahsilatBelgeNo,
     gunlukA.length ? gunlukA[0].BelgeNo : '—');
+  kontrol('Son Belgeler kayit anini degil belge tarihini gosteriyor',
+    gunlukA.length > 0 && tarihAnahtari(gunlukA[0].Tarih) === tarihAnahtari(SATIS_TARIHI),
+    gunlukA.length ? tarihAnahtari(gunlukA[0].Tarih) : 'bulunamadi');
+
+  // Geçmiş bakım aracı: kayıt tarihini ve kasa defterini bilinçli bozup üç
+  // kaynaktan tespit, güvenli düzeltme, geri alma ve yeniden düzeltmeyi kanıtla.
+  await sql.calistir(`UPDATE [${VEGA_TEST}].dbo.BD_Islem
+                      SET Tarih = DATEADD(day, 1, Tarih) WHERE Id = @id`, { id: yazmaA.islemId });
+  await sql.calistir(`UPDATE [${VEGA_TEST}].dbo.BD_KasaHareket
+                      SET Adet = Adet + 1, Tutar = Tutar + Depozito WHERE IslemId = @id`,
+    { id: yazmaA.islemId });
+  const bozukBakim = await gecmisBakim.tara({ firma: FIRMA, fis: 'SINAMA-A' });
+  kontrol('Bakim araci tarih karisikligini buldu', bozukBakim.tarihDuzeltmeleri.length === 1,
+    `${bozukBakim.tarihDuzeltmeleri.length} kayit`);
+  kontrol('Bakim araci kasa defteri farkini iki kaynaktan kanitladi',
+    bozukBakim.kasaDuzeltmeleri.length === 1, `${bozukBakim.kasaDuzeltmeleri.length} kayit`);
+  await gecmisBakim.guvenliDuzelt(bozukBakim);
+  const bakimSonrasi = await gecmisBakim.tara({ firma: FIRMA, fis: 'SINAMA-A' });
+  kontrol('Bakim sonrasi kanitlanmis sorun kalmadi',
+    bakimSonrasi.tarihDuzeltmeleri.length === 0 && bakimSonrasi.kasaDuzeltmeleri.length === 0,
+    `${bakimSonrasi.sorunlar.length} sorun`);
+  await gecmisBakim.geriAl({
+    veritabani: bozukBakim.veritabani,
+    tarihDuzeltmeleri: bozukBakim.tarihDuzeltmeleri,
+    kasaDuzeltmeleri: bozukBakim.kasaDuzeltmeleri
+  });
+  const geriAlinanBakim = await gecmisBakim.tara({ firma: FIRMA, fis: 'SINAMA-A' });
+  kontrol('Bakim geri alma eski durumu aynen getirdi',
+    geriAlinanBakim.tarihDuzeltmeleri.length === 1 && geriAlinanBakim.kasaDuzeltmeleri.length === 1);
+  await gecmisBakim.guvenliDuzelt(geriAlinanBakim);
+  const ikinciBakim = await gecmisBakim.tara({ firma: FIRMA, fis: 'SINAMA-A' });
+  kontrol('Bakim tekrar calistirilinca idempotent',
+    ikinciBakim.tarihDuzeltmeleri.length === 0 && ikinciBakim.kasaDuzeltmeleri.length === 0);
+
+  // Güncellemeyle gelen otomatik bakım aynı sürüm/veritabanı için yalnız bir
+  // kez çalışmalı. Çıktı ve durum dosyaları yalnız sistemin geçici klasörüne gider.
+  const otomatikDizin = fs.mkdtempSync(path.join(os.tmpdir(), 'belge-bakim-sinama-'));
+  const otomatikDurum = path.join(otomatikDizin, 'durum.json');
+  const otomatikIlk = await gecmisBakim.otomatikCalistir({
+    surum: 'sinama-1.7.2', durumYolu: otomatikDurum, ciktiKlasoru: otomatikDizin
+  });
+  const otomatikIkinci = await gecmisBakim.otomatikCalistir({
+    surum: 'sinama-1.7.2', durumYolu: otomatikDurum, ciktiKlasoru: otomatikDizin
+  });
+  kontrol('Guncelleme bakimi ilk acilista tamamlandi ve yedek aldi',
+    !otomatikIlk.atlandi && fs.existsSync(otomatikIlk.yedekYolu),
+    otomatikIlk.yedekYolu || 'yedek yok');
+  kontrol('Guncelleme bakimi ayni surum ve veritabaninda ikinci kez yazmadi',
+    otomatikIkinci.atlandi && otomatikIkinci.neden === 'daha-once-tamamlandi');
 
   // --- Son Belgeler > kalem ile düzenleme ---
   const detayA = await yardimci.islemDetayGetir({ islemId: yazmaA.islemId });
@@ -410,7 +468,7 @@ async function calistir() {
   duzeltilenSatirlar[0].daraliMiktar = 11.8;
   duzeltilenSatirlar[0].tutar = 354;
   const yazmaD = await yazma.belgeYaz({
-    firma: FIRMA, donem: DONEM, tarih: new Date(),
+    firma: FIRMA, donem: DONEM, tarih: SATIS_TARIHI,
     cariInd: cari.cariInd, cariAd: cari.ad,
     belgeTuru: 'satisFaturasi', fisNo: 'SINAMA-A',
     satirlar: duzeltilenSatirlar,
@@ -433,6 +491,11 @@ async function calistir() {
     Number(duzenlemeGunlugu[0].islem) === 1 &&
       Number(duzenlemeGunlugu[0].satir) === 2 && Number(duzenlemeGunlugu[0].kasa) === 1,
     JSON.stringify(duzenlemeGunlugu[0]));
+  const duzenlemeSonBelgeler = await yardimci.sonIslemleriGetir({ firma: FIRMA, limit: 10 });
+  kontrol('Duzenlenen belge Son Belgelerde secilen tarihi koruyor',
+    duzenlemeSonBelgeler.length > 0 &&
+      tarihAnahtari(duzenlemeSonBelgeler[0].Tarih) === tarihAnahtari(SATIS_TARIHI),
+    duzenlemeSonBelgeler.length ? tarihAnahtari(duzenlemeSonBelgeler[0].Tarih) : 'bulunamadi');
   const duzenlemeBakiyesi = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
   kontrol('Duzeltilen kilo cari bakiyesini bir kez degistirdi',
     Math.abs(duzenlemeBakiyesi - 354) < 0.01, String(duzenlemeBakiyesi));

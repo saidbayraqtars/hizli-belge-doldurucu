@@ -208,6 +208,38 @@ Yazılan her belge geri alınabilir: hangi tabloya hangi satırın yazıldığı
 `VEGADB.dbo.BD_Islem` tablosunda kaydediliyor, geri alma tam o satırları ve
 ona bağlı `BD_BelgeSatir` / `BD_KasaHareket` / `BD_Islem` kayıtlarını siler.
 
+### Geçmiş belge denetimi ve güvenli düzeltme
+
+Sürüm 1.7.2 kurulduktan sonraki ilk açılışta bu denetim hedef bilgisayarda
+otomatik çalışır. Her uygulama sürümü/sunucu/veritabanı birleşimi bir kez
+işlenir; hata olursa tamamlandı işareti yazılmaz ve sonraki açılışta yeniden
+denenir. Tarama, geri alma yedeği ve son doğrulama dosyaları
+`%LOCALAPPDATA%\hizli-belge-doldurucu-bakim` altında tutulur. Vega ile rapor
+kaynağı çelişen belgeler otomatik değiştirilmez ve elle incelemeye bırakılır.
+
+Kurulu uygulamanın veritabanındaki geçmiş belgelerde tarih veya kasa aktarım
+tutarsızlığı aranabilir. İlk komut yalnız rapor üretir, veri değiştirmez:
+
+```powershell
+npm run bakim:gecmis -- --fis 00751
+npm run bakim:gecmis
+```
+
+Araç `BD_BelgeSatir`, `BD_KasaHareket` ve gerçek Vega belgesini karşılaştırır.
+Yalnız iki bağımsız kaynakla doğrulanan güvenli düzeltmeler uygulanabilir:
+
+```powershell
+npm run bakim:gecmis -- --uygula
+```
+
+Uygulamadan önce `%LOCALAPPDATA%\hizli-belge-doldurucu-bakim` altında JSON
+geri alma yedeği oluşturulur. Rapor kaynağı ile Vega birbiriyle çelişiyorsa
+araç veri uydurmaz ve belgeyi `elle-inceleme` olarak işaretler. Yedekten dönüş:
+
+```powershell
+npm run bakim:gecmis -- --geri-al "C:\...\geri-alma-yedegi-....json"
+```
+
 ## Satış faturası serisi
 
 Belge numarası önce o firma/dönemde **Vega'nın kendi satış faturası serisini**

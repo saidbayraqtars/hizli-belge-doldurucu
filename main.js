@@ -19,6 +19,29 @@ const guncelleme = require('./db/guncelleme');
 app.disableHardwareAcceleration();
 
 let pencere = null;
+let gecmisBakimBaslatildi = false;
+
+function gecmisBakimiBaslat() {
+  // Geliştirme/test çalıştırmaları ve bu makinedeki kopya müşteri veritabanı
+  // asla otomatik bakıma girmez. Kod yalnız kurulan yeni sürüm açıldığında çalışır.
+  if (!app.isPackaged || gecmisBakimBaslatildi) return;
+  gecmisBakimBaslatildi = true;
+
+  setTimeout(() => {
+    let log = null;
+    try { log = require('electron-log'); } catch (e) { /* günlük zorunlu değil */ }
+    const bakim = require('./kurulum/gecmis-belgeleri-duzelt');
+    bakim.otomatikCalistir({
+      surum: app.getVersion(),
+      durumYolu: path.join(app.getPath('userData'), 'gecmis-belge-bakim-durumu.json'),
+      log
+    }).catch((e) => {
+      if (log && typeof log.error === 'function') {
+        log.error('[gecmis-bakim] Tamamlanamadı; sonraki açılışta yeniden denenecek.', e);
+      }
+    });
+  }, 1500);
+}
 
 function pencereOlustur() {
   pencere = new BrowserWindow({
@@ -51,6 +74,7 @@ app.on('window-all-closed', async () => {
 
 app.whenReady().then(() => {
   pencereOlustur();
+  gecmisBakimiBaslat();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) pencereOlustur();
   });

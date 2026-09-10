@@ -1283,7 +1283,7 @@ async function belgeYaz(secenek) {
 
     const islemId = await yardimci.islemYaz(t, {
       konu: secenek.belgeTuru,
-      firma, donem, cariInd, cariAd,
+      firma, donem, tarih, cariInd, cariAd,
       belgeNo: yazilan.map((y) => y.belgeNo).join(' / '),
       tutar: urunTutari + kasaTutari,
       aciklama: secenek.fisNo ? 'Fiş ' + secenek.fisNo : null,
@@ -1433,7 +1433,7 @@ async function kasaIadesiYaz(secenek) {
 
     const islemId = await yardimci.islemYaz(t, {
       konu: 'KasaIade',
-      firma, donem, cariInd, cariAd: secenek.cariAd,
+      firma, donem, tarih, cariInd, cariAd: secenek.cariAd,
       belgeNo: dekont ? dekont.belgeNo : null,
       tutar,
       aciklama: 'Kasa iadesi',

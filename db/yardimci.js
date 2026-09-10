@@ -296,6 +296,10 @@ async function islemYaz(t, kayit) {
   const db = vt();
   const k = kimlik(kayit.kullanici);
   const alanlar = {
+    // BD_Islem.Tarih Son Belgeler ekranında belge tarihi olarak gösterilir.
+    // Varsayılan GETDATE kayıt anını verdiği için geçmiş tarihli bir belge
+    // düzenlenince listede bugüne sıçrıyordu; iş tarihini açıkça sakla.
+    tarih: new Date(kayit.tarih || Date.now()),
     konu: kayit.konu || null,
     firma: kayit.firma || null,
     donem: kayit.donem || null,
@@ -310,10 +314,10 @@ async function islemYaz(t, kayit) {
   };
   const sorguMetni = `
     INSERT INTO [${db}].dbo.BD_Islem
-      (Konu, Firma, Donem, CariInd, CariAd, BelgeNo, Tutar, Aciklama, Yazilan, Kullanici, Bilgisayar)
+      (Tarih, Konu, Firma, Donem, CariInd, CariAd, BelgeNo, Tutar, Aciklama, Yazilan, Kullanici, Bilgisayar)
     OUTPUT INSERTED.Id AS id
     VALUES
-      (@konu, @firma, @donem, @cariInd, @cariAd, @belgeNo, @tutar, @aciklama, @yazilan, @kullanici, @bilgisayar)
+      (@tarih, @konu, @firma, @donem, @cariInd, @cariAd, @belgeNo, @tutar, @aciklama, @yazilan, @kullanici, @bilgisayar)
   `;
   const r = t ? await t.sorgu(sorguMetni, alanlar) : await sorgu(sorguMetni, alanlar);
   return Number(r[0].id);
@@ -405,13 +409,21 @@ async function sonIslemleriGetir(secenek) {
   const limit = Math.min(Number((secenek && secenek.limit) || 100), 1000);
   const parametreler = { firma: secenek && secenek.firma };
   let filtre = '';
-  if (secenek && secenek.firma) filtre = 'WHERE Firma = @firma';
+  if (secenek && secenek.firma) filtre = 'WHERE I.Firma = @firma';
   return sorgu(`
-    SELECT TOP ${limit} Id, Tarih, Konu, Firma, Donem, CariInd, CariAd, BelgeNo,
-           Tutar, Aciklama, GeriAlindi, Kullanici, Bilgisayar
-    FROM [${vt()}].dbo.BD_Islem
+    SELECT TOP ${limit} I.Id,
+           COALESCE(
+             (SELECT MIN(S.Tarih) FROM [${vt()}].dbo.BD_BelgeSatir S
+              WHERE S.IslemId = I.Id AND ISNULL(S.GeriAlindi, 0) = 0),
+             (SELECT MIN(K.Tarih) FROM [${vt()}].dbo.BD_KasaHareket K
+              WHERE K.IslemId = I.Id),
+             I.Tarih
+           ) AS Tarih,
+           I.Konu, I.Firma, I.Donem, I.CariInd, I.CariAd, I.BelgeNo,
+           I.Tutar, I.Aciklama, I.GeriAlindi, I.Kullanici, I.Bilgisayar
+    FROM [${vt()}].dbo.BD_Islem I
     ${filtre}
-    ORDER BY Id DESC
+    ORDER BY I.Id DESC
   `, parametreler);
 }
 
