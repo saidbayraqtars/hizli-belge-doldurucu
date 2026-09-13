@@ -240,6 +240,19 @@ araç veri uydurmaz ve belgeyi `elle-inceleme` olarak işaretler. Yedekten dön�
 npm run bakim:gecmis -- --geri-al "C:\...\geri-alma-yedegi-....json"
 ```
 
+### Kasa kartı onarımı (1.7.3)
+
+1.7.3'e kadar satış faturası ve kasa iadesindeki kasa kalemleri Vega'ya
+programın kendi kasa tipi numarasıyla (`BD_KasaTipi.Id`) yazılıyordu; bu numara
+Vega stok kartı değildir. PK/SB/UP/MPK kalemleri VADE FARKI/KUR FARKI/DEVIR/HIZMET
+kartlarına, kartı olmayan tipler (KAYIK, MUP, S.MUZ, MSK...) var olmayan karta
+düştü. 1.7.3 kasa kartını koddan (`KOD1=KASA`, aynı `STOKKODU`) bulur; kartı
+olmayan tipte belge yazmaz, açık hata verir.
+
+Geçmiş satırlar `kurulum/kasa-kartlarini-onar.js` ile yedekli ve geri alınabilir
+biçimde onarılır; müşteri bilgisayarında kurulu programla nasıl çalıştırılacağı
+ve açılması gereken Vega kartları `kurulum/KASA-KARTI-ONARIM.md` içinde.
+
 ## Satış faturası serisi
 
 Belge numarası önce o firma/dönemde **Vega'nın kendi satış faturası serisini**

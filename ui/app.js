@@ -166,7 +166,7 @@ const durum = {
   // Cari kartlarında Özel Kod 1'de geçen değerler (süzgeç kutuları buradan dolar)
   ozelKod1: [],
   depolar: [],
-  kasaKartlari: [],   // canlı Vega'dan: {id(=stokNo), kod, ad, depozito, dara}
+  kasaKartlari: [],   // BD_KasaTipi: {id, kod, ad, depozito, dara}; id Vega stok numarası değildir
   stoklar: [],
   stokHaritasi: new Map(),
   stokSecenekleri: [],   // {etiket, kart, aranan} — satır içi ürün araması

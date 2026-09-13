@@ -47,6 +47,61 @@ function yazmaAcikMi() {
   return !!ayarOku().vegayaYazmaAktif;
 }
 
+// Arayüzdeki kasaStokNo, geçmişten kalan adına rağmen BD_KasaTipi.Id'dir.
+// Vega kart numarası firma bazında değişebilir; eşleşmeyi her yazmada koddan
+// çözerek başka firmaya ait veya artık geçersiz bir IND kullanılmasını önleriz.
+async function kasaKartlariniCoz(firma, tipIdleri, t) {
+  const idler = [...new Set(tipIdleri.map(Number))];
+  if (idler.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+    throw new Error('Geçersiz kasa tipi seçimi.');
+  }
+  if (!idler.length) return new Map();
+  const v = vt();
+  const oku = t ? t.sorgu : sorgu;
+  const stokTablosu = kart(v, firma, 'TBLSTOKLAR');
+  const aktifKart = (await sutunlariGetir(stokTablosu)).has('DELETED')
+    ? 'AND ISNULL(S.DELETED, 0) = 0' : '';
+  const satirlar = await oku(`
+    SELECT KT.Id AS tipId, KT.Kod AS tipKodu, KT.Aktif,
+           S.IND AS stokNo, S.STOKKODU AS kod, S.MALINCINSI AS ad,
+           ISNULL(S.STOKTIPI, 0) AS stokTipi, ISNULL(S.MALIYET, 0) AS maliyet,
+           B.IND AS birimEx, B.BIRIMADI AS birim, B.CARPAN AS carpan
+    FROM [${v}].dbo.BD_KasaTipi KT
+    LEFT JOIN ${stokTablosu} S
+      ON UPPER(LTRIM(RTRIM(S.STOKKODU))) = UPPER(LTRIM(RTRIM(KT.Kod)))
+     AND UPPER(LTRIM(RTRIM(ISNULL(S.KOD1, '')))) = 'KASA'
+     ${aktifKart}
+    LEFT JOIN ${kart(v, firma, 'TBLBIRIMLEREX')} B
+      ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
+    WHERE KT.Id IN (${idler.join(',')})
+  `);
+  const sonuc = new Map();
+  for (const id of idler) {
+    const eslesenler = satirlar.filter((s) => Number(s.tipId) === id);
+    if (!eslesenler.length || !eslesenler[0].Aktif) {
+      throw new Error(`Kasa tipi bulunamadı veya pasif: ${id}.`);
+    }
+    const kod = String(eslesenler[0].tipKodu || '').trim();
+    const kartNumaralari = new Set(eslesenler.map((s) => Number(s.stokNo)).filter(Boolean));
+    if (!kartNumaralari.size) {
+      throw new Error(`${kod} kasa tipinin Vega'da etkin stok kartı yok. KOD1=KASA ve STOKKODU=${kod} kartını açın.`);
+    }
+    if (kartNumaralari.size > 1) throw new Error(`${kod} koduyla Vega'da birden çok etkin kasa kartı var.`);
+    if (eslesenler.length > 1) throw new Error(`${kod} Vega kasa kartında birden çok varsayılan birim var.`);
+    const s = eslesenler[0];
+    if (!Number(s.birimEx)) {
+      throw new Error(`${kod} kasa kartının Vega'da varsayılan birimi yok.`);
+    }
+    sonuc.set(id, {
+      stokNo: Number(s.stokNo), kod, ad: String(s.ad || kod).trim(),
+      stokTipi: Number(s.stokTipi) || 0, maliyet: Number(s.maliyet) || 0,
+      birimEx: Number(s.birimEx), birim: String(s.birim || '').trim(),
+      carpan: Number(s.carpan) || 1
+    });
+  }
+  return sonuc;
+}
+
 // --- Belge tipleri (kurulum/BELGE-DESENI.md) --------------------------------
 const TIP_SATIS_FATURASI = 21;
 const TIP_CARI_CIKIS = 11;
@@ -471,11 +526,13 @@ async function kasaAdlariniOku(kasaTablosu) {
 // tek şubeli kurulumlarda kullandığı ad).
 const subeKasaOnbellek = new Map();
 
-async function subeKasaAdiOku(baslikTablosu) {
+async function subeKasaAdiOku(baslikTablosu, t) {
   if (subeKasaOnbellek.has(baslikTablosu)) return subeKasaOnbellek.get(baslikTablosu);
   const bekleyen = (async () => {
     try {
-      const r = await sorgu(
+      // siradakiBelgeNo bu tabloyu aynı transaction'da kilitlemiş olabilir.
+      // Ayrı havuz bağlantısı 120 sn bekleyip MERKEZ'e düşer; aynı işlemden oku.
+      const r = await (t ? t.sorgu : sorgu)(
         `SELECT TOP 1 LTRIM(RTRIM(ISNULL(OZELKOD1, ''))) AS sube,
                       LTRIM(RTRIM(ISNULL(OZELKOD2, ''))) AS kasa
          FROM ${baslikTablosu}
@@ -571,7 +628,7 @@ async function cariDekontuYaz(t, ayrinti) {
   // Vega belgeyi yeniden postalayıp cariye İKİNCİ bir hareket yazıyor
   // (05.09.2026 kullanıcı raporu: "şube ve kasa boş olamaz" + "cariye mükerrer
   // geliyor"). Ad sabit yazılmıyor, o firmanın kendi belgelerinden okunuyor.
-  const yer = await subeKasaAdiOku(baslikTam);
+  const yer = await subeKasaAdiOku(baslikTam, t);
 
   const baslikInd = await ekle(
     t,
@@ -697,6 +754,22 @@ async function cariDekontuYaz(t, ayrinti) {
 //                         └─→ TBLDEPOENVANTER.HAREKETIND
 async function satisFaturasiYaz(t, ayrinti) {
   const { v, firma, donem, cariInd, cariAd, satirlar, tarih, depo, userNo, aciklama, onek } = ayrinti;
+
+  // Tek sorguyla bütün ürün/kasa kartlarını denetle. Eksik kartta transaction
+  // geri alınır; Vega'ya bağlı olmayan satır veya envanter yazılmaz.
+  const noLar = [...new Set(satirlar.map((s) => Number(s.stokNo)))];
+  if (noLar.some((n) => !Number.isSafeInteger(n) || n <= 0)) {
+    throw new Error('Faturada geçersiz stok kartı numarası var.');
+  }
+  const stokTablosu = kart(v, firma, 'TBLSTOKLAR');
+  const aktifKart = (await sutunlariGetir(stokTablosu)).has('DELETED')
+    ? 'AND ISNULL(DELETED, 0) = 0' : '';
+  const varOlanlar = await t.sorgu(
+    `SELECT IND FROM ${stokTablosu} WHERE IND IN (${noLar.join(',')}) ${aktifKart}`
+  );
+  const bulunanlar = new Set(varOlanlar.map((s) => Number(s.IND)));
+  const eksikler = noLar.filter((n) => !bulunanlar.has(n));
+  if (eksikler.length) throw new Error(`Vega'da bulunmayan stok kartı: ${eksikler.join(', ')}.`);
 
   const baslikTam = tablo(v, firma, donem, 'TBLSATFATBASLIK');
   const hareketTam = tablo(v, firma, donem, 'TBLSATFATHAREKET');
@@ -909,7 +982,7 @@ async function satisFaturasiYaz(t, ayrinti) {
 //   TBLSTKGIRHAREKET.IND ─┬─→ TBLSTOKHAREKETLERI.LN
 //                         └─→ TBLDEPOENVANTER.HAREKETIND
 async function stokGirisIadesiYaz(t, ayrinti) {
-  const { v, firma, donem, cariInd, stokNo, stokKodu, adet, fiyat, depo, tarih, aciklama, onek } = ayrinti;
+  const { v, firma, donem, cariInd, stokNo, stokKodu, stokAdi, stokTipi, birimEx, birim, carpan, adet, fiyat, depo, tarih, aciklama, onek } = ayrinti;
 
   const baslikTam = tablo(v, firma, donem, 'TBLSTKGIRBASLIK');
   const hareketTam = tablo(v, firma, donem, 'TBLSTKGIRHAREKET');
@@ -973,14 +1046,16 @@ async function stokGirisIadesiYaz(t, ayrinti) {
       TARIH: tarih,
       FIRMANO: Number(cariInd),
       STOKNO: Number(stokNo),
-      MALINCINSI: stokKodu || '',
+      MALINCINSI: stokAdi || stokKodu || '',
       STOKKODU: stokKodu || null,
-      STOKTIPI: 0,
+      STOKTIPI: Number(stokTipi) || 0,
       MIKTAR: Number(adet),
-      BIRIMMIKTAR: 1,
-      BIRIM: 'ADET',
-      BIRIMEX: Number(stokNo),
+      BIRIMMIKTAR: Number(carpan) || 1,
+      BIRIM: birim || '',
+      BIRIMEX: Number(birimEx),
       KDV: 0,
+      // Maliyet alanlarının VegaWin deseni henüz doğrulanmadı; önceki
+      // davranışı koru. Kart eşleşmesi düzeltmesi bu alanları değiştirmesin.
       AFIYATI: 1,
       FIYATI: Number(fiyat),
       GERCEKTOPLAM: tutar,
@@ -1016,7 +1091,7 @@ async function stokGirisIadesiYaz(t, ayrinti) {
       IADE: 1,
       BIRIMFIYAT: Number(fiyat),
       BIRIMMALIYET: Number(fiyat),
-      BIRIMEX: Number(stokNo),
+      BIRIMEX: Number(birimEx),
       PARABIRIMI: 'TL',
       KUR: 1,
       ACIKLAMA: null
@@ -1119,7 +1194,11 @@ async function belgeYaz(secenek) {
   // Ürün satırı olmayan (yalnız kasa ya da yalnız tahsilat) belge de geçerli;
   // stok kartı olmayan satır fatura/stok tarafına hiç gitmez.
   const urunSatirlari = satirlar.filter((s) => Number(s.stokNo) && Number(s.tutar) !== 0);
-  const kasaSatirlari = satirlar.filter((s) => Number(s.kasaAdedi) > 0 && s.kasaStokNo);
+  const kasaSatirlari = satirlar.filter((s) => Number(s.kasaAdedi) > 0);
+  if (kasaSatirlari.some((s) => !Number.isSafeInteger(Number(s.kasaStokNo)) ||
+      Number(s.kasaStokNo) <= 0)) {
+    throw new Error('Kasa adedi girilen her satırda geçerli bir kasa tipi seçilmeli.');
+  }
   const urunTutari = urunSatirlari.reduce((t2, s) => t2 + (Number(s.tutar) || 0), 0);
   const kasaTutari = satirlar.reduce((t2, s) => t2 + (Number(s.kasaTutari) || 0), 0);
 
@@ -1141,16 +1220,13 @@ async function belgeYaz(secenek) {
     }
   }
 
-  // Stok kartlarının güncel maliyet ve birim bilgisi — fatura satırına yazılıyor.
-  // Satış faturasında kasa da kendi kartı üzerinden 2. kalem olarak yazılıyor
-  // (aşağıda), o yüzden kasaSatirlari'nın stokNo'ları da aynı sorguya dahil.
+  // Ürün kartlarının güncel maliyet ve birim bilgisi. Kasa tipi Id'si stok
+  // numarası değildir; kasa kartları transaction içinde kodla ayrıca çözülür.
   let maliyetHaritasi = new Map();
   if (secenek.belgeTuru === 'satisFaturasi' && (urunSatirlari.length || kasaSatirlari.length)) {
-    const noLar = [
-      ...urunSatirlari.map((s) => Number(s.stokNo)),
-      ...kasaSatirlari.map((s) => Number(s.kasaStokNo))
-    ];
-    const kartlar = await sorgu(
+    const noLar = [...new Set(urunSatirlari.map((s) => Number(s.stokNo)))];
+    if (noLar.length) {
+      const kartlar = await sorgu(
       `SELECT S.IND AS stokNo, ISNULL(S.MALIYET, 0) AS maliyet,
               ISNULL(S.STOKTIPI, 0) AS stokTipi, ISNULL(S.STOKKODU, '') AS kod,
               ISNULL(B.BIRIMADI, '') AS birim, ISNULL(B.IND, 0) AS birimEx,
@@ -1159,8 +1235,9 @@ async function belgeYaz(secenek) {
        LEFT JOIN ${kart(v, firma, 'TBLBIRIMLEREX')} B
               ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
        WHERE S.IND IN (${noLar.map((n) => Number(n)).join(',')})`
-    );
-    maliyetHaritasi = new Map(kartlar.map((k) => [Number(k.stokNo), k]));
+      );
+      maliyetHaritasi = new Map(kartlar.map((k) => [Number(k.stokNo), k]));
+    }
   }
 
   const kdvOrani = Number(a.varsayilanKdv) || 0;
@@ -1178,6 +1255,9 @@ async function belgeYaz(secenek) {
   const onek = await onekTespitEt(firma, donem);
 
   const sonuc = await islem(async (t) => {
+    const kasaHaritasi = secenek.belgeTuru === 'satisFaturasi'
+      ? await kasaKartlariniCoz(firma, kasaSatirlari.map((s) => s.kasaStokNo), t)
+      : new Map();
     // Düzenleme, eski belgeyi silip yenisini yazmayı TEK transaction içinde
     // yapar. Aşağıdaki herhangi bir INSERT hata verirse eski belge geri gelir.
     if (duzenlenenKayit) {
@@ -1221,12 +1301,12 @@ async function belgeYaz(secenek) {
       // kalemi. Depozito KDV'siz sayılıyor (satış değil, iade edilebilir
       // teminat); kdvOrani/kdvTutari bilerek 0.
       for (const s of kasaSatirlari) {
-        const k = maliyetHaritasi.get(Number(s.kasaStokNo)) || {};
+        const k = kasaHaritasi.get(Number(s.kasaStokNo));
         const tutar = Number(s.kasaTutari) || 0;
         fatSatirlari.push({
-          stokNo: Number(s.kasaStokNo),
-          stokAdi: s.kasaTipiAdi || k.ad || 'KASA',
-          stokKodu: s.kasaTipiKod || k.kod || null,
+          stokNo: k.stokNo,
+          stokAdi: k.ad,
+          stokKodu: k.kod,
           stokTipi: Number(k.stokTipi || 0),
           miktar: Number(s.kasaAdedi) || 0,
           fiyat: Number(s.kasaDepozito) || 0,
@@ -1413,9 +1493,14 @@ async function kasaIadesiYaz(secenek) {
 
     let dekont = null;
     if (tutar > 0 && stokGirisVarMi) {
+      const kasaKarti = (await kasaKartlariniCoz(firma, [secenek.stokNo], t))
+        .get(Number(secenek.stokNo));
       dekont = await stokGirisIadesiYaz(t, {
         v, firma, donem, cariInd,
-        stokNo: secenek.stokNo, stokKodu: secenek.stokKodu,
+        stokNo: kasaKarti.stokNo, stokKodu: kasaKarti.kod,
+        stokAdi: kasaKarti.ad, stokTipi: kasaKarti.stokTipi,
+        birimEx: kasaKarti.birimEx, birim: kasaKarti.birim,
+        carpan: kasaKarti.carpan,
         adet, fiyat: depozito, depo, tarih, aciklama, onek
       });
     } else if (tutar > 0) {
