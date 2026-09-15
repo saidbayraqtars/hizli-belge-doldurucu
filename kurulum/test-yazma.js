@@ -116,16 +116,26 @@ async function kartSatiriKopyala(tabloAdi, kaynakInd, degisiklikler) {
   return Number(sonuc[0].ind);
 }
 
-async function geciciKasaKartiniTemizle() {
-  if (!geciciKasaKarti) return;
-  const { stokNo, birimIdleri } = geciciKasaKarti;
-  if (birimIdleri.length) {
-    await sql.calistir(`DELETE FROM ${vtAdi('TBLBIRIMLEREX', false)}
-      WHERE STOKNO = @stokNo AND IND IN (${birimIdleri.join(',')})`, { stokNo });
-  }
+// Yalnız sınamanın kendi kodlarıyla açılan kasa kartları, birimleri ve tipleri.
+// HIZMET tipi, sistem kartıyla çakışma sınaması için geçici eklenen BD satırıdır;
+// VEGA_TEST'teki HIZMET stok kartına dokunulmaz.
+const SINAMA_KASA_KODLARI = "'SINAMA-KASA', 'SINAMA-EKSIK'";
+
+async function sinamaKasalariniTemizle() {
+  await sql.calistir(`DELETE B FROM ${vtAdi('TBLBIRIMLEREX', false)} B
+    JOIN ${vtAdi('TBLSTOKLAR', false)} S ON S.IND = B.STOKNO
+    WHERE S.STOKKODU IN (${SINAMA_KASA_KODLARI})`);
   await sql.calistir(`DELETE FROM ${vtAdi('TBLSTOKLAR', false)}
-    WHERE IND = @stokNo AND STOKKODU = 'SINAMA-KASA'`, { stokNo });
+    WHERE STOKKODU IN (${SINAMA_KASA_KODLARI})`);
+  await sql.calistir(`
+    IF OBJECT_ID('[${VEGA_TEST}].dbo.BD_KasaTipi', 'U') IS NOT NULL
+      DELETE FROM [${VEGA_TEST}].dbo.BD_KasaTipi WHERE Kod IN (${SINAMA_KASA_KODLARI}, 'HIZMET')`);
   geciciKasaKarti = null;
+}
+
+async function kartSayisi(ad) {
+  const r = await sql.sorgu(`SELECT COUNT(*) AS adet FROM ${vtAdi(ad, false)}`);
+  return Number(r[0].adet);
 }
 
 async function satirSayisi(ad, donemli) {
@@ -220,41 +230,91 @@ async function calistir() {
   const cari = cariler[0];
   console.log(`         Musteri: ${cari.ad} (IND ${cari.cariInd}), baslangic bakiyesi ${cari.bakiye}`);
 
-  // Önce önceki başarısız testten kalabilecek, yalnız test koduyla işaretli
-  // kopyaları sil; sistem kartlarını hiçbir koşulda değiştirme.
-  await sql.calistir(`DELETE B FROM ${vtAdi('TBLBIRIMLEREX', false)} B
-    JOIN ${vtAdi('TBLSTOKLAR', false)} S ON S.IND = B.STOKNO
-    WHERE S.STOKKODU = 'SINAMA-KASA' AND S.MALINCINSI = '[TEST] Sinama Kasa'`);
-  await sql.calistir(`DELETE FROM ${vtAdi('TBLSTOKLAR', false)}
-    WHERE STOKKODU = 'SINAMA-KASA' AND MALINCINSI = '[TEST] Sinama Kasa'`);
-  const kaynak = await sql.sorgu(`SELECT TOP 1 S.IND AS stokNo, B.IND AS birimEx
-    FROM ${vtAdi('TBLSTOKLAR', false)} S
-    JOIN ${vtAdi('TBLBIRIMLEREX', false)} B ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
-    WHERE ISNULL(S.KOD1, '') <> 'KASA' ORDER BY S.IND`);
-  if (kaynak.length !== 1) throw new Error('VEGA_TEST içinde kopyalanacak varsayılan birimli kart yok.');
-  const kasaVegaStokNo = await kartSatiriKopyala(
-    vtAdi('TBLSTOKLAR', false), kaynak[0].stokNo,
-    { STOKKODU: 'SINAMA-KASA', MALINCINSI: '[TEST] Sinama Kasa', KOD1: 'KASA', DELETED: 0 }
-  );
-  geciciKasaKarti = { stokNo: kasaVegaStokNo, birimIdleri: [] };
-  const birimTablosu = vtAdi('TBLBIRIMLEREX', false);
-  geciciKasaKarti.birimIdleri.push(await kartSatiriKopyala(birimTablosu, kaynak[0].birimEx,
-    { STOKNO: kasaVegaStokNo, VARSAYILAN: 0 }));
-  const kasaVegaBirimEx = await kartSatiriKopyala(birimTablosu, kaynak[0].birimEx,
-    { STOKNO: kasaVegaStokNo, VARSAYILAN: 1, BIRIMADI: 'ADET' });
-  geciciKasaKarti.birimIdleri.push(kasaVegaBirimEx);
+  // Önceki başarısız sınamadan kalabilecek, yalnız sınama koduyla açılmış
+  // kasa kartlarını ve tiplerini sil; sistem kartlarına hiçbir koşulda dokunma.
+  await sinamaKasalariniTemizle();
 
-  // Tekrar çalıştırıldığında aynı BD_KasaTipi satırını kullan.
-  const mevcutTipler = await yardimci.kasaTipleriGetir();
-  let kasa = mevcutTipler.find((k) => k.kod === 'SINAMA-KASA');
-  if (!kasa) {
-    const kasaKayit = await yardimci.kasaTipiKaydet({ kod: 'SINAMA-KASA', ad: 'Sinama Kasa', dara: 1.5, depozito: 100 });
-    kasa = { id: kasaKayit.id, kod: 'SINAMA-KASA', ad: 'Sinama Kasa', dara: 1.5, depozito: 100 };
-  }
-  kontrol('Kasa tipi hazir', !!kasa.id, `${kasa.kod} (Id ${kasa.id})`);
+  // ======================================================================
+  bolum('Kasa tipi programdan acilinca Vega karti');
+
+  const stokKartiOnce = await kartSayisi('TBLSTOKLAR');
+  let cakismaHatasi = '';
+  try {
+    await yardimci.kasaTipiKaydet({ firma: FIRMA, donem: DONEM,
+      kod: 'HIZMET', ad: 'Cakisma Sinamasi', dara: 0, depozito: 5 });
+  } catch (e) { cakismaHatasi = e.message; }
+  kontrol('KASA isaretsiz karttaki kod kasaya cevrilmedi',
+    /HIZMET.*kasa olarak işaretlenmemiş/.test(cakismaHatasi), cakismaHatasi);
+  const cakisanTipSatiri = await sql.sorgu(
+    `SELECT COUNT(*) AS adet FROM [${VEGA_TEST}].dbo.BD_KasaTipi WHERE Kod = 'HIZMET'`);
+  kontrol('Cakisan kodda ne BD_KasaTipi ne Vega karti kaldi',
+    Number(cakisanTipSatiri[0].adet) === 0 && (await kartSayisi('TBLSTOKLAR')) === stokKartiOnce);
+
+  const kasaKayit = await yardimci.kasaTipiKaydet({ firma: FIRMA, donem: DONEM,
+    kod: 'SINAMA-KASA', ad: '[TEST] Sinama Kasa', dara: 1.5, depozito: 100 });
+  const kasaVegaStokNo = Number(kasaKayit.stokNo);
+  kontrol('Programdan eklenen kasa tipi Vega kartini acti',
+    kasaKayit.kartAcildi === true && kasaVegaStokNo > 0, `kart ${kasaVegaStokNo}`);
+  const acilanKart = await sql.sorgu(`
+    SELECT S.KOD1, S.STOKTIPI, S.MALINCINSI, S.ANABIRIM, S.BIRIMEX, S.KDVGRUBU, S.DEPO,
+           S.UID AS stokUid, S.KARTINACILMATARIHI,
+           B.IND AS birimEx, B.STOKNO, B.BIRIMADI, B.CARPAN, B.VARSAYILAN,
+           B.ANABIRIM AS birimAna, B.AGIRLIK, B.SATISFIYATI1, B.PB1, B.UID AS birimUid
+    FROM ${vtAdi('TBLSTOKLAR', false)} S
+    JOIN ${vtAdi('TBLBIRIMLEREX', false)} B ON B.STOKNO = S.IND
+    WHERE S.IND = @stokNo`, { stokNo: kasaVegaStokNo });
+  const ak = acilanKart[0] || {};
+  const kasaVegaBirimEx = Number(ak.birimEx);
+  kontrol('Acilan kartin tek birimi var', acilanKart.length === 1, `${acilanKart.length} birim`);
+  kontrol('Kart KOD1=KASA, STOKTIPI=0, adi tipten, acilis tarihi dolu',
+    ak.KOD1 === 'KASA' && Number(ak.STOKTIPI) === 0 &&
+      ak.MALINCINSI === '[TEST] Sinama Kasa' && !!ak.KARTINACILMATARIHI);
+  kontrol('Kart ve birim cift yonlu bagli (BIRIMEX = ANABIRIM = birim IND)',
+    Number(ak.ANABIRIM) === kasaVegaBirimEx && Number(ak.BIRIMEX) === kasaVegaBirimEx &&
+      Number(ak.STOKNO) === kasaVegaStokNo);
+  kontrol('Birim ADET, carpan 1, varsayilan ve ana birim',
+    ak.BIRIMADI === 'ADET' && Number(ak.CARPAN) === 1 && ak.VARSAYILAN === true && ak.birimAna === true);
+  kontrol('Dara AGIRLIK, depozito SATISFIYATI1 alaninda',
+    Number(ak.AGIRLIK) === 1.5 && Number(ak.SATISFIYATI1) === 100 && ak.PB1 === 'TL');
+  kontrol('Kart ve birim Vega UID bicimini tasiyor',
+    /^\{[0-9A-F-]{36}\}$/.test(ak.stokUid || '') && /^\{[0-9A-F-]{36}\}$/.test(ak.birimUid || ''));
+  kontrol('Kartta depo ve KDV grubu dolu', Number(ak.DEPO) === 1 && Number(ak.KDVGRUBU) === 1,
+    `depo ${ak.DEPO} · kdv grubu ${ak.KDVGRUBU}`);
+
+  const tipler = await yardimci.kasaTipleriGetir({ firma: FIRMA, donem: DONEM, sadeceAktif: true });
+  const kasa = tipler.find((k) => k.kod === 'SINAMA-KASA');
+  kontrol('Kasa tipi listede, dara/depozito Vega kartindan',
+    !!kasa && kasa.dara === 1.5 && kasa.depozito === 100, kasa ? `${kasa.kod} (Id ${kasa.id})` : 'yok');
+  if (!kasa) return ozet();
   kontrol('Testte kasa tipi, Vega karti ve birimi farkli',
     kasa.id !== kasaVegaStokNo && kasa.id !== kasaVegaBirimEx &&
       kasaVegaStokNo !== kasaVegaBirimEx);
+
+  await yardimci.kasaTipiKaydet({ firma: FIRMA, donem: DONEM, id: kasa.id,
+    kod: 'SINAMA-KASA', ad: '[TEST] Sinama Kasa', dara: 1.5, depozito: 120 });
+  const fiyatSonra = await sql.sorgu(`SELECT SATISFIYATI1, ESKIFIYAT1
+    FROM ${vtAdi('TBLBIRIMLEREX', false)} WHERE IND = @birimEx`, { birimEx: kasaVegaBirimEx });
+  kontrol('Kaydet Vega depozitosunu guncelledi, eski fiyat ESKIFIYAT1de',
+    Number(fiyatSonra[0].SATISFIYATI1) === 120 && Number(fiyatSonra[0].ESKIFIYAT1) === 100);
+  // Kod baş/son boşluktan arınır. Harf büyüklüğü Vega'nın Türkçe harmanına
+  // bırakılır: orada 'sinama' büyütülünce 'SİNAMA' olur, 'SINAMA' ile başka koddur.
+  const tekrarEkleme = await yardimci.kasaTipiKaydet({ firma: FIRMA, donem: DONEM,
+    kod: '  SINAMA-KASA ', ad: '[TEST] Sinama Kasa', dara: 1.5, depozito: 100 });
+  kontrol('Ayni kodla (bosluklu) ekleme ayni tipi ve karti kullandi',
+    tekrarEkleme.id === kasa.id && tekrarEkleme.kartAcildi === false &&
+      Number(tekrarEkleme.stokNo) === kasaVegaStokNo);
+  let kodDegisimHatasi = '';
+  try {
+    await yardimci.kasaTipiKaydet({ firma: FIRMA, donem: DONEM, id: kasa.id,
+      kod: 'SINAMA-BASKA', ad: 'Baska', dara: 1.5, depozito: 100 });
+  } catch (e) { kodDegisimHatasi = e.message; }
+  kontrol('Kayitli kasa tipinin kodu degistirilemedi', /değiştirilemez/.test(kodDegisimHatasi),
+    kodDegisimHatasi);
+
+  // Çoklu varsayılan birim sınaması için karta ikinci (varsayılan olmayan) birim.
+  geciciKasaKarti = { stokNo: kasaVegaStokNo, birimIdleri: [] };
+  geciciKasaKarti.birimIdleri.push(await kartSatiriKopyala(vtAdi('TBLBIRIMLEREX', false),
+    kasaVegaBirimEx, { VARSAYILAN: 0 }));
 
   // Örnek: 12,3 kg brüt - 1×1,5 kg dara = 10,8 kg × 30 TL = 324,00 TL ürün
   // + 1 kasa × 100 TL depozito.
@@ -288,11 +348,16 @@ async function calistir() {
   const SATIS_TARIHI = rapor.haftaAraligi(new Date()).baslangic;
 
   bolum('Kart eşleşmesi güvenliği');
-  let eksikTip = mevcutTipler.find((k) => k.kod === 'SINAMA-EKSIK');
-  if (!eksikTip) {
-    const kayit = await yardimci.kasaTipiKaydet({ kod: 'SINAMA-EKSIK', ad: 'Kartsiz Sinama', dara: 0, depozito: 100 });
-    eksikTip = { id: kayit.id, kod: 'SINAMA-EKSIK' };
-  }
+  // Güncellemeden önce programdan kartsız eklenmiş eski tipin taklidi.
+  const eksikKayit = await sql.sorgu(`INSERT INTO [${VEGA_TEST}].dbo.BD_KasaTipi (Kod, Ad, Dara, Depozito)
+    OUTPUT INSERTED.Id AS id VALUES ('SINAMA-EKSIK', 'Kartsiz Sinama', 0.7, 15)`);
+  const eksikTip = { id: Number(eksikKayit[0].id), kod: 'SINAMA-EKSIK' };
+  const secilebilir = await yardimci.kasaTipleriGetir({ firma: FIRMA, donem: DONEM, sadeceAktif: true });
+  kontrol('Vega karti olmayan tip secim listesine gelmedi',
+    !secilebilir.some((k) => k.kod === 'SINAMA-EKSIK') && secilebilir.some((k) => k.kod === 'SINAMA-KASA'));
+  const tipSorunlari = await yardimci.kasaTipiSorunlari({ firma: FIRMA, donem: DONEM });
+  kontrol('Kartsiz tip ayar ekraninda nedeniyle bildirildi',
+    tipSorunlari.some((x) => x.kod === 'SINAMA-EKSIK' && /Vega/.test(x.neden)));
   let eksikKartHatasi = '';
   try {
     await yazma.belgeYaz({
@@ -367,6 +432,44 @@ async function calistir() {
     /bulunmayan stok kartı/i.test(silinmisUrunHatasi), silinmisUrunHatasi);
   kontrol('Reddedilen faturadan hareket kalmadi',
     toplamSatir(await tumSayilar()) === 0);
+
+  // ======================================================================
+  bolum('Guncelleme bakimi — Vega kartsiz kasa tipleri');
+
+  const cakisanTip = await sql.sorgu(`INSERT INTO [${VEGA_TEST}].dbo.BD_KasaTipi (Kod, Ad, Dara, Depozito)
+    OUTPUT INSERTED.Id AS id VALUES ('HIZMET', 'Cakisan Sinama', 0, 5)`);
+  const hizmetKarti = async () => JSON.stringify(await sql.sorgu(`SELECT IND, KOD1, MALINCINSI, BIRIMEX
+    FROM ${vtAdi('TBLSTOKLAR', false)} WHERE STOKKODU = 'HIZMET'`));
+  const hizmetOnce = await hizmetKarti();
+  const kartTarama = await kasaOnar.eksikKartlariTara({ firma: FIRMA });
+  kontrol('Bakim kartsiz tipi acilacak buldu',
+    kartTarama.acilacak.length === 1 && kartTarama.acilacak[0].kod === 'SINAMA-EKSIK',
+    kartTarama.acilacak.map((x) => x.kod).join(', ') || 'yok');
+  kontrol('Bakim KASA isaretsiz karttaki kodu acilamaz saydi',
+    kartTarama.engelli.some((x) => x.kod === 'HIZMET'));
+  const kartAcma = await kasaOnar.eksikKartlariAc(kartTarama);
+  kontrol('Bakim kartsiz tipin Vega kartini acti',
+    kartAcma.acilan.length === 1 && kartAcma.hatalar.length === 0,
+    kartAcma.hatalar.map((x) => x.neden).join('; '));
+  kontrol('Cakisan urun kartina dokunulmadi', (await hizmetKarti()) === hizmetOnce);
+  const eksikArtikHazir = (await yardimci.kasaTipleriGetir({ firma: FIRMA, donem: DONEM, sadeceAktif: true }))
+    .find((k) => k.kod === 'SINAMA-EKSIK');
+  kontrol('Acilan kart eski tipin dara ve depozitosunu tasiyor',
+    !!eksikArtikHazir && eksikArtikHazir.id === eksikTip.id &&
+      eksikArtikHazir.dara === 0.7 && eksikArtikHazir.depozito === 15);
+  kontrol('Ikinci taramada acilacak kart kalmadi',
+    (await kasaOnar.eksikKartlariTara({ firma: FIRMA })).acilacak.length === 0);
+  await sql.calistir(`DELETE FROM [${VEGA_TEST}].dbo.BD_KasaTipi WHERE Id = @id AND Kod = 'HIZMET'`,
+    { id: Number(cakisanTip[0].id) });
+
+  const bakimDurumu = path.join(os.tmpdir(), `kasa-karti-bakim-sinama-${process.pid}.json`);
+  const oto1 = await kasaOnar.otomatikCalistir({ surum: 'sinama', durumYolu: bakimDurumu });
+  const oto2 = await kasaOnar.otomatikCalistir({ surum: 'sinama', durumYolu: bakimDurumu });
+  kontrol('Otomatik kasa bakimi tamamlandi, ayni surumde tekrar calismadi',
+    oto1.tamamlandi === true && oto2.atlandi === true && oto2.neden === 'daha-once-tamamlandi');
+  for (const dosya of [bakimDurumu, oto1.kartDosyasi, oto1.dogrulamaDosyasi, oto1.yedek]) {
+    if (dosya && fs.existsSync(dosya)) fs.unlinkSync(dosya);
+  }
 
   // ======================================================================
   bolum('A — Satis faturasi olarak yazma (+ tahsilat)');
@@ -930,7 +1033,7 @@ async function calistir() {
   bolum('Temizlik');
   await hareketleriTemizle();
   await yardimciTablolariTemizle();
-  await geciciKasaKartiniTemizle();
+  await sinamaKasalariniTemizle();
   const son = await tumSayilar();
   kontrol('Sinama veritabani temizlendi', toplamSatir(son) === 0);
 
@@ -952,7 +1055,7 @@ calistir()
     console.error('\nSinama hata verdi: ' + (e && e.message ? e.message : e));
     if (e && e.stack) console.error(e.stack);
     try { await hareketleriTemizle(); await yardimciTablolariTemizle();
-      await geciciKasaKartiniTemizle(); } catch (x) { /* ilk hatayı koru */ }
+      await sinamaKasalariniTemizle(); } catch (x) { /* ilk hatayı koru */ }
     try { await sql.havuzKapat(); } catch (x) { /* yoksay */ }
     process.exit(1);
   });

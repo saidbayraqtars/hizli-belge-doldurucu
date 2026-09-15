@@ -16,6 +16,7 @@ const KANALLAR = [
   'vega:ekstre',
   'vega:ozelKod1',
   'yardimci:kasaTipleri',
+  'yardimci:kasaTipiSorunlari',
   'yardimci:kasaTipiKaydet',
   'yardimci:kasaTipiSil',
   'yardimci:kasaBakiye',
@@ -38,7 +39,7 @@ const KANALLAR = [
 ];
 
 // Ana sürecin kendiliğinden gönderdiği tek yönlü bildirimler.
-const DINLENEBILIR = ['guncelleme:durum'];
+const DINLENEBILIR = ['guncelleme:durum', 'kasaKartlari:degisti'];
 
 contextBridge.exposeInMainWorld('api', {
   cagir(kanal, girdi) {

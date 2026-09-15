@@ -13,9 +13,11 @@
 //   - Yazma günlüğü: hangi Vega satırına ne yazdığımızı bilmezsek geri alma
 //     yapılamaz.
 
-const { sorgu, calistir } = require('./sql');
+const { sorgu, calistir, islem } = require('./sql');
 const { ayarOku } = require('./ayar');
+const { dogrula } = require('./firma');
 const vega = require('./vega');
+const kasa = require('./kasa');
 const os = require('os');
 
 function vt() {
@@ -162,47 +164,38 @@ function kimlik(kullanici) {
 
 // --- Kasa tipleri ------------------------------------------------------------
 //
-// İki kaynaktan besleniyor:
-//   1. Elle eklenenler (eski Access programının PK/SBÜYÜK/SMUZ/UP gibi kendi
-//      kodları — Vega'da hiç karşılığı yok).
-//   2. Vega'da KOD1 = 'KASA' işaretli stok kartları (gerçek veriyle
-//      doğrulandı) — her okumada BD_KasaTipi'de yoksa otomatik eklenir.
-// Tek liste BD_KasaTipi'de birleşiyor: BD_KasaHareket hep aynı Id'ye
-// referans verir, kaynağı Vega mı elle mi olduğu fark etmez.
+// BD_KasaTipi programın listesidir; Id kasa defterinde (BD_KasaHareket.StokNo)
+// referans olduğu için satır hiç silinmez (Aktif=0 yumuşak silme).
 //
-// 24.08.2026: Dara VE Depozito artık Vega eşleşmesi olan kodlarda HER
-// okumada canlı Vega değerleriyle GÜNCELLENİYOR (TBLBIRIMLEREX.AGIRLIK /
-// SATISFIYATI1 — bkz. db/vega.js → kasaKartlariniGetir). Önceden ikisi de
-// yalnızca ilk görüldüğünde INSERT ediliyordu (Dara hep 0 ile), sonrasında
-// elle düzeltilmesi gerekiyordu — artık gerekmiyor. BD_KasaTipi satırı yine
-// de duruyor (Id sabit kalsın, BD_KasaHareket ona referans veriyor), sadece
-// Ad/Dara/Depozito'su artık "canlı ayna". Vega'da karşılığı OLMAYAN gerçekten
-// elle eklenmiş kodlar (KOD1='KASA' değil) bu güncellemeden etkilenmez,
-// kendi elle girilmiş değerleriyle kalır.
+// 15.09.2026: Liste artık seçili firmadaki Vega kartına bağlı. Yalnız STOKKODU
+// aynı, KOD1 = 'KASA', silinmemiş ve tek varsayılan birimli kartı olan tipler
+// seçim ve ayar ekranına gelir (bkz. db/kasa.js). Önceden firma ayrımı olmadan
+// bütün aktif satırlar listeleniyordu; Vega'da kartı olmayan eski tip
+// seçilince fatura yazılamıyordu. Programdan eklenen tip artık aynı
+// transaction'da Vega kartıyla birlikte açılıyor; daha önce kartsız eklenmiş
+// tipler güncellemeden sonra kurulum/kasa-kartlarini-onar.js → otomatikCalistir
+// ile Vega'ya işleniyor.
 //
-// Silme YUMUŞAK (Aktif=0) — geçmiş BD_KasaHareket satırları bu Id'ye
-// referans veriyor, silinirse geçmiş hareketlerin adı/kodu kaybolur.
+// Vega'da KOD1 = 'KASA' işaretli ama BD_KasaTipi'de olmayan kart her okumada
+// listeye eklenir. Ad/Dara/Depozito ekranda hep Vega kartından okunur
+// (TBLBIRIMLEREX.AGIRLIK / SATISFIYATI1); BD satırı yalnız aynası.
 
 async function vegaKasaKartlariniSenkronizeEt(firma, donem) {
-  if (!firma) return new Map();
   let vegaKartlari = [];
   try {
     vegaKartlari = await vega.kasaKartlariniGetir({ firma, donem });
   } catch (e) {
-    return new Map(); // KOD1 sütunu yok ya da firma geçersiz — sessizce atla.
+    return; // KOD1 sütunu yok ya da firma geçersiz — eşleşme sorgusu ayrıca söyler.
   }
-  if (!vegaKartlari.length) return new Map();
+  if (!vegaKartlari.length) return;
 
   const db = vt();
   const mevcut = await sorgu(`SELECT Kod FROM [${db}].dbo.BD_KasaTipi`);
-  const mevcutKodlar = new Set(mevcut.map((s) => String(s.Kod || '').trim().toUpperCase()));
-  const vegaHaritasi = new Map();
+  const mevcutKodlar = new Set(mevcut.map((s) => kasa.kodAnahtari(s.Kod)));
 
   for (const k of vegaKartlari) {
     const kod = k.kod || ('KASA-' + k.id);
-    vegaHaritasi.set(kod.toUpperCase(), k);
-
-    if (mevcutKodlar.has(kod.toUpperCase())) continue;
+    if (mevcutKodlar.has(kasa.kodAnahtari(kod))) continue;
     try {
       await calistir(
         `IF NOT EXISTS (SELECT 1 FROM [${db}].dbo.BD_KasaTipi WHERE Kod = @kod)
@@ -210,72 +203,132 @@ async function vegaKasaKartlariniSenkronizeEt(firma, donem) {
            VALUES (@kod, @ad, @dara, @depozito)`,
         { kod, ad: k.ad || kod, dara: k.dara || 0, depozito: k.depozito || 0 }
       );
-      mevcutKodlar.add(kod.toUpperCase());
+      mevcutKodlar.add(kasa.kodAnahtari(kod));
     } catch (e) {
       // Yarış durumunda UNIQUE hatası olabilir — sorun değil, satır zaten var.
     }
   }
-  return vegaHaritasi;
 }
 
 async function kasaTipleriGetir(secenek) {
   await hazirla();
   const ayrinti = typeof secenek === 'object' && secenek ? secenek : { sadeceAktif: secenek };
-  const vegaHaritasi = await vegaKasaKartlariniSenkronizeEt(ayrinti.firma, ayrinti.donem);
+  if (!ayrinti.firma) return [];
+  const { firma, donem } = await dogrula(ayrinti.firma, ayrinti.donem);
+  await vegaKasaKartlariniSenkronizeEt(firma, donem);
 
-  const filtre = ayrinti.sadeceAktif ? 'WHERE Aktif = 1' : '';
-  const satirlar = await sorgu(
-    `SELECT Id, Kod, Ad, Dara, Depozito, Aktif FROM [${vt()}].dbo.BD_KasaTipi ${filtre} ORDER BY Kod`
-  );
-  return satirlar.map((s) => {
-    const kod = String(s.Kod || '').trim();
-    const canli = vegaHaritasi.get(kod.toUpperCase());
-    return {
-      id: Number(s.Id),
-      kod,
-      ad: (canli ? canli.ad : '') || String(s.Ad || '').trim(),
-      dara: canli ? Number(canli.dara) || 0 : Number(s.Dara) || 0,
-      depozito: canli ? Number(canli.depozito) || 0 : Number(s.Depozito) || 0,
-      aktif: !!s.Aktif
-    };
-  });
+  const eslesmeler = await kasa.kasaTipiEslesmeleri(firma);
+  return eslesmeler
+    .filter((e) => e.durum === 'hazir' && (!ayrinti.sadeceAktif || e.aktif))
+    .map((e) => ({
+      id: e.id,
+      kod: e.kod,
+      ad: e.kart.ad || e.ad,
+      dara: e.kart.dara,
+      depozito: e.kart.depozito,
+      aktif: e.aktif
+    }));
 }
 
+// Aktif olduğu halde Vega kartı kullanılamadığı için listeden düşen tipler ve
+// nedeni — ayar ekranı kullanıcıya bunları ayrıca söyler.
+async function kasaTipiSorunlari(secenek) {
+  await hazirla();
+  if (!secenek || !secenek.firma) return [];
+  const { firma } = await dogrula(secenek.firma, secenek.donem);
+  const eslesmeler = await kasa.kasaTipiEslesmeleri(firma);
+  return eslesmeler
+    .filter((e) => e.aktif && e.durum !== 'hazir')
+    .map((e) => ({ id: e.id, kod: e.kod, durum: e.durum, neden: e.neden }));
+}
+
+// Kasa tipini kaydeder ve seçili firmadaki Vega kartını aynı transaction'da
+// hazırlar: kart yoksa açar, varsa ad/dara/depozitoyu karta yazar. Vega'ya
+// yazılamayan tip BD_KasaTipi'de de kalmaz.
 async function kasaTipiKaydet(ayrinti) {
   await hazirla();
+  if (!ayarOku().vegayaYazmaAktif) {
+    const hata = new Error(
+      "Vega'ya yazma kapalı. Kasa tipi Vega'da stok kartı olarak açıldığı için önce Ayarlar ekranındaki kilidi kaldırın."
+    );
+    hata.kod = 'YAZMA_KAPALI';
+    throw hata;
+  }
+  const a = ayrinti || {};
+  const { firma } = await dogrula(a.firma, a.donem);
+  const girdi = kasa.kasaTipiGirdisi(a);
   const db = vt();
-  const kod = String((ayrinti && ayrinti.kod) || '').trim();
-  if (!kod) throw new Error('Kasa tipi kodu boş olamaz.');
-  const ad = (ayrinti && ayrinti.ad) ? String(ayrinti.ad).trim() : null;
-  const dara = Number(ayrinti && ayrinti.dara) || 0;
-  const depozito = Number(ayrinti && ayrinti.depozito) || 0;
-  const id = ayrinti && ayrinti.id ? Number(ayrinti.id) : null;
+  const istenenId = a.id ? Number(a.id) : null;
+  if (a.id && (!Number.isSafeInteger(istenenId) || istenenId <= 0)) {
+    throw new Error('Kasa tipi kimliği geçersiz.');
+  }
 
   try {
-    if (id) {
-      await calistir(
-        `UPDATE [${db}].dbo.BD_KasaTipi
-         SET Kod = @kod, Ad = @ad, Dara = @dara, Depozito = @depozito
-         WHERE Id = @id`,
-        { id, kod, ad, dara, depozito }
-      );
-      return { tamam: true, id };
-    }
-    const r = await sorgu(
-      `INSERT INTO [${db}].dbo.BD_KasaTipi (Kod, Ad, Dara, Depozito)
-       OUTPUT INSERTED.Id AS id
-       VALUES (@kod, @ad, @dara, @depozito)`,
-      { kod, ad, dara, depozito }
-    );
-    return { tamam: true, id: Number(r[0].id) };
+    return await islem(async (t) => {
+      let tip;
+      if (istenenId) {
+        tip = (await t.sorgu(
+          `SELECT Id, Kod FROM [${db}].dbo.BD_KasaTipi WITH (UPDLOCK, HOLDLOCK) WHERE Id = @id`,
+          { id: istenenId }
+        ))[0];
+        if (!tip) throw new Error('Kasa tipi bulunamadı.');
+        if (kasa.kodAnahtari(tip.Kod) !== kasa.kodAnahtari(girdi.kod)) {
+          throw new Error('Kasa tipi kodu değiştirilemez; geçmiş belgeler ve Vega kartı bu koda bağlı.');
+        }
+      } else {
+        // Aynı kod pasif ya da kartsız bekliyorsa yeni satır açmak yerine o
+        // satır canlandırılır; kasa defterindeki geçmiş aynı Id'de kalır.
+        tip = (await t.sorgu(
+          `SELECT Id, Kod FROM [${db}].dbo.BD_KasaTipi WITH (UPDLOCK, HOLDLOCK)
+           WHERE UPPER(LTRIM(RTRIM(Kod))) = UPPER(@kod)`,
+          { kod: girdi.kod }
+        ))[0];
+      }
+
+      let id;
+      if (tip) {
+        id = Number(tip.Id);
+        await t.calistir(
+          `UPDATE [${db}].dbo.BD_KasaTipi
+           SET Ad = @ad, Dara = @dara, Depozito = @depozito, Aktif = 1
+           WHERE Id = @id`,
+          { id, ad: girdi.ad, dara: girdi.dara, depozito: girdi.depozito }
+        );
+      } else {
+        const r = await t.sorgu(
+          `INSERT INTO [${db}].dbo.BD_KasaTipi (Kod, Ad, Dara, Depozito)
+           OUTPUT INSERTED.Id AS id
+           VALUES (@kod, @ad, @dara, @depozito)`,
+          girdi
+        );
+        id = Number(r[0].id);
+      }
+      const kod = tip ? String(tip.Kod).trim() : girdi.kod;
+
+      const [e] = await kasa.kasaTipiEslesmeleri(firma, { idler: [id], t, kilitle: true });
+      let kartAcildi = false;
+      if (e.durum === 'hazir') {
+        await kasa.vegaKasaKartiGuncelle(t, { firma, kart: e.kart, ...girdi, kod });
+      } else if (e.durum === 'kartYok' && !e.cakisan) {
+        await kasa.vegaKasaKartiAc(t, { firma, ...girdi, kod });
+        kartAcildi = true;
+      } else {
+        throw new Error(e.neden);
+      }
+
+      const [son] = await kasa.kasaTipiEslesmeleri(firma, { idler: [id], t });
+      if (son.durum !== 'hazir') throw new Error(son.neden);
+      return { tamam: true, id, stokNo: son.kart.stokNo, kartAcildi };
+    });
   } catch (e) {
     if (/unique|UX_BD_KasaTipi_Kod/i.test(e.message || '')) {
-      throw new Error(`"${kod}" kodlu bir kasa tipi zaten var.`);
+      throw new Error(`"${girdi.kod}" kodlu bir kasa tipi zaten var.`);
     }
     throw e;
   }
 }
 
+// Vega stok kartı silinmez: hareket görmüş olabilir, silmek Vega'nın işi.
 async function kasaTipiSil(id) {
   await hazirla();
   const no = Number(id);
@@ -584,6 +637,7 @@ async function islemKayitlariniTamSil(t, islemId) {
 module.exports = {
   hazirla,
   kasaTipleriGetir,
+  kasaTipiSorunlari,
   kasaTipiKaydet,
   kasaTipiSil,
   islemYaz,

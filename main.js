@@ -27,19 +27,35 @@ function gecmisBakimiBaslat() {
   if (!app.isPackaged || gecmisBakimBaslatildi) return;
   gecmisBakimBaslatildi = true;
 
-  setTimeout(() => {
+  setTimeout(async () => {
     let log = null;
     try { log = require('electron-log'); } catch (e) { /* günlük zorunlu değil */ }
-    const bakim = require('./kurulum/gecmis-belgeleri-duzelt');
-    bakim.otomatikCalistir({
-      surum: app.getVersion(),
-      durumYolu: path.join(app.getPath('userData'), 'gecmis-belge-bakim-durumu.json'),
-      log
-    }).catch((e) => {
+    const hataYaz = (etiket, e) => {
       if (log && typeof log.error === 'function') {
-        log.error('[gecmis-bakim] Tamamlanamadı; sonraki açılışta yeniden denenecek.', e);
+        log.error(`[${etiket}] Tamamlanamadı; sonraki açılışta yeniden denenecek.`, e);
       }
-    });
+    };
+    try {
+      await require('./kurulum/gecmis-belgeleri-duzelt').otomatikCalistir({
+        surum: app.getVersion(),
+        durumYolu: path.join(app.getPath('userData'), 'gecmis-belge-bakim-durumu.json'),
+        log
+      });
+    } catch (e) { hataYaz('gecmis-bakim', e); }
+
+    // Programdan açılıp Vega'ya işlenmemiş kasa tiplerinin kartları ve bu
+    // tiplerle yazılmış geçmiş kasa satırları. Aynı anda iki bakım aynı
+    // tablolara kilit koymasın diye geçmiş bakımından sonra çalışır.
+    try {
+      const sonuc = await require('./kurulum/kasa-kartlarini-onar').otomatikCalistir({
+        surum: app.getVersion(),
+        durumYolu: path.join(app.getPath('userData'), 'kasa-karti-bakim-durumu.json'),
+        log
+      });
+      if (sonuc && sonuc.acilanKart > 0 && pencere && !pencere.isDestroyed()) {
+        pencere.webContents.send('kasaKartlari:degisti', { acilanKart: sonuc.acilanKart });
+      }
+    } catch (e) { hataYaz('kasa-karti-bakim', e); }
   }, 1500);
 }
 
@@ -140,13 +156,12 @@ uc('vega:ozelKod1', async (girdi) => vega.ozelKod1Degerleri(girdi));
 
 // --- Yardımcı (VEGADB içindeki küçük tablolar — kasa tipi, kasa defteri, günlük) -
 //
-// Kasa tipleri iki kaynaktan besleniyor: Vega'da KOD1='KASA' işaretli stok
-// kartlarından otomatik (depozito ile), ve eski Access programının kendi
-// kısa kodları (PK, SBÜYÜK, SMUZ, UP... Vega'da hiç karşılığı yok) elle.
-// Dara (kap boşken kaç kg) Vega'da hiç tutulmadığı için ikisinde de elle
-// girilir. Hepsi tek listede BD_KasaTipi'de durur (db/yardimci.js).
+// Kasa tipleri BD_KasaTipi'de durur ama yalnız seçili firmada KOD1='KASA'
+// Vega kartı olanlar listelenir; programdan kaydedilen tipin kartı aynı
+// işlemde Vega'ya açılır (db/yardimci.js, db/kasa.js).
 
 uc('yardimci:kasaTipleri', async (girdi) => yardimci.kasaTipleriGetir(girdi));
+uc('yardimci:kasaTipiSorunlari', async (girdi) => yardimci.kasaTipiSorunlari(girdi));
 uc('yardimci:kasaTipiKaydet', async (girdi) => yardimci.kasaTipiKaydet(girdi));
 uc('yardimci:kasaTipiSil', async (girdi) => yardimci.kasaTipiSil(girdi.id));
 uc('yardimci:kasaBakiye', async (girdi) => yardimci.kasaBakiyesi(girdi));

@@ -2491,6 +2491,8 @@ if (window.api.dinle) {
   // Açılışta (baslat() bitmeden) gelebilecek bir push kaçmasın diye üst
   // seviyede, en baştan dinleniyor.
   window.api.dinle('guncelleme:durum', guncellemeDurumunuGoster);
+  // Güncelleme sonrası bakım eksik Vega kasa kartlarını açınca seçim listeleri tazelenir.
+  window.api.dinle('kasaKartlari:degisti', () => { if (firmaSecildiMi()) kasaKartlariniYukle(); });
 }
 
 el('guncellemeKontrol').addEventListener('click', async () => {
@@ -2506,15 +2508,13 @@ el('guncellemeKontrol').addEventListener('click', async () => {
   }
 });
 
-// --- Kasa tipleri (Vega'dan otomatik + elle eklenen) ------------------------
+// --- Kasa tipleri (seçili firmadaki Vega KASA kartları) ----------------------
 //
-// Vega'da stok kartında KOD1 = 'KASA' işaretli olanlar her açılışta
-// otomatik BD_KasaTipi'ye eklenir (db/yardimci.js → vegaKasaKartlariniSenkronizeEt).
-// Eski Access programının kendi kısa kodları (PK, SBÜYÜK, SMUZ, UP gibi —
-// Vega'da hiç karşılığı yok) ve Vega'da işaretli olmayan kasa tipleri elle
-// eklenir. Kaynağı ne olursa olsun hepsi aynı listede, aynı şekilde
-// düzenlenebilir/silinebilir. İlk satır her zaman yeni kasa tipi eklemek
-// için boş kalır.
+// Liste yalnız seçili firmada KOD1 = 'KASA' Vega kartı olan tiplerden oluşur.
+// Eklenen ya da kaydedilen tip aynı işlemde Vega kartına yazılır; kartı yoksa
+// açılır (db/yardimci.js → kasaTipiKaydet). Kod, geçmiş belgeler ve Vega kartı
+// ona bağlı olduğu için kayıtlı satırda değiştirilemez. İlk satır her zaman
+// yeni kasa tipi eklemek için boş kalır.
 
 function kasaKartlariTablosunuDoldur() {
   const govde = el('kasaTipiGovde');
@@ -2576,12 +2576,15 @@ function kasaTipiEkleSatiri() {
     if (!kod) return bildir('Kasa tipi kodu boş olamaz.', 'hata');
     ekle.disabled = true;
     try {
-      await cagir('yardimci:kasaTipiKaydet', {
+      const sonuc = await cagir('yardimci:kasaTipiKaydet', {
+        firma: firmaKodu(), donem: donemKodu(),
         kod, ad: adGirdi.value.trim(),
         dara: sayiOku(daraGirdi.value),
         depozito: sayiOku(depozitoGirdi.value)
       });
-      bildir(`"${kod}" kasa tipi eklendi.`, 'basarili');
+      bildir(sonuc.kartAcildi
+        ? `"${kod}" kasa tipi eklendi ve Vega'da KASA stok kartı açıldı.`
+        : `"${kod}" kasa tipi Vega'daki kasa kartına bağlandı.`, 'basarili');
       await kasaKartlariniYukle();
     } catch (e) {
       bildir('Eklenemedi: ' + e.message, 'hata');
@@ -2602,6 +2605,8 @@ function kasaKartiSatiri(kasa) {
   const kodGirdi = document.createElement('input');
   kodGirdi.type = 'text';
   kodGirdi.value = kasa.kod;
+  kodGirdi.readOnly = true;
+  kodGirdi.title = 'Kod değiştirilemez; geçmiş belgeler ve Vega kartı bu koda bağlı.';
   kodHucre.appendChild(kodGirdi);
 
   const adHucre = document.createElement('td');
@@ -2625,16 +2630,15 @@ function kasaKartiSatiri(kasa) {
   kaydet.className = 'dugme mini birincil';
   kaydet.textContent = 'Kaydet';
   kaydet.addEventListener('click', async () => {
-    const kod = kodGirdi.value.trim();
-    if (!kod) return bildir('Kasa tipi kodu boş olamaz.', 'hata');
     kaydet.disabled = true;
     try {
       await cagir('yardimci:kasaTipiKaydet', {
-        id: kasa.id, kod, ad: adGirdi.value.trim(),
+        firma: firmaKodu(), donem: donemKodu(),
+        id: kasa.id, kod: kasa.kod, ad: adGirdi.value.trim(),
         dara: sayiOku(daraGirdi.value),
         depozito: sayiOku(depozitoGirdi.value)
       });
-      bildir('Kaydedildi.', 'basarili');
+      bildir("Kaydedildi; Vega kasa kartı da güncellendi.", 'basarili');
       await kasaKartlariniYukle();
     } catch (e) {
       bildir('Kaydedilemedi: ' + e.message, 'hata');
@@ -2651,7 +2655,7 @@ function kasaKartiSatiri(kasa) {
     const onay = await cagir('onay', {
       baslik: 'Kasa tipini sil',
       mesaj: `"${kasa.kod}" kasa tipi silinsin mi?`,
-      ayrinti: 'Bu tip artık seçilemez. Geçmiş kasa hareketleri etkilenmez.',
+      ayrinti: 'Bu tip artık seçilemez. Vega stok kartı ve geçmiş kasa hareketleri silinmez.',
       tamamBaslik: 'Sil'
     });
     if (!onay.onaylandi) return;
@@ -2744,6 +2748,23 @@ async function kasaKartlariniYukle() {
   kasaKartiSecimDoldur(el('iadeKasaTipi'));
   kasaSatirSecimleriniTazele();
   kasaKartlariTablosunuDoldur();
+  await kasaTipiSorunlariniGoster();
+}
+
+// Programda aktif olduğu halde Vega kartı kullanılamadığı için listeye
+// gelmeyen tipler (ör. kodu KASA işaretsiz bir ürün kartında duran tip).
+async function kasaTipiSorunlariniGoster() {
+  const kutu = el('kasaTipiSorunlari');
+  let sorunlar = [];
+  try {
+    sorunlar = await cagir('yardimci:kasaTipiSorunlari', { firma: firmaKodu(), donem: donemKodu() });
+  } catch (e) {
+    sorunlar = [];
+  }
+  kutu.textContent = sorunlar.length
+    ? 'Listelenmeyen kasa tipleri: ' + sorunlar.map((s) => s.neden).join(' · ')
+    : '';
+  kutu.classList.toggle('gizli', !sorunlar.length);
 }
 
 // Açılışta ilk ürün satırı, kasa kartları Vega'dan gelmeden ÖNCE kuruluyor

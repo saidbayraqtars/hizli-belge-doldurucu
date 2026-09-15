@@ -1,446 +1,431 @@
-# Hızlı Belge Doldurucu
+<div align="center">
 
-Sebze-meyve toptan satışı için haftalık ürün girişi ve kasa depozito takibi.
-Eski Access tabanlı programın yerine geçer; farkı, girilen belgeyi **doğrudan
-VegaWin'in veritabanına (VEGADB) yazması** — programın kendi ayrı bir
-veritabanı yoktur.
+# 🧺 Hızlı Belge Doldurucu
 
-Tek kural: **aşırı basit olsun.** Belge girecek kişi bilgisayardan pek
-anlamayan biri olacak — ekrana özellik eklemeden önce gerçekten isteniyor mu
-diye bakın. "Faydalı olur" diye eklenen şey burada kusur sayılır.
+### Sebze-meyve toptancısı için haftalık satış girişi, kasa depozito takibi — doğrudan VegaWin'e
 
-## Ne yapar
+[![Son sürüm](https://img.shields.io/github/v/release/saidbayraqtars/hizli-belge-doldurucu-releases?label=s%C3%BCr%C3%BCm&color=2ea44f&logo=github)](https://github.com/saidbayraqtars/hizli-belge-doldurucu-releases/releases/latest)
+![Windows 7+](https://img.shields.io/badge/Windows-7%20SP1%2B-0078D6?logo=windows&logoColor=white)
+![Electron 22](https://img.shields.io/badge/Electron-22.3.27-47848F?logo=electron&logoColor=white)
+![SQL Server 2008+](https://img.shields.io/badge/SQL%20Server-2008%2B-CC2927?logo=microsoftsqlserver&logoColor=white)
+![VegaWin](https://img.shields.io/badge/VegaWin-VEGADB-f39c12)
+![Yazma sınaması](https://img.shields.io/badge/yazma%20s%C4%B1namas%C4%B1-141%20ge%C3%A7ti-brightgreen)
 
-**Belge Gir** — tek ve asıl ekran. Müşteri seçilir, satırlar girilir.
+**Eski Access programının yerine geçer.** Farkı: girilen belge ara bir veritabanında
+beklemez, **tek bir SQL işleminde doğrudan VegaWin'in kendi tablolarına** yazılır.
 
-Tarihin yanındaki **Özel Kod 1** süzgeci müşteri listesini daraltır.
-Seçenekler sabit değildir: cari kartlarının **Özel Kod 1** alanında ne
-yazıyorsa (TOPTAN, PERAKENDE, ne konulmuşsa) o değerler, yanlarında kaç kart
-olduğuyla listelenir; en çok kullanılan üstte durur. Açılışta listede `TOPTAN`
-varsa o seçili gelir, yoksa *Hepsi*.
+[Ne yapar](#-ne-yapar) •
+[Nasıl çalışır](#-nasıl-çalışır) •
+[Kasa tipleri](#-kasa-tipleri-ve-vega-kartı) •
+[Güncelleme ve bakım](#-güncelleme-ve-otomatik-bakım) •
+[Kurulum](#-kurulum) •
+[Geliştirme](#-geliştirme)
 
-Vega'nın kart ekranındaki "Özel Kod 1" alanı veritabanında `KOD1` sütunudur.
-Kartlarda bu alan hiç doldurulmamışsa süzgecin listeleyecek değeri olmaz ve
-alan ekranda hiç görünmez — liste eksilmez.
+</div>
+
+---
+
+> [!IMPORTANT]
+> **Tek kural: aşırı basit olsun.** Belge girecek kişi bilgisayardan pek anlamayan biri.
+> Ekrana özellik eklemeden önce gerçekten isteniyor mu diye bakın — "faydalı olur" diye
+> eklenen şey burada kusur sayılır.
+
+## ✨ Öne çıkanlar
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### ⚡ Tek tuşla Vega'ya
+Satış faturası ya da cari giriş, ürün + kasa + tahsilat **tek transaction'da**.
+Yarım belge oluşmaz; bir adım hata verirse hiçbir satır kalmaz.
+
+### 🧺 Kasa depozito defteri
+Hangi müşteride kaç kasa ve kaç TL depozito açık — adet bazında.
+İade, verildiği günkü gerçek tutarı kapatır.
+
+### ↩️ Her belge geri alınabilir
+Hangi Vega satırının yazıldığı günlükte durur; **Geri Al** iz bırakmadan siler,
+**✎ Düzenle** tek işlemde değiştirir.
+
+</td>
+<td width="50%" valign="top">
+
+### 📊 Eski programın raporları
+Pazar→Cumartesi haftalık borç dökümü, fiş fiş ayrıntılı ekstre, toplu yazdırma.
+Toplamlar Vega'nın kendi bakiyesiyle birebir tutar.
+
+### 🔎 "Google gibi" arama
+`hasan cinar`, `çınar hasan`, `HASAN ÇINAR` — aynı kart. Kelimeler ayrı ayrı,
+sırasız, Türkçe harf farkı yok sayılır.
+
+### 🛡️ Varsayılan kapalı yazma
+Kilit açılmadan VEGADB'ye tek satır yazılmaz. Güncellemeler kendiliğinden gelir,
+geçmiş kayıtları yedekli onarır.
+
+</td>
+</tr>
+</table>
+
+## 🖥️ Ne yapar
+
+Program altı sekmeden oluşur:
+
+| Sekme | İş |
+|---|---|
+| 📝 **Belge Gir** | Asıl ekran. Müşteri seçilir, satırlar girilir, Vega'ya yazılır |
+| 🧺 **Kasa** | Müşterideki açık kasalar ve tek tuşla kasa iadesi |
+| 📊 **Haftalık Rapor** | *GENEL MÜŞTERİYE GÖRE KALAN* borç dökümü |
+| 📄 **Ekstre** | Cari ekstre, fiş bazlı ayrıntılı rapor, haftalık giriş/çıkış |
+| 🗂️ **Son Belgeler** | Yazılan belgelerin günlüğü — düzenle / geri al |
+| ⚙️ **Ayarlar** | Sunucu, firma/dönem, depo, yazma kilidi, kasa tipleri |
+
+### 📝 Belge Gir
+
+Tarihin yanındaki **Özel Kod 1** süzgeci müşteri listesini daraltır. Seçenekler sabit
+değildir: cari kartlarının **Özel Kod 1** (`KOD1`) alanında ne yazıyorsa o değerler,
+yanlarında kaç kart olduğuyla listelenir. Açılışta `TOPTAN` varsa o seçili gelir, yoksa
+*Hepsi*. Kartlarda alan hiç dolu değilse süzgeç ekranda görünmez.
 
 | Alan | Açıklama |
 |---|---|
-| Cinsi | VEGADB stok kartından seçilir (ALANYA MUZ, KARPUZ, KAPYA BİBER…) — arama "Google gibi": kelimeler ayrı ayrı ve sırasız aranır, Türkçe harf farkı yok sayılır |
-| Brüt Miktar | kasayla birlikte tartılan kg; ürün seçiminden sonra ilk bu alan doldurulur |
-| Kasa Adedi | kaç kasa/kap gitti |
-| Kasa Tipi | Vega'daki kasa/kap kartları — adında "KASA" ya da "DEPOZİTO" geçen stok kartları, canlı okunur |
-| Dara | kasa adedi × kasa tipinin dara ağırlığı, kendiliğinden hesaplanır |
-| Daralı Miktar | brüt − dara, kendiliğinden hesaplanır |
-| Fiyat | elle girilir (Vega'da sebze-meyve için günlük değişen bir satış fiyatı tutulmuyor); ürün kartında bir fiyat varsa öneri olarak gelir |
-| Tutar | daralı miktar × fiyat, kendiliğinden hesaplanır |
-| Kasa Tutarı | kasa adedi × depozito bedeli, kendiliğinden hesaplanır |
-| Açıklama | **elle yazılır**, isteğe bağlı. Yalnızca uygulamanın ayrıntılı raporunda görünür; gerçek Vega belge satırının açıklamasına yazılmaz. (Program 27.08.2026'ya kadar buraya dara hesabını kendisi yazıyordu; artık yazmıyor — alan kullanıcının rapor notudur.) |
+| **Cinsi** | VEGADB stok kartından seçilir — "Google gibi" arama |
+| **Brüt Miktar** | Kasayla birlikte tartılan kg; ürün seçiminden sonra ilk bu alan doldurulur |
+| **Kasa Adedi** | Kaç kasa/kap gitti |
+| **Kasa Tipi** | Seçili firmada Vega kartı `KOD1 = KASA` olan tipler |
+| **Dara** | Kasa adedi × tipin darası — *kendiliğinden* |
+| **Daralı Miktar** | Brüt − dara — *kendiliğinden* |
+| **Fiyat** | Elle girilir; kartta fiyat varsa öneri olarak gelir |
+| **Tutar** | Daralı miktar × fiyat — *kendiliğinden* |
+| **Kasa Tutarı** | Kasa adedi × depozito — *kendiliğinden* |
+| **Açıklama** | İsteğe bağlı rapor notu; Vega belge satırına **yazılmaz** |
 
-Ayrıca **Tahsilat** alanı var: ürün satılıp aynı anda ödeme de alınıyorsa,
-buraya girilen tutar kadar ayrı bir **cari giriş (tahsilat)** dekontu yazılır
-— borç ve tahsilat aynı belgeyle birlikte Vega'ya gider. Tahsilat dekontu
-yanındaki **Tahsilat Belge Açıklaması** alanındaki metni belge başlığında
-saklar; hareket satırının açıklamasına kopyalamaz. Açıklama boş bırakılırsa
-başlıkta `Tahsilat` kullanılır. Tahsilat dekontu
-Vega'ya **NAKİT** olarak yazılır (`IZAHAT=1`, `PORTNO=-1`) ve tutar Vega'nın
-kasa defterine (`TBLKASA`, `ISLEMTIPI=1`) gelir olarak düşer.
+**Tahsilat** alanına tutar girilirse ayrı bir **cari giriş (tahsilat)** dekontu yazılır.
+Yanındaki *Tahsilat Belge Açıklaması* belge başlığına gider (boşsa `Tahsilat`). Tahsilat
+Vega'ya **NAKİT** yazılır (`IZAHAT=1`, `PORTNO=-1`) ve Vega'nın kasa defterine
+(`TBLKASA`, `ISLEMTIPI=1`) gelir olarak düşer.
 
-**Ürün seçmek zorunlu değil:** yalnız kasa verilen satır ya da hiç satır
-olmadan yalnız tahsilat girilen belge de kaydedilebilir.
+Ürün seçmek zorunlu değil: yalnız kasa verilen satır ya da yalnız tahsilat girilen belge
+de kaydedilebilir. Altta iki tuş var:
 
-**Klavye:** `Tab` sağa ilerler; Fiyat'tan sonra Açıklama ve Sil'i atlayıp
-alttaki satırın ürün alanına geçer, son satırdaysanız otomatik yeni satır açar.
-`↓` alttaki satırın aynı sütununa geçer, `↑` üste çıkar, `Enter` `↓` ile aynı
-işi yapar. Açıklama ve Sil fareyle kullanılabilir. Ürün kutusu açıkken `↑ ↓`
-listede gezinir, `Enter`/`Tab` seçer.
+| Tuş | Vega'da ne olur |
+|---|---|
+| **Satış Faturası Olarak Kaydet** | Satış faturası; ürün ve kasa ayrı kalem, stok düşer |
+| **Cari Giriş Olarak Kaydet** | Cari giriş dekontu; ürün ve kasa iki kalem, stok etkilenmez |
 
-Altta iki tuş var; belgenin Vega'da ne olacağını kullanıcı seçer:
+<details>
+<summary>⌨️ Klavye kısayolları</summary>
 
-- **Satış Faturası Olarak Kaydet** → Vega'da satış faturası (stok da düşer)
-- **Cari Giriş Olarak Kaydet** → Vega'da cari giriş dekontu (stok etkilenmez)
+| Tuş | Davranış |
+|---|---|
+| `Tab` | Sağa ilerler; Fiyat'tan sonra Açıklama/Sil'i atlayıp alttaki satırın ürününe geçer, son satırda yeni satır açar |
+| `↓` / `Enter` | Alttaki satırın aynı sütunu |
+| `↑` | Üstteki satır |
+| `↑ ↓` + `Enter`/`Tab` | Ürün kutusu açıkken listede gezinip seçer |
 
-Tuşa basılınca belge **anında** Vega'ya yazılır — ara bir "kaydet, sonra
-gönder" adımı yok. Kasa tutarı ürünle **aynı belge** içinde ayrı kalem olarak
-müşterinin cari defterine düşer; kasa adedi de ayrıca kasa depozito defterine
-işlenir (aşağıya bakın). Yalnız tahsilat ayrı dekonttur.
+Açıklama ve Sil fareyle kullanılır.
+</details>
 
-**Kasa** — kasa/kap depozitosu iade edilebilir. Müşteriye verilen kasalar
-borcuna eklenir; kasalar geri geldiğinde buradan tek tuşla düşülür ve Vega'ya
-yazılır. İade tutarı kasa kartının bugünkü bedelinden değil, o müşteride açık
-duran gerçek kasa depozito borcundan adet oranında hesaplanır. Örneğin 9 kasa
-500 TL'den verilmiş, kart bedeli sonra 300 TL olmuşsa 9 kasanın tamamı iade
-edildiğinde 4.500 TL'nin tamamı kapanır; kalan adet ve tutar sıfır olur. Ekranda
-hangi müşteride kaç kasa ve kaç TL depozito borcu durduğu, iade adedi girilince
-de bu iadede kapanacak tutar görünür.
+### 🧺 Kasa
 
-**Son Belgeler** — yazılan belgelerin günlüğü: tarih, tür, müşteri, Vega belge
-no, tutar. Üstteki **arama** kutusu müşteri, belge no, fiş no, tür ve kullanıcı
-alanlarında birlikte arar (müşteri kutusuyla aynı mantık: kelimeler ayrı ayrı,
-sırasız, Türkçe harf farkı yok sayılır). Satış ve cari giriş satırındaki
-**kalem (✎)** belgeyi giriş formuna geri açar; 1–2 kg gibi hatalar düzeltilip
-yeniden kaydedilebilir. Eski kayıt ile düzeltilmiş kayıt tek SQL transaction'ı
-içinde değiştirilir; yeni yazım başarısızsa eski belge korunur. Her satırda
-ayrıca bir **Geri Al** düğmesi var — yanlış girilen belge Vega ve uygulamanın
-yardımcı tablolarından tamamen silinir, müşterinin bakiyesi işlem öncesi haline döner.
+Müşteriye verilen kasalar borcuna eklenir; kasalar geri gelince buradan tek tuşla düşülür
+ve Vega'ya **Stok Giriş İade Fişi** olarak yazılır. İade tutarı kartın bugünkü bedelinden
+değil, o müşteride açık duran **gerçek depozito borcundan** adet oranında hesaplanır:
 
-**Haftalık Rapor** — *GENEL MÜŞTERİYE GÖRE KALAN*: çok müşterili **borç
-dökümü**, her müşteri tek satır. Ekstre gibi ayrıntılı değildir; "ne kadar
-almış, ne kadar ödemiş, borcu ne kalmış" sorusunu yanıtlar. Hafta **Pazar
-başlar, Cumartesi biter** ("pazardan pazara"); ok tuşlarıyla hafta
-değiştirilir, "Yazdır" doğrudan çıktı alır.
+> 9 kasa 500 TL'den verilmiş, kart bedeli sonra 300 TL olmuş → 9 kasanın tamamı dönünce
+> **4.500 TL'nin tamamı** kapanır; kalan adet ve tutar sıfır olur.
 
-Üstteki **Kart tipi** (alıcı/satıcı) ve **Özel Kod 1** süzgeçleri listeyi
-daraltır. Özel Kod 1 kutusu belge ekranındakiyle aynı listeyi gösterir
-(kartlarda gerçekten yazan değerler); bu ekranda varsayılan **Hepsi**'dir,
-kartlarda Özel Kod 1 boş olan müşteriler genel dökümden düşmesin diye.
+### 📊 Haftalık Rapor
 
-`Tarih | ADI_SOYADI | ESKİ BORÇ | KASA | YENİ BORÇ | TOP.BAKİYE` + tablonun
-altında genel toplam. Tarih yalnız başlıkta bir kez görünür. Çıktı iki yandan
-paylı, sayfada ortalı ve belirgin kutu çizgilidir.
-
-Listede bir müşteriye tıklamak, o müşteriyi **Ekstre** sekmesinde aynı hafta
-seçili olarak açar ve fiş bazlı ayrıntılı raporu hazırlar.
-
-Satırların solundaki kutucuklarla **birden fazla müşteri seçilebilir**
-(eski Access programındaki *GENEL KALAN* ekranının davranışı). Seçim varken:
-
-- **Yazdır** yalnız işaretli müşterileri basar, alttaki GENEL TOPLAM da
-  yalnız onlardan hesaplanır.
-- **Seçilenlerin Ekstresi** her işaretli müşteri için fiş bazlı ayrıntılı
-  dökümü arka arkaya hazırlar; yazdırınca her müşteri ayrı sayfaya düşer.
-  Sunucuda yeni bir uç yok, her müşteri için `rapor:haftalikDetay` sırayla
-  çağrılır.
-
-Sütunların tanımı (eski programın gerçek çıktısıyla doğrulandı):
+Çok müşterili **borç dökümü**, her müşteri tek satır. Hafta **Pazar başlar, Cumartesi
+biter**; ok tuşlarıyla hafta değişir. **Kart tipi** (alıcı/satıcı) ve **Özel Kod 1**
+süzgeçleri listeyi daraltır (burada varsayılan *Hepsi*).
 
 | Sütun | Nedir |
 |---|---|
 | ESKİ BORÇ | Hafta başından önceki bakiye − hafta içinde alınan ödeme |
 | KASA | Hafta içindeki kasa/kap depozito tutarı |
 | YENİ BORÇ | Hafta içindeki ürün borcu (kasa hariç) |
-| TOP.BAKİYE | ESKİ BORÇ + KASA + YENİ BORÇ — Vega'daki gerçek hafta sonu bakiyesine eşit |
+| TOP.BAKİYE | ESKİ BORÇ + KASA + YENİ BORÇ — Vega'daki gerçek hafta sonu bakiyesi |
 
-TOP.BAKİYE doğrudan `TBLCARIHAREKETLERI`'nden hesaplanır, ESKİ BORÇ ondan
-geriye doğru çıkarılır: satır her zaman tam toplanır ve Vega'nın kendi
-bakiyesiyle birebir tutar.
+TOP.BAKİYE doğrudan `TBLCARIHAREKETLERI`'nden hesaplanır, ESKİ BORÇ ondan geriye çıkarılır:
+satır her zaman tam toplanır. Satır kutucuklarıyla **birden fazla müşteri** seçilip yalnız
+onlar yazdırılabilir ya da **Seçilenlerin Ekstresi** her biri ayrı sayfada hazırlanır.
+Bir müşteriye tıklamak onu Ekstre'de aynı haftayla açar.
 
-Ödeme, kasa adedi/türü ve safi kilo ayrıntıları bu çok müşterili özet çıktıda
-gösterilmez; veri hesabında korunur ve ayrıntılı döküm Ekstre'dedir.
+### 📄 Ekstre
 
-**Ekstre** — müşterinin cari hesap ekstresi: ürün satırı, kasa tutarı satırı,
-tahsilat satırı ve yürüyen bakiye; altta müşteride duran kasa özeti. Ayrıca:
+- **Ayrıntılı Rapor (fiş bazlı)** — `CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | FİYAT | TUTAR |
+  AÇIKLAMA | FİŞ NO`, fiş fiş gruplu, ara toplamlı, en altta genel toplam; *Geri Gelen
+  Kasalar*, ÖDEME ve BAKİYE blokları. Aynı fişte aynı kasa türü tek kez toplanır.
+  Çıktı bilerek dar: ürünü çok olan müşteride sayfa sayısı düşük kalsın.
+- **Toplu yazdırma** — her müşteri yeni sayfada; sonda boş sayfa çıkmaz.
+- **Pazardan pazara gezinme**, **Haftalık Giriş/Çıkış tablosu** ve anında çalışan
+  **süzgeçler** (tür, yön, açıklama/evrak no, en az tutar).
 
-- **Ayrıntılı Rapor (fiş bazlı)** — asıl ayrıntılı çıktı burada. Seçili
-  müşterinin, ekrandaki tarih aralığındaki ürün dökümü: `CİNSİ | K.ADET |
-  K.TÜRÜ | K.TUTAR | FİYAT | TUTAR | AÇIKLAMA | FİŞ NO`, **fiş fiş
-  gruplanmış** — her fişin sonunda o fişin ara toplamı, fişler arasında
-  belirgin bir ayraç çizgisi, en altta genel toplam. Aynı fişte aynı kasa türü
-  birden fazla ürün satırında geçiyorsa kasa adedi ve tutarı tek kez toplam
-  olarak gösterilir. Fiş No boş günlüklerde Belge No kullanılır. Üstte müşterinin
-  adı; altta *Geri Gelen Kasalar* bloğu, ÖDEME bloğu
-  ve BAKİYE (verilen kasalar ayrı blok olarak basılmıyor — aynı bilgi fiş
-  satırlarında ve alttaki KASA ADEDİ / KASA TUTARI özetinde duruyor). Üst
-  başlıkta yalnız firma/müşteri adı gösterilir; adres ve telefon basılmaz.
-  Çıktı bilerek dar tutuldu: NET KG sütunu yok, satır
-  yüksekliği küçük — ürünü çok olan müşteride sayfa sayısı düşük kalsın diye.
-  "Yazdır" yalnızca bu kutuyu basar.
+### 🗂️ Son Belgeler
 
-- **Toplu ekstre yazdırma** — her müşteri yeni sayfada başlar; son müşteriden
-  sonra sayfa atlatılmadığı için boş ikinci/son sayfa çıkarılmaz.
+Tarih, tür, müşteri, Vega belge no, tutar. Arama kutusu müşteri, belge no, fiş no, tür ve
+kullanıcıda birlikte arar. **✎** belgeyi forma geri açar: 1–2 kg gibi hatalar düzeltilip
+yeniden kaydedilir — eski ve yeni kayıt **tek transaction'da** değişir, yeni yazım
+başarısızsa eski belge korunur. **Geri Al** belgeyi Vega'dan ve yardımcı tablolardan
+tamamen siler; bakiye işlem öncesine döner.
 
-- **Pazardan pazara gezinme** — ◀ ▶ tuşlarıyla hafta hafta, "Bu Hafta", "Tümü".
-- **Haftalık Giriş/Çıkış tablosu** — hareketler Pazar→Cumartesi haftalarına
-  bölünüp çıkış (borç) / giriş (alacak) / net / hafta sonu bakiyesi olarak
-  özetlenir. Bir haftaya tıklamak ekstreyi o haftaya süzer.
-- **Süzgeçler** — işlem türü, yön (borç/alacak), açıklama-evrak no araması, en
-  az tutar. Süzgeç yeni sorgu açmaz, çekilmiş satırları anında süzer.
+**Müşteri listesi** — arama kutusunun altındaki *Listeden Seç* bütün müşterileri
+gezilebilir pencerede açar. Yeni cari kartı bu programdan açılmaz; kartlar Vega'dan seçilir.
 
-**Müşteri listesi** — arama kutusunun altındaki "Listeden Seç" bütün
-müşterileri gezilebilir bir pencerede açar (alıcı/satıcı süzgeci, sadece
-bakiyesi olanlar). Yeni cari kartı bu programdan açılmaz; mevcut kartlar
-Vega'dan seçilir.
+## 🧠 Nasıl çalışır
 
-**Ayarlar** — sunucu, firma/dönem, depo, Vega'ya yazma kilidi, kasa/kap
-kartlarının dara ağırlığı.
+```mermaid
+flowchart LR
+  subgraph PC["💻 Ağdaki her bilgisayar"]
+    UI["Arayüz<br/>ui/"] -->|"IPC beyaz liste"| MAIN["Electron ana süreç<br/>main.js"]
+    MAIN --> DB["db/<br/>okuma · yazma · rapor"]
+  end
+  DB -->|"tek SQL transaction"| VEGA[("VEGADB<br/>Vega'nın gerçek tabloları")]
+  DB --> BD[("VEGADB içinde<br/>BD_ yardımcı tablolar")]
+  REL["GitHub Releases"] -. "otomatik güncelleme" .-> MAIN
+```
 
-## Firma ve dönem
+Bir satış belgesi kaydedildiğinde olan her şey tek işlemdir:
 
-Bir kez Ayarlar ekranından seçilir, ayar dosyasına yazılır ve **değiştirilmedikçe
-aynı kalır**. Liste sabit değil: program `sys.tables` tarayarak veritabanında
-gerçekten hangi firma ve dönemin bulunduğunu buluyor, her dönemin kaç hareketi
-olduğunu ve son hareket tarihini gösteriyor — hangisinin canlı olduğu görülsün.
+```mermaid
+sequenceDiagram
+  actor K as Kullanıcı
+  participant P as Program
+  participant V as VEGADB
+  K->>P: Satış Faturası Olarak Kaydet
+  P->>V: BEGIN TRANSACTION
+  P->>V: Fatura başlığı · ürün satırları · KASA kalemi
+  P->>V: Stok hareketi · depo envanteri · cari hareket
+  P->>V: Tahsilat dekontu (nakit → TBLKASA)
+  P->>V: BD_Islem · BD_BelgeSatir · BD_KasaHareket
+  P->>V: COMMIT
+  V-->>K: Belge no ve yeni bakiye
+```
 
-## Programın kendi veritabanı yok
+### 🗄️ Programın kendi veritabanı yok
 
-Belge, tek bir SQL işleminde, doğrudan VEGADB'nin gerçek tablolarına yazılır
-(`TBLSATFATBASLIK`, `TBLCARCIKBASLIK`, `TBLCARIHAREKETLERI`, …). Ara bir
-"kendi veritabanımızda tut, sonra gönder" adımı yok.
-
-Vega'nın kendisinde bulunmayan, ama programın çalışması için gereken dört küçük
-şey **VEGADB'nin İÇİNE**, `BD_` önekli dört tabloya kuruluyor (ayrı bir veritabanı
-değil — aynı VEGADB, `db/yardimci.js`):
+Vega'da bulunmayan dört küçük şey **VEGADB'nin içine**, `BD_` önekli tablolara kurulur:
 
 | Tablo | Ne tutar | Neden Vega'da yok |
 |---|---|---|
-| `BD_KasaTipi` | Kasa/kap tipinin dara ağırlığı (boşken kaç kg) | Vega'nın stok kartında böyle bir alan yok |
-| `BD_KasaHareket` | Müşteride kaç kasa açık olduğunun defteri (verilen/iade) | `TBLCARIHAREKETLERI` yalnızca PARA tutar, ADET tutmaz |
-| `BD_Islem` | Hangi Vega satırına ne yazıldığının günlüğü | Geri alma bunsuz yapılamaz |
-| `BD_BelgeSatir` | Belgeye girilen her satırın dökümü (cinsi, k.adet, net kg, fiyat, fiş no) | Faturasız belgede (Cari Giriş) Vega'da satır kırılımı HİÇ YOK — cari dekontunda yalnızca "ürün toplamı" ve "KASA TUTARI" diye iki kalem duruyor; haftalık rapor bunsuz ürün dökümü gösteremez |
+| `BD_KasaTipi` | Kasa/kap tipi listesi; defter tipin sabit Id'sine bağlı | Vega kart numarası firmadan firmaya değişir |
+| `BD_KasaHareket` | Müşteride kaç kasa açık (verilen/iade) | `TBLCARIHAREKETLERI` para tutar, adet tutmaz |
+| `BD_Islem` | Hangi Vega satırına ne yazıldığı | Geri alma bunsuz yapılamaz |
+| `BD_BelgeSatir` | Girilen her satırın dökümü | Faturasız belgede Vega'da satır kırılımı hiç yok |
 
-Bu dört tablo dışında **hiçbir belge, hiçbir müşteri/stok bilgisi programın
-kendi tarafında durmaz** — hepsi doğrudan Vega'nın gerçek tablolarındadır.
+Bu dört tablo dışında hiçbir belge, müşteri ya da stok bilgisi programın kendi tarafında
+durmaz.
 
-## Vega'ya yazma — tek katmanlı kilit
+### 🔐 Vega'ya yazma kilidi
 
-Program varsayılan olarak **VEGADB'ye hiçbir şey yazmaz**; yalnızca okuma
-ekranları (müşteri/stok listesi, ekstre) çalışır. Yazmak için Ayarlar
-ekranındaki **"Vega'ya yazmayı aç"** işaretlenmelidir.
+Program varsayılan olarak **VEGADB'ye hiçbir şey yazmaz**; yalnız okuma ekranları çalışır.
+Yazmak için Ayarlar'daki **"Vega'ya yazmayı aç"** işaretlenir. Açmadan önce
+[`kurulum/BELGE-DESENI.md`](kurulum/BELGE-DESENI.md) okunmalı: hangi yazma deseninin canlı
+doğrulandığı orada işaretli.
 
-SQL tarafında yetki tek adımda veriliyor
-(`kurulum/sql-kullanici-olustur.sql`, VEGADB üzerinde `db_owner`) — ayrı bir
-"yazma yetkisini sonradan aç" betiği yok; program CREATE TABLE + yazma
-yapabildiği için zaten tam yetki gerekiyor.
+> [!WARNING]
+> Cari giriş/çıkış başlığında **Şube** (`OZELKOD1`) ve **Kasa** (`OZELKOD2`) mutlaka
+> doldurulur — o firmanın kendi belgelerinden en çok geçen değer okunur. Boş kalırsa
+> kullanıcı belgeyi Vega'da açıp doldurunca Vega belgeyi yeniden postalar ve cariye
+> **ikinci bir hareket** yazar.
 
-Açmadan önce **`kurulum/BELGE-DESENI.md` okunmalı.** O belgede hangi yazma
-deseninin canlı doğrulandığı, hangisinin benzer belgelerden çıkarıldığı işaretli.
+Ödeme aracı alanları (`IZAHAT`, `PORTNO`, `BANKANO`) yalnız **tahsilat** dekontunda
+doldurulur; müşteriyi borçlandıran ürün/kasa dekontunda bilerek boş kalır, yoksa Vega'nın
+kasa raporunda karşılığı olmayan para görünür.
 
-Yazılan her belge geri alınabilir: hangi tabloya hangi satırın yazıldığı
-`VEGADB.dbo.BD_Islem` tablosunda kaydediliyor, geri alma tam o satırları ve
-ona bağlı `BD_BelgeSatir` / `BD_KasaHareket` / `BD_Islem` kayıtlarını siler.
+### 🔢 Satış faturası serisi
 
-### Geçmiş belge denetimi ve güvenli düzeltme
+Numara önce o firma/dönemde **Vega'nın kendi serisini** arar (`TBLSATFATBASLIK.BELGENO`'daki
+en sık tek harf önek, ör. `A`) ve oradan devam eder. Hiç fatura yoksa Ayarlar'daki öneğe
+(varsayılan `H`) düşer. Sayaç program genelinde tektir ve `WITH (UPDLOCK, HOLDLOCK)` ile
+okunur: programın ağdaki kopyaları aynı anda kaydetse de numara çakışmaz.
 
-Sürüm 1.7.2 kurulduktan sonraki ilk açılışta bu denetim hedef bilgisayarda
-otomatik çalışır. Her uygulama sürümü/sunucu/veritabanı birleşimi bir kez
-işlenir; hata olursa tamamlandı işareti yazılmaz ve sonraki açılışta yeniden
-denenir. Tarama, geri alma yedeği ve son doğrulama dosyaları
-`%LOCALAPPDATA%\hizli-belge-doldurucu-bakim` altında tutulur. Vega ile rapor
-kaynağı çelişen belgeler otomatik değiştirilmez ve elle incelemeye bırakılır.
+## 🧺 Kasa tipleri ve Vega kartı
 
-Kurulu uygulamanın veritabanındaki geçmiş belgelerde tarih veya kasa aktarım
-tutarsızlığı aranabilir. İlk komut yalnız rapor üretir, veri değiştirmez:
+Bir kasa tipi yalnız seçili firmada **aynı `STOKKODU`, `KOD1 = KASA`, silinmemiş ve tek
+varsayılan birimli** bir Vega kartı varsa listelenir. Dara birimin `AGIRLIK`'ından,
+depozito `SATISFIYATI1`'den canlı okunur.
 
-```powershell
-npm run bakim:gecmis -- --fis 00751
-npm run bakim:gecmis
+```mermaid
+flowchart TD
+  A["Ayarlar › Kasa tipi kaydet"] --> B{"Seçili firmada<br/>aynı kodlu kart?"}
+  B -- "yok" --> C["KOD1=KASA kart<br/>+ varsayılan ADET birimi açılır"]
+  B -- "KASA kartı var" --> D["Ad · dara · depozito<br/>karta işlenir"]
+  B -- "başka bir kart" --> E["Hiçbir şey yazılmaz<br/>neden ekranda gösterilir"]
+  C --> F["Aynı transaction'da<br/>tekrar okunup doğrulanır"]
+  D --> F
 ```
 
-Araç `BD_BelgeSatir`, `BD_KasaHareket` ve gerçek Vega belgesini karşılaştırır.
-Yalnız iki bağımsız kaynakla doğrulanan güvenli düzeltmeler uygulanabilir:
+- Açılan kartın alanları tahmin değil: VegaWin'in **kendi açtığı** kasa kartlarından
+  alındı — kart ile birim çift yönlü bağlı (`BIRIMEX = ANABIRIM = birim IND`), `%0` KDV
+  grubu orana bakılarak seçilir, `{GUID}` UID yazılır.
+- `STOKKODU` Vega'da benzersizdir; **silinmiş kart da kodu tutar**. Ürün kartı
+  kendiliğinden kasaya çevrilmez.
+- Kayıtlı tipin kodu değiştirilemez. Harf büyüklüğü Vega'nın Türkçe harmanına bırakılır
+  (`i` büyüyünce `İ`).
+- Silinen tip seçilemez; Vega kartı ve geçmiş hareketler durur.
+
+## 🔄 Güncelleme ve otomatik bakım
+
+Program açılışta ve her 4 saatte bir yeni sürümü kontrol eder, arka planda indirir ve
+*"Şimdi kur"* diye sorar; kullanıcı bir şey yapmazsa program kapanırken kurulur.
+
+Yeni sürüm ilk açıldığında, sürüm + sunucu + veritabanı başına **bir kez**, sırayla:
+
+| Adım | Ne yapar | Ayrıntı |
+|---|---|---|
+| 1️⃣ Geçmiş belge bakımı | Tarih karışıklığını ve kasa defteri farklarını iki kaynaktan kanıtlayıp düzeltir | `kurulum/gecmis-belgeleri-duzelt.js` |
+| 2️⃣ Eksik kasa kartları | Programdan açılıp Vega'ya işlenmemiş kasa tiplerinin kartını açar | [`KASA-KARTI-ONARIM.md`](kurulum/KASA-KARTI-ONARIM.md) |
+| 3️⃣ Kasa satırı onarımı | Yanlış karta düşmüş geçmiş kasa satırlarını gerçek karta bağlar | aynı belge |
+
+Her düzeltmeden önce JSON geri alma yedeği `%LOCALAPPDATA%\hizli-belge-doldurucu-bakim`
+altına yazılır. Vega ile kaynaklar çelişirse veri uydurulmaz, kayıt *elle inceleme*'ye
+bırakılır. Yazma kapalıysa ya da bir adım hata verirse bakım bitmiş sayılmaz, sonraki
+açılışta yeniden denenir.
+
+<details>
+<summary>🛠️ Bakımı elle çalıştırmak</summary>
+
+Varsayılan çalışma **salt okunurdur**, yalnız rapor üretir:
+
+```powershell
+npm run bakim:gecmis                 # geçmiş belgeler
+npm run bakim:kasa                   # kasa kartları ve satırları
+npm run bakim:kasa -- --fis 00751    # tek fiş
+```
+
+Uygulamak ve geri almak:
 
 ```powershell
 npm run bakim:gecmis -- --uygula
+npm run bakim:kasa   -- --uygula
+npm run bakim:kasa   -- --geri-al "C:\...\kasa-karti-yedek-....json"
 ```
 
-Uygulamadan önce `%LOCALAPPDATA%\hizli-belge-doldurucu-bakim` altında JSON
-geri alma yedeği oluşturulur. Rapor kaynağı ile Vega birbiriyle çelişiyorsa
-araç veri uydurmaz ve belgeyi `elle-inceleme` olarak işaretler. Yedekten dönüş:
+Kaynak kod olmayan müşteri bilgisayarında kurulu programın Electron'uyla nasıl
+çalıştırılacağı [`kurulum/KASA-KARTI-ONARIM.md`](kurulum/KASA-KARTI-ONARIM.md) içinde.
+</details>
+
+## 🚀 Kurulum
+
+**1. SQL kullanıcısı** — bir kez, sunucuda. `kurulum/sql-kullanici-olustur.sql` içindeki
+şifreyi değiştirip çalıştırın:
 
 ```powershell
-npm run bakim:gecmis -- --geri-al "C:\...\geri-alma-yedegi-....json"
-```
-
-### Kasa kartı onarımı (1.7.3)
-
-1.7.3'e kadar satış faturası ve kasa iadesindeki kasa kalemleri Vega'ya
-programın kendi kasa tipi numarasıyla (`BD_KasaTipi.Id`) yazılıyordu; bu numara
-Vega stok kartı değildir. PK/SB/UP/MPK kalemleri VADE FARKI/KUR FARKI/DEVIR/HIZMET
-kartlarına, kartı olmayan tipler (KAYIK, MUP, S.MUZ, MSK...) var olmayan karta
-düştü. 1.7.3 kasa kartını koddan (`KOD1=KASA`, aynı `STOKKODU`) bulur; kartı
-olmayan tipte belge yazmaz, açık hata verir.
-
-Geçmiş satırlar `kurulum/kasa-kartlarini-onar.js` ile yedekli ve geri alınabilir
-biçimde onarılır; müşteri bilgisayarında kurulu programla nasıl çalıştırılacağı
-ve açılması gereken Vega kartları `kurulum/KASA-KARTI-ONARIM.md` içinde.
-
-## Satış faturası serisi
-
-Belge numarası önce o firma/dönemde **Vega'nın kendi satış faturası serisini**
-bulmaya çalışır: `TBLSATFATBASLIK.BELGENO`'daki en sık kullanılan tek harf önek
-(ör. "A") bulunur ve numara **oradan devam eder** — program kendi ayrı bir
-serisini değil, işletmenin gerçek/vergi dairesine bildirilmiş serisini
-sürdürür. O firma/dönemde hiç fatura yoksa (yeni firma/dönem), Ayarlar
-ekranındaki öneğe (varsayılan `H`) düşülür.
-
-Numara **program genelinde tek sayaçtır**: aynı belgede yazılan fatura, kasa
-dekontu ve tahsilat aynı seriden ayrı ayrı numara alır — hepsi
-`WITH (UPDLOCK, HOLDLOCK)` ile aralık kilitlenerek okunur, bu programın kendi
-kopyaları aynı anda çalışsa bile numara çakışmaz. (VegaWin'in kendi ekranından
-tam o anda girilen bir belgeyle çakışma riski sıfırlanmaz — kullanım şeklinin
-bunu örtüşmediği varsayılıyor.)
-
-## Kasa tipleri nereden geliyor
-
-İki kaynaktan besleniyor, ikisi de tek listede (`BD_KasaTipi`) birleşiyor:
-
-1. **Vega'dan otomatik:** stok kartında `KOD1 = 'KASA'` işaretli olanlar
-   (gerçek işletme verisiyle doğrulandı), kod/ad/depozito ile birlikte her
-   okumada otomatik eklenir.
-2. **Elle eklenen:** Vega'da işareti olmayan tipler (ör. eski Access
-   programından kalan PK, SBÜYÜK, SMUZ, UP gibi kodlar) Ayarlar ekranından
-   elle eklenir.
-
-Dara (kap boşken kaç kg) Vega'da hiçbir şekilde tutulmuyor — kaynağı ne
-olursa olsun her kasa tipi için elle girilir. Senkronizasyon yalnızca EKLER;
-var olan bir satırın adını/depozitosunu/darasını değiştirmez, elle
-düzeltilmiş bir değer ezilmesin diye.
-
-## Kurulum
-
-### 1. SQL kullanıcısı (bir kez, sunucuda)
-
-`kurulum/sql-kullanici-olustur.sql` içindeki şifreyi değiştirin, sonra SQL
-Server'ın kurulu olduğu makinede çalıştırın:
-
-```
 sqlcmd -S localhost -E -C -i kurulum\sql-kullanici-olustur.sql
 ```
 
-Betik `belge_doldurucu` kullanıcısını oluşturur ve VEGADB üzerinde **tam
-yetki (db_owner)** verir — program dört küçük yardımcı tabloyu kendisi kurup
-yazacağı için salt okuma yetmiyor. Yazılabilirlik programın kendi tarafında
-Ayarlar ekranındaki anahtarla ayrıca korunuyor.
+`belge_doldurucu` kullanıcısı VEGADB üzerinde `db_owner` alır: program yardımcı tabloları
+kendisi kurar ve yazar. Yazılabilirlik ayrıca programdaki kilitle korunur.
 
-### 2. Program (her bilgisayara)
+**2. Program** — her bilgisayara. [Son sürümün](https://github.com/saidbayraqtars/hizli-belge-doldurucu-releases/releases/latest)
+`Hizli-Belge-Doldurucu-Setup-x.y.z.exe` dosyası kurulur. Ayarlar'dan sunucu ve şifre
+girilir, **Bağlantıyı Dene** ile doğrulanır, firma/dönem seçilip kaydedilir, yazma açılır.
+Firma ve dönem listesi sabit değildir: veritabanında gerçekten bulunanlar, her dönemin
+hareket sayısı ve son hareket tarihiyle gösterilir.
 
-`Hizli Belge Doldurucu Setup x.y.z.exe` çalıştırılır. Program ilk açılışta kendi
-ayar dosyasını oluşturur:
+**3. Ağdaki diğer bilgisayarlar** — SQL Server'da TCP/IP açık ve 1433 portu izinli olmalı;
+aynı kurulum dosyası kurulur, `sunucu` alanına SQL Server makinesinin adı yazılır. Kasa
+defteri VEGADB içinde durduğu için her bilgisayarda aynı görünür.
 
-```
-%APPDATA%\Hizli Belge Doldurucu\ayarlar.json
-```
+## 🪟 Windows 7 desteği
 
-Ayarlar ekranından sunucu adı ve şifre girilir, "Bağlantıyı Dene" ile
-doğrulanır, firma/dönem seçilip kaydedilir, Vega'ya yazma açılır.
-
-### 3. Ağdaki diğer bilgisayarlar
-
-SQL Server'da TCP/IP protokolü açık ve 1433 portu güvenlik duvarında izinli
-olmalı. Diğer bilgisayarlara aynı kurulum dosyası kurulur; ayarlarda `sunucu`
-alanına SQL Server'ın makine adı yazılır.
-
-Kasa depozito defteri VEGADB'nin içinde durduğu için bütün bilgisayarlarda
-aynı görünür.
-
-## Windows 7 desteği
-
-Program Windows 7 SP1 ve sonrasında çalışır. Bunun için sürümler bilerek geride
-tutuldu — yükseltilmemeli:
+Program Windows 7 SP1 ve sonrasında çalışır. Sürümler bilerek geride tutuldu —
+**yükseltmeyin**:
 
 | Bileşen | Sürüm | Neden |
 |---|---|---|
-| Electron | **22.3.27** | Windows 7/8/8.1 destekleyen **son** sürüm. 23 ve sonrası Windows 10 ister |
-| Node (gömülü) | 16.17 | Electron 22 ile gelir. Node 18+ Windows 7'yi bırakmıştır |
-| mssql | **9.3.2** | tedious 15 kullanır, Node 16 ile çalışır. mssql 10+ Node 18 ister |
+| Electron | **22.3.27** | Windows 7/8/8.1 destekleyen son sürüm |
+| Node (gömülü) | 16.17 | Electron 22 ile gelir; Node 18+ Windows 7'yi bıraktı |
+| mssql | **9.3.2** | tedious 15, Node 16 ile çalışır; mssql 10+ Node 18 ister |
 
-Ek olarak:
+- Kurulum dosyası **x64 ve 32-bit** üretilir.
+- Donanım hızlandırması kapalı — eski ekran kartlarında pencere bomboş açılıyordu.
+- SQL'de `TRY_CAST`, `OFFSET/FETCH`, `IIF`, `CONCAT`, `THROW` yok; rol ataması
+  `sp_addrolemember` ile — sunucu SQL Server 2008 olabilir.
+- Arayüzde özel font ve dış kaynak yok; CSP tüm dış istekleri kapatır.
+- Windows oturumuyla bağlanma paketlenmez (`msnodesqlv8` yerel sürücüsü 32/64-bit ayrı
+  derleme ister). Gerekirse `windowsGirisi: true` ve yeniden derlemeyle açılabilir.
 
-- Kurulum dosyası **x64 ve 32-bit** olarak üretilir (eski makineler 32-bit olabilir).
-- Donanım hızlandırması kapalı (`app.disableHardwareAcceleration`) — eski ekran
-  kartı sürücülerinde pencere bomboş açılıyordu.
-- SQL sorgularında `TRY_CAST`, `OFFSET/FETCH`, `IIF`, `CONCAT`, `THROW` gibi
-  SQL Server 2012+ söz dizimi kullanılmıyor; eski sunucularda da çalışır.
-  Kurulum betiği rol atamasını `sp_addrolemember` ile yapıyor — `ALTER ROLE ...
-  ADD MEMBER` SQL Server 2012 ister, Windows 7 makinelerinde SQL Server 2008
-  çıkabiliyor.
-- Arayüzde özel font ve dış kaynak yok; CSP tüm dış istekleri kapatıyor.
-- **Windows oturumuyla bağlanma yok.** Bunun için gereken `msnodesqlv8` yerel
-  (native) sürücüsü kurulum dosyasına paketlenmiyor: 32-bit ve 64-bit için ayrı
-  derlenmiş ikili gerektiriyor ve Windows 7'de kırılgan. Program SQL kullanıcı
-  adı/şifresiyle bağlanır — kurulum betiği bu kullanıcıyı zaten oluşturuyor.
-  Gerekirse `npm i msnodesqlv8`, `ayarlar.json` içinde `windowsGirisi: true` ve
-  yeniden derleme ile açılabilir; `db/sql.js` bu yolu destekliyor.
+## 🧪 Geliştirme
 
-## Geliştirme
-
-```
+```powershell
 npm install
-npm start            # programı çalıştır
-npm run test:db      # okuma sınaması (Electron gerekmez)
-npm run test:yazma   # yazma sınaması (aşağıdaki hazırlık gerekli)
-npm run dist         # kurulum dosyasını üret (x64 + 32-bit)
+npm start              # programı çalıştır
+npm run test:db        # okuma sınaması
+npm run test:rapor     # rapor birim testleri
+npm run test:yazma     # yazma sınaması (VEGA_TEST gerekir)
+npm run dist           # kurulum dosyası (x64 + 32-bit)
+npm run yayinla        # derle ve GitHub Releases'e yükle
 ```
 
-Sınamalar bağlantı bilgilerini proje kökündeki `ayarlar.json` dosyasından alır.
+Sınamalar bağlantıyı proje kökündeki `ayarlar.json`'dan alır.
 
 ### Yazma sınaması
 
-Yazma yolu **müşteri verisine dokunulmadan** sınanır: yapısı VEGADB'den
-kopyalanmış boş bir `VEGA_TEST` veritabanında çalışır. Bir kez hazırlık:
+Yazma yolu **müşteri verisine dokunmadan**, yapısı VEGADB'den kopyalanmış boş bir
+`VEGA_TEST` veritabanında sınanır:
 
-```
+```powershell
 sqlcmd -S localhost -E -C -i kurulum\vega-test-olustur.sql
 npm run test:yazma
 ```
 
-Betik `VEGA_TEST` veritabanını sıfırdan kurar, tabloların yapısını kopyalar
-(`SELECT * INTO ... WHERE 1=0` kalıbı IDENTITY'yi korur), kart tablolarına
-birkaç örnek satır ve adında KASA geçen sınama amaçlı bir kart koyar. Program
-kendi ayrı bir veritabanı tutmadığı için `BD_` tabloları da VEGA_TEST'in
-içine kurulur — ayrıca bir "kendi test veritabanı" gerekmiyor.
+Sınama adı `VEGA_TEST`'ten farklı bir veritabanı görürse **hiçbir şey yapmadan çıkar**.
+Kapsadığı başlıca konular: faturanın beş tablodaki bağları, cari bakiye, tahsilatın nakit
+yazılması, cari girişte stoğun etkilenmemesi, kasa defteri ve iadesi, kasa kartının
+programdan açılması ve çakışan kodun reddi, güncelleme bakımları ve geri almanın hiç iz
+bırakmaması.
 
-Sınama, adı `VEGA_TEST`'ten farklı bir veritabanı görürse hiçbir şey yapmadan
-çıkar — yanlışlıkla canlı veritabanına yazmayı engelleyen koruma bu.
+> [!TIP]
+> **`ELECTRON_RUN_AS_NODE` tuzağı.** Bu değişken kabukta tanımlıysa Electron pencere
+> açmaz ve `Cannot read properties of undefined (reading 'disableHardwareAcceleration')`
+> verir. Temizleyin: `unset ELECTRON_RUN_AS_NODE` ya da PowerShell'de
+> `Remove-Item Env:ELECTRON_RUN_AS_NODE`.
 
-Sınadığı şey: beş tablonun doğru bağ alanlarıyla dolduğu, cari bakiyenin doğru
-değiştiği, tahsilatın ayrı bir cari giriş olarak yazıldığı, "Cari Çıkış"
-seçildiğinde stoğun etkilenmediği, kasa defterinin (`BD_KasaHareket`) doğru
-işlediği, kasa iadesinin bakiyeyi düşürdüğü ve geri almanın hiç iz
-bırakmadığı.
+### 📁 Dosya düzeni
 
-> **`ELECTRON_RUN_AS_NODE` tuzağı.** Bu ortam değişkeni set ise Electron
-> pencere açmaz, `Cannot read properties of undefined (reading
-> 'disableHardwareAcceleration')` verir. Kabuğunuzda varsa temizleyin:
-> `unset ELECTRON_RUN_AS_NODE` (PowerShell'de
-> `Remove-Item Env:ELECTRON_RUN_AS_NODE`).
-
-## Dosya düzeni
-
-```
-main.js              Electron ana süreç, IPC uçları
-preload.js           Arayüzün erişebildiği kanal beyaz listesi
-ui/                  Arayüz (index.html + app.css + app.js) — çerçeve yok
-db/ayar.js           ayarlar.json okuma/yazma
-db/sql.js            SQL Server bağlantı havuzu, sorgu ve işlem yardımcıları
-db/firma.js          Firma ve dönem keşfi, tablo adı üretimi
-db/vega.js           VEGADB okumaları (tek satır yazma yok)
-db/yardimci.js       VEGADB'nin İÇİNE kurulan 3 küçük tablo — dara, kasa defteri, yazma günlüğü
-db/yazma.js          VEGADB'ye yazan HER ŞEY — varsayılan kapalı
-kurulum/BELGE-DESENI.md      Yazma deseni — yazmaya dokunmadan önce okunur
-kurulum/sql-kullanici-olustur.sql   SQL kullanıcısı + VEGADB üzerinde tam yetki
-kurulum/vega-test-olustur.sql       VEGA_TEST boş kopya (yazma sınaması için)
-kurulum/test-sorgular.js     okuma sınaması
-kurulum/test-yazma.js        yazma sınaması
+```text
+main.js                 Electron ana süreç, IPC uçları, güncelleme sonrası bakım
+preload.js              Arayüzün erişebildiği kanal beyaz listesi
+ui/                     Arayüz (index.html · app.css · app.js) — çerçeve yok
+db/
+├─ ayar.js              ayarlar.json okuma/yazma
+├─ sql.js               bağlantı havuzu, sorgu ve transaction yardımcıları
+├─ firma.js             firma/dönem keşfi, tablo adı üretimi
+├─ vega.js              VEGADB okumaları (yazma yok)
+├─ yazma.js             VEGADB'ye yazan her şey — varsayılan kapalı
+├─ kasa.js              kasa tipi ↔ Vega kasa kartı eşleşmesi, kart açma
+├─ yardimci.js          VEGADB içindeki BD_ tabloları
+├─ rapor.js             haftalık rapor ve ayrıntılı döküm
+├─ cari.js              cari listesi
+└─ guncelleme.js        otomatik güncelleme
+kurulum/
+├─ BELGE-DESENI.md      yazma deseni — yazmaya dokunmadan önce okunur
+├─ KASA-KARTI-ONARIM.md kasa kartı ve geçmiş satır onarımı
+├─ gecmis-belgeleri-duzelt.js · kasa-kartlarini-onar.js   bakım araçları
+├─ sql-kullanici-olustur.sql · vega-test-olustur.sql      kurulum betikleri
+└─ test-*.js            sınamalar
 ```
 
-Kod ve değişken adları Türkçe. Sürdürün — yarısı Türkçe yarısı İngilizce bir kod
-tabanını okumak zorlaşıyor.
+> [!NOTE]
+> Kod ve değişken adları **Türkçe**. Sürdürün — yarısı Türkçe yarısı İngilizce bir kod
+> tabanını okumak zorlaşıyor.
 
-## Bilinen durum
+## 📌 Bilinen durum
 
-- **Yazma yolu `VEGA_TEST` üzerinde sınandı, ama yazdığımız belge VegaWin'in
-  KENDİ ekranında açılıp görülmedi.** Canlıya almadan önce
-  `kurulum/BELGE-DESENI.md` §8 yapılmalı: bir belge yazılıp Vega'nın fatura ve
-  cari çıkış ekranında doğru göründüğü teyit edilmeli. Geri alma hazır, o yüzden
-  deneme geri sarılabilir.
-- Fatura serisi tespiti (Vega'nın gerçek harfini bulup sürdürme) yeni: önce
-  DEMO ya da az önemli bir firma/dönemde denenmeli, tespit edilen harfin
-  gerçekten doğru olduğu gözle de doğrulanmalı.
-- Kasa tipleri (PK, SBÜYÜK, SMUZ, UP...) Vega'da hiç yok — eski Access
-  programının kendi kodlarıydı. Bu yüzden Vega'dan OKUNMUYOR; Ayarlar
-  ekranından elle eklenir (kod, ad, dara, depozito).
-- Cari giriş/çıkış başlığında **Şube** (`OZELKOD1`) ve **Kasa** (`OZELKOD2`)
-  doldurulur — Vega'nın ekranında bu iki alan boş olamaz. Ad sabit yazılmaz, o
-  firmanın kendi belgelerinden en çok geçen değer okunur (tek şubeli
-  kurulumlarda `MERKEZ`). Boş bırakılırsa kullanıcı belgeyi Vega'da açıp elle
-  doldurmak zorunda kalıyor ve kaydedince Vega belgeyi yeniden postalayarak
-  cariye **ikinci bir hareket** yazıyor (mükerrer belge).
-- Ödeme aracı alanları (`IZAHAT`, `PORTNO`, `BANKANO`) yalnızca **tahsilat**
-  dekontunda doldurulur (nakit) ve o zaman Vega'nın kasa defterine de satır
-  yazılır. Müşteriyi borçlandıran ürün/kasa dekontunda bilerek boş bırakılır —
-  yoksa Vega'nın kasa raporunda karşılığı olmayan bir para görünür; gerekçesi
-  `BELGE-DESENI.md` §5'te.
+- Fatura serisi tespiti yeni bir firma/dönemde ilk kez kullanılırken bulunan harf gözle
+  doğrulanmalı.
+- İade fişinin `AFIYATI`/`BIRIMMALIYET` deseni gerçek VegaWin girişiyle yeniden
+  karşılaştırılana kadar önceki değerler korunuyor.
 - Program simgesi yok, varsayılan Electron simgesi kullanılıyor.
-- Otomatik güncelleme yok. Gerekirse `electron-updater` 5.x eklenebilir
-  (6.x Windows 7 ile denenmedi); kurulum dosyaları için ayrı ve **açık** bir
-  release deposu gerekir.
+
+<div align="center">
+
+---
+
+**Bayraktar Yazılım** · VegaWin ile birlikte çalışan, VegaWin'in yerini almayan bir yardımcı
+
+</div>

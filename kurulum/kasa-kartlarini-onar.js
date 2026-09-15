@@ -1,8 +1,11 @@
 'use strict';
 
 // Yalnız BD_Islem.Yazilan ile tek tek kanıtlanan kasa satırlarını onarır.
-// Varsayılan tarama salt okunurdur. --uygula yedek alır ve tek transaction'da
-// yerinde UPDATE yapar; --geri-al aynı satırları önceki değerine döndürür.
+// Varsayılan tarama salt okunurdur. --uygula önce programdan açılıp Vega'ya
+// işlenmemiş kasa tiplerinin kartlarını açar, sonra yedek alır ve tek
+// transaction'da yerinde UPDATE yapar; --geri-al aynı satırları önceki
+// değerine döndürür (açılan kartlar silinmez). Paketli uygulama güncellemeden
+// sonra aynı işi otomatikCalistir ile bir kez yapar (main.js).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -31,6 +34,7 @@ if (cli && !process.env.BELGE_AYAR_DOSYASI) {
 const sql = require('../db/sql');
 const { ayarOku } = require('../db/ayar');
 const firmaDb = require('../db/firma');
+const kasa = require('../db/kasa');
 
 function veritabani() {
   const v = String(ayarOku().vegaVeritabani || '');
@@ -255,11 +259,160 @@ async function geriAl(yedek) {
   return yedek.duzeltmeler.length;
 }
 
+// --- Eksik Vega kasa kartları -------------------------------------------------
+//
+// 15.09.2026'ya kadar programdan eklenen kasa tipleri yalnız BD_KasaTipi'ye
+// yazılıyordu (müşteride MPK, MUP, S.MUZ, KAYIK, XSMUZ, MSK, İNCİR). Programın
+// yazdığı her firmada, aktif ya da o firmada kullanılmış tipin kartı yoksa
+// VegaWin'in kendi kasa kartı deseniyle açılır (db/kasa.js). Kod başka bir
+// kartta duruyorsa (KASA işaretsiz ürün, silinmiş kart) dokunulmaz ve
+// "engelli" olarak raporlanır; ürün kartı kasaya çevrilmez.
+async function eksikKartlariTara(o = {}) {
+  const v = veritabani();
+  const p = {};
+  if (o.firma) p.firma = o.firma;
+  const firmalar = await sql.sorgu(`SELECT Firma, MAX(Donem) AS Donem FROM (
+      SELECT Firma, Donem FROM [${v}].dbo.BD_Islem
+      UNION ALL SELECT Firma, Donem FROM [${v}].dbo.BD_KasaHareket
+      UNION ALL SELECT Firma, Donem FROM [${v}].dbo.BD_BelgeSatir) X
+    WHERE ISNULL(Firma,'')<>'' ${o.firma ? 'AND Firma=@firma' : ''}
+    GROUP BY Firma ORDER BY Firma`, p);
+  if (o.firma && !firmalar.length) firmalar.push({ Firma: o.firma, Donem: null });
+  const rapor = { veritabani: v, taramaTarihi: new Date().toISOString(),
+    firmalar: [], acilacak: [], engelli: [] };
+  for (const f of firmalar) {
+    let firma;
+    try { ({ firma } = await firmaDb.dogrula(f.Firma, f.Donem || undefined)); }
+    catch (e) { rapor.engelli.push({ firma: f.Firma, neden: e.message }); continue; }
+    rapor.firmalar.push(firma);
+    const kullanilan = new Set((await sql.sorgu(`
+      SELECT KasaTipiKod AS kod FROM [${v}].dbo.BD_BelgeSatir
+      WHERE Firma=@firma AND ISNULL(KasaAdedi,0)<>0
+      UNION SELECT StokKodu FROM [${v}].dbo.BD_KasaHareket WHERE Firma=@firma`,
+    { firma })).map((x) => kod(x.kod)));
+    for (const e of await kasa.kasaTipiEslesmeleri(firma)) {
+      if (e.durum === 'hazir') continue;
+      const kullanildi = kullanilan.has(kod(e.kod));
+      if (!e.aktif && !kullanildi) continue;
+      const kayit = { firma, tipId: e.id, kod: e.kod, ad: e.ad, dara: e.dara,
+        depozito: e.depozito, aktif: e.aktif, kullanildi };
+      if (e.durum === 'kartYok' && !e.cakisan) rapor.acilacak.push(kayit);
+      else rapor.engelli.push({ ...kayit, neden: e.neden });
+    }
+  }
+  return rapor;
+}
+
+// Her kart kendi transaction'ında açılır: bir koddaki sorun ötekileri durdurmaz.
+async function eksikKartlariAc(rapor) {
+  if (rapor.veritabani!==veritabani()) throw new Error('Tarama başka veritabanına ait.');
+  if (!ayarOku().vegayaYazmaAktif) throw new Error("Vega'ya yazma kapalı; kasa kartı açılmadı.");
+  const sonuc = { acilan: [], atlanan: [], hatalar: [] };
+  for (const k of rapor.acilacak) {
+    try {
+      const acilan = await sql.islem(async (t) => {
+        const [e] = await kasa.kasaTipiEslesmeleri(k.firma, { idler: [k.tipId], t, kilitle: true });
+        if (!e || kod(e.kod) !== kod(k.kod)) throw new Error(`Kasa tipi taramadan sonra değişmiş: ${k.kod}`);
+        if (e.durum === 'hazir') return null;
+        if (e.durum !== 'kartYok' || e.cakisan) throw new Error(e.neden);
+        const r = await kasa.vegaKasaKartiAc(t, { firma: k.firma, kod: e.kod, ad: e.ad,
+          dara: e.dara, depozito: e.depozito });
+        const [son] = await kasa.kasaTipiEslesmeleri(k.firma, { idler: [k.tipId], t });
+        if (son.durum !== 'hazir') throw new Error(son.neden);
+        return r;
+      });
+      if (acilan) sonuc.acilan.push({ ...k, stokNo: acilan.stokNo, birimEx: acilan.birimEx });
+      else sonuc.atlanan.push(k);
+    } catch (e) {
+      sonuc.hatalar.push({ ...k, neden: e.message });
+    }
+  }
+  return sonuc;
+}
+
+function durumOku(dosya) {
+  try {
+    const d = JSON.parse(fs.readFileSync(dosya, 'utf8').replace(/^\uFEFF/, ''));
+    if (d && typeof d === 'object' && d.tamamlananlar) return d;
+  } catch (e) { /* ilk çalışma ya da bozuk dosya: yeniden taranır */ }
+  return { surum: 1, tamamlananlar: {} };
+}
+function durumYaz(dosya, d) {
+  fs.mkdirSync(path.dirname(dosya), { recursive: true });
+  fs.writeFileSync(dosya, JSON.stringify(d, null, 2), 'utf8');
+}
+function logYaz(log, seviye, mesaj) {
+  try { if (log && typeof log[seviye] === 'function') log[seviye](mesaj); }
+  catch (e) { /* günlük arızası bakım sonucunu değiştirmez */ }
+}
+
+// Paketli uygulama güncellendikten sonra açılışta çağrılır. Tamamlanma anahtarı
+// sürüm + sunucu + veritabanıdır. Yazma kapalıysa ya da bir kart açılamadıysa
+// anahtar yazılmaz; sonraki açılışta yeniden denenir (iki adım da idempotent).
+async function otomatikCalistir(secenek) {
+  const o = secenek || {};
+  const a = ayarOku();
+  if (!a.vegayaYazmaAktif) {
+    logYaz(o.log, 'info', "[kasa-karti-bakim] Vega'ya yazma kapalı; atlandı.");
+    return { atlandi: true, neden: 'yazma-kapali', acilanKart: 0 };
+  }
+  const v = veritabani();
+  const durumYolu = o.durumYolu || path.join(process.env.LOCALAPPDATA || os.tmpdir(),
+    'hizli-belge-doldurucu-bakim', 'kasa-karti-bakim-durumu.json');
+  const anahtar = [String(o.surum || 'bilinmeyen'),
+    String(a.sunucu || 'localhost').trim().toLocaleLowerCase('tr-TR'),
+    Number(a.port) || 1433, v.toLocaleLowerCase('tr-TR')].join('|');
+  const durum = durumOku(durumYolu);
+  if (durum.tamamlananlar[anahtar]) {
+    return { atlandi: true, neden: 'daha-once-tamamlandi', acilanKart: 0, kayit: durum.tamamlananlar[anahtar] };
+  }
+
+  await sql.baglantiTesti();
+  await require('../db/yardimci').hazirla();
+
+  const kartRaporu = await eksikKartlariTara({});
+  const kartSonucu = await eksikKartlariAc(kartRaporu);
+  const kartDosyasi = dosyaYaz('otomatik-kartlar', { ...kartRaporu, sonuc: kartSonucu });
+  const onarim = await uygula(await tara({}));
+  const son = await tara({});
+  const dogrulamaDosyasi = dosyaYaz('otomatik-dogrulama', son);
+  if (son.duzeltmeler.length) {
+    throw new Error(`Son taramada ${son.duzeltmeler.length} kasa satırı düzeltmesi kaldı; yedek: ${onarim.yedek}`);
+  }
+
+  const kayit = { tamamlanmaTarihi: new Date().toISOString(), uygulamaSurumu: String(o.surum || ''),
+    veritabani: v, acilanKart: kartSonucu.acilan.length, engelliKart: kartRaporu.engelli.length,
+    duzeltilenSatir: onarim.adet, kartBekleyen: son.kartBekleyen.length, riskli: son.riskli.length,
+    kartDosyasi, yedek: onarim.yedek, dogrulamaDosyasi };
+  const ozet = `${kayit.acilanKart} kart açıldı, ${kayit.duzeltilenSatir} kasa satırı onarıldı, ` +
+    `${kayit.engelliKart} kod çakışması, ${kayit.riskli} elle incelenecek satır.`;
+  if (kartSonucu.hatalar.length) {
+    logYaz(o.log, 'error', `[kasa-karti-bakim] ${ozet} Açılamayan kart: ` +
+      kartSonucu.hatalar.map((h) => `${h.firma}/${h.kod}: ${h.neden}`).join('; '));
+    return { atlandi: false, tamamlandi: false, ...kayit, hatalar: kartSonucu.hatalar };
+  }
+  durum.tamamlananlar[anahtar] = kayit;
+  durumYaz(durumYolu, durum);
+  logYaz(o.log, 'info', `[kasa-karti-bakim] Tamamlandı: ${ozet} Rapor: ${kartDosyasi}`);
+  return { atlandi: false, tamamlandi: true, ...kayit };
+}
+
 async function ana() {
   await sql.baglantiTesti();
   if (cli.geriAl) {
     const adet = await geriAl(JSON.parse(fs.readFileSync(path.resolve(cli.geriAl),'utf8')));
     console.log(`Geri alındı: ${adet} kasa satırı.`); return;
+  }
+  const kartRaporu = await eksikKartlariTara(cli);
+  console.log(`Vega kartı açılacak kasa tipi: ${kartRaporu.acilacak.length}; ` +
+    `açılamayan (kod çakışması vb.): ${kartRaporu.engelli.length}.`);
+  for (const x of kartRaporu.acilacak) console.log(`Kart açılacak: ${x.firma} / ${x.kod}`);
+  for (const x of kartRaporu.engelli) console.log(`Kart açılamaz: ${x.firma} / ${x.kod || '-'}: ${x.neden}`);
+  if (cli.uygula && kartRaporu.acilacak.length) {
+    const k = await eksikKartlariAc(kartRaporu);
+    const dosya = dosyaYaz('acilan-kartlar', { ...kartRaporu, sonuc: k });
+    console.log(`Açılan Vega kasa kartı: ${k.acilan.length}; hata: ${k.hatalar.length}. Ayrıntı: ${dosya}`);
+    for (const h of k.hatalar) console.log(`Açılamadı: ${h.firma} / ${h.kod}: ${h.neden}`);
   }
   const rapor = await tara(cli);
   const raporDosyasi = dosyaYaz('tarama',rapor);
@@ -270,7 +423,7 @@ async function ana() {
   if (!cli.uygula) {
     for (const x of rapor.kartBekleyen.slice(0,20)) console.log(`Kart bekliyor: ${x.kod} / işlem ${x.islemId}`);
     for (const x of rapor.riskli.slice(0,20)) console.log(`Elle incele: işlem ${x.islemId}: ${x.neden}`);
-    console.log('Veri değiştirilmedi. Kartlar açılıp riskli satırlar incelendikten sonra --uygula kullanın.');
+    console.log('Veri değiştirilmedi. --uygula eksik kasa kartlarını açar, sonra kasa satırlarını onarır.');
     return;
   }
   const sonuc = await uygula(rapor);
@@ -281,4 +434,4 @@ async function ana() {
 }
 if (require.main===module) ana().catch((e)=>{console.error(`Kasa kartı bakımı durdu: ${e.message}`);process.exitCode=1;})
   .finally(()=>sql.havuzKapat());
-module.exports = { tara, uygula, geriAl };
+module.exports = { tara, uygula, geriAl, eksikKartlariTara, eksikKartlariAc, otomatikCalistir };

@@ -503,12 +503,13 @@
     <div class="kutu">
       <h2>Kasa Tipleri</h2>
       <p class="ipucu">
-        Vega'da stok kartında KOD1 = "KASA" işaretli olanlar buraya otomatik
-        eklenir (depozito bedeliyle birlikte). Dara (kap boşken kaç kg) Vega'da
-        hiç tutulmadığı için burada elle girilir. Vega'da işaretli olmayan
-        kasa tipleri de (ör. eski Access programından kalan PK, SBÜYÜK gibi
-        kodlar) aşağıdan elle eklenebilir.
+        Yalnız seçili firmada Vega stok kartı KOD1 = "KASA" olan tipler
+        listelenir; depozito ve dara Vega kartından okunur. Buradan eklenen ya
+        da kaydedilen tip Vega'ya da yazılır: kartı yoksa aynı kodla KASA kartı
+        açılır, varsa adı, depozitosu ve darası karta işlenir. Silinen tip
+        seçilemez; Vega kartı ve geçmiş hareketler silinmez.
       </p>
+      <p class="ipucu gizli" id="kasaTipiSorunlari"></p>
       <table class="veri" id="kasaTipiTablo">
         <thead>
           <tr>

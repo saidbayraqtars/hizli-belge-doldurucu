@@ -28,6 +28,7 @@ const { sorgu, calistir, islem } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
 const yardimci = require('./yardimci');
+const { kasaKartlariniCoz } = require('./kasa');
 
 function vt() {
   return ayarOku().vegaVeritabani;
@@ -45,61 +46,6 @@ function kilitKontrol() {
 
 function yazmaAcikMi() {
   return !!ayarOku().vegayaYazmaAktif;
-}
-
-// Arayüzdeki kasaStokNo, geçmişten kalan adına rağmen BD_KasaTipi.Id'dir.
-// Vega kart numarası firma bazında değişebilir; eşleşmeyi her yazmada koddan
-// çözerek başka firmaya ait veya artık geçersiz bir IND kullanılmasını önleriz.
-async function kasaKartlariniCoz(firma, tipIdleri, t) {
-  const idler = [...new Set(tipIdleri.map(Number))];
-  if (idler.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
-    throw new Error('Geçersiz kasa tipi seçimi.');
-  }
-  if (!idler.length) return new Map();
-  const v = vt();
-  const oku = t ? t.sorgu : sorgu;
-  const stokTablosu = kart(v, firma, 'TBLSTOKLAR');
-  const aktifKart = (await sutunlariGetir(stokTablosu)).has('DELETED')
-    ? 'AND ISNULL(S.DELETED, 0) = 0' : '';
-  const satirlar = await oku(`
-    SELECT KT.Id AS tipId, KT.Kod AS tipKodu, KT.Aktif,
-           S.IND AS stokNo, S.STOKKODU AS kod, S.MALINCINSI AS ad,
-           ISNULL(S.STOKTIPI, 0) AS stokTipi, ISNULL(S.MALIYET, 0) AS maliyet,
-           B.IND AS birimEx, B.BIRIMADI AS birim, B.CARPAN AS carpan
-    FROM [${v}].dbo.BD_KasaTipi KT
-    LEFT JOIN ${stokTablosu} S
-      ON UPPER(LTRIM(RTRIM(S.STOKKODU))) = UPPER(LTRIM(RTRIM(KT.Kod)))
-     AND UPPER(LTRIM(RTRIM(ISNULL(S.KOD1, '')))) = 'KASA'
-     ${aktifKart}
-    LEFT JOIN ${kart(v, firma, 'TBLBIRIMLEREX')} B
-      ON B.STOKNO = S.IND AND B.VARSAYILAN = 1
-    WHERE KT.Id IN (${idler.join(',')})
-  `);
-  const sonuc = new Map();
-  for (const id of idler) {
-    const eslesenler = satirlar.filter((s) => Number(s.tipId) === id);
-    if (!eslesenler.length || !eslesenler[0].Aktif) {
-      throw new Error(`Kasa tipi bulunamadı veya pasif: ${id}.`);
-    }
-    const kod = String(eslesenler[0].tipKodu || '').trim();
-    const kartNumaralari = new Set(eslesenler.map((s) => Number(s.stokNo)).filter(Boolean));
-    if (!kartNumaralari.size) {
-      throw new Error(`${kod} kasa tipinin Vega'da etkin stok kartı yok. KOD1=KASA ve STOKKODU=${kod} kartını açın.`);
-    }
-    if (kartNumaralari.size > 1) throw new Error(`${kod} koduyla Vega'da birden çok etkin kasa kartı var.`);
-    if (eslesenler.length > 1) throw new Error(`${kod} Vega kasa kartında birden çok varsayılan birim var.`);
-    const s = eslesenler[0];
-    if (!Number(s.birimEx)) {
-      throw new Error(`${kod} kasa kartının Vega'da varsayılan birimi yok.`);
-    }
-    sonuc.set(id, {
-      stokNo: Number(s.stokNo), kod, ad: String(s.ad || kod).trim(),
-      stokTipi: Number(s.stokTipi) || 0, maliyet: Number(s.maliyet) || 0,
-      birimEx: Number(s.birimEx), birim: String(s.birim || '').trim(),
-      carpan: Number(s.carpan) || 1
-    });
-  }
-  return sonuc;
 }
 
 // --- Belge tipleri (kurulum/BELGE-DESENI.md) --------------------------------
