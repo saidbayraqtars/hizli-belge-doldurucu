@@ -2,3 +2,6 @@ node_modules/
 dist/
 ayarlar.json
 *.log
+
+# AI devir notlari (sunucu/erisim bilgisi icerir)
+AI-DEVIR-NOTLARI.md

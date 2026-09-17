@@ -14,8 +14,8 @@
 //
 //   2. Müşteri dönem dökümü (haftalikDetay) — Ekstre ekranındaki ayrıntılı rapor
 //      CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | SAFİ KG | FİYAT | TUTAR |
-//      AÇIKLAMA | FİŞ NO. Aynı fişte aynı kasa türü tek kez toplam adet ve
-//      toplam tutarla gösterilir.
+//      AÇIKLAMA | FİŞ NO. Kasa her ürün satırında kendi adediyle durur; fişin
+//      türe göre kasa toplamı ara toplam satırında (17.09.2026).
 //      + DEVİR, KASA ÖZETİ, S.TUTARI, ÖDEME bloğu, BAKİYE
 //      05.09.2026 (kullanıcı isteği): satılan ürünün SAFİ KG'ı (dara düşülmüş
 //      kilo) FİYAT'ın önüne sütun olarak kondu. Ayrı "Verilen Kasalar" bloğu
@@ -578,9 +578,196 @@ async function haftalikDetay(secenek) {
   };
 }
 
+// --- 3. Ödeme geçmişi ----------------------------------------------------------
+//
+// 17.09.2026 kullanıcı isteği: müşterinin ödeme geçmişi ayrı sayfada, yöntemi
+// (nakit / havale / EFT) ve açıklamasıyla, yazdırılabilir.
+//
+// Kaynak Vega'nın kendi defteri — programdan girilmemiş ödemeler de gelir:
+//   IZAHAT 13 (Cari Giriş) ALACAK satırları: yöntem, başlığa (LN) bağlı
+//     TBLCARGIRHAREKET satırlarının ödeme aracından (1 nakit, 11 banka,
+//     2 çek, 3 senet, 4 kredi kartı). Banka satırında Havale/EFT ayrımı satır
+//     açıklamasından okunur ("HAVALE" / "EFT" — bkz. yazma.js → odemeYaz).
+//   IZAHAT 83: bankadan girilmiş havale.
+// Mal satışını cari giriş olarak yazan dekont BORÇ taşıdığı için dışarıda kalır.
+const ODEME_YONTEM_ADI = {
+  nakit: 'Nakit (Kasa)',
+  havale: 'Havale',
+  eft: 'EFT',
+  banka: 'Banka',
+  kart: 'Kredi Kartı',
+  cek: 'Çek',
+  senet: 'Senet',
+  diger: 'Belirtilmemiş'
+};
+
+function odemeYontemiCoz(izahat, odemeAraci, satirAciklamasi) {
+  if (String(izahat == null ? '' : izahat).trim() === '83') return 'havale';
+  const metin = String(satirAciklamasi || '').trim().toLocaleUpperCase('tr-TR');
+  switch (Number(odemeAraci)) {
+    case 1: return 'nakit';
+    case 2: return 'cek';
+    case 3: return 'senet';
+    case 4: return 'kart';
+    case 11:
+      if (/^EFT\b/.test(metin)) return 'eft';
+      if (/HAVALE/.test(metin)) return 'havale';
+      if (/KRED[İI]/.test(metin)) return 'kart';
+      return 'banka';
+    default: return 'diger';
+  }
+}
+
+// "HAVALE - 7 Eylül" gibi program açıklamasının başındaki yöntem adı, yöntem
+// sütununda zaten yazdığı için tekrarlanmaz.
+function odemeNotu(baslik, satir) {
+  const temiz = (m) => String(m || '').trim()
+    .replace(/^(NAK[İI]T|HAVALE|EFT)\s*(-\s*|tahsilat\s*$|$)/i, '')
+    .trim();
+  const parcalar = [temiz(baslik), temiz(satir)].filter(Boolean);
+  const tekil = parcalar.filter((p, i) =>
+    parcalar.findIndex((d) => d.toLocaleUpperCase('tr-TR') === p.toLocaleUpperCase('tr-TR')) === i);
+  return tekil.join(' · ');
+}
+
+async function odemeGecmisi(secenek) {
+  const { firma, donem } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
+  const v = vt();
+  const hareketTablosu = tablo(v, firma, donem, 'TBLCARIHAREKETLERI');
+  const cariInd = Number(secenek && secenek.cariInd) || null;
+
+  const parametreler = {};
+  const kosullar = [];
+  if (cariInd) {
+    kosullar.push('H.FIRMANO = @cariInd');
+    parametreler.cariInd = cariInd;
+  }
+  let baslangic = null;
+  let bitis = null;
+  if (secenek && secenek.baslangic) {
+    baslangic = gunBasi(secenek.baslangic);
+    kosullar.push('H.TARIH >= @bas');
+    parametreler.bas = baslangic;
+  }
+  if (secenek && secenek.bitis) {
+    bitis = gunBasi(secenek.bitis);
+    const ertesi = new Date(bitis);
+    ertesi.setDate(bitis.getDate() + 1);
+    kosullar.push('H.TARIH < @ertesi');
+    parametreler.ertesi = ertesi;
+  }
+
+  const girisVar = (await tabloVarMi(firma, donem, 'TBLCARGIRBASLIK')) &&
+    (await tabloVarMi(firma, donem, 'TBLCARGIRHAREKET'));
+  const baslikTablosu = girisVar ? tablo(v, firma, donem, 'TBLCARGIRBASLIK') : null;
+  const satirTablosu = girisVar ? tablo(v, firma, donem, 'TBLCARGIRHAREKET') : null;
+
+  // Başlık LN ile bağlı; LN'si boş eski kayıtta cari + belge no ile bulunur.
+  // Bir tahsilat fişinde birden çok ödeme satırı (ör. nakit + kart) olabilir,
+  // bu yüzden satırlar ayrı ayrı geliyor ve JavaScript'te birleştiriliyor.
+  const satirlar = await sorgu(`
+    SELECT TOP 5000
+      H.IND AS ind, H.TARIH AS tarih, H.FIRMANO AS cariInd,
+      ${AD_IFADESI} AS cariAd,
+      LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) AS izahat,
+      ISNULL(H.EVRAKNO, '') AS belgeNo,
+      ISNULL(H.ALACAK, 0) AS alacak,
+      ${girisVar ? 'B.baslikAciklama' : "''"} AS baslikAciklama,
+      ${girisVar ? 'R.arac' : 'NULL'} AS arac,
+      ${girisVar ? 'R.satirTutar' : 'NULL'} AS satirTutar,
+      ${girisVar ? 'R.satirAciklama' : "''"} AS satirAciklama
+    FROM ${hareketTablosu} H
+    LEFT JOIN ${kart(v, firma, 'TBLCARI')} C ON C.IND = H.FIRMANO
+    ${girisVar ? `
+    OUTER APPLY (
+      SELECT TOP 1 GB.IND, CAST(GB.ACIKLAMA AS NVARCHAR(500)) AS baslikAciklama
+      FROM ${baslikTablosu} GB
+      WHERE LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) = '13'
+        AND ((ISNULL(H.LN, 0) > 0 AND GB.IND = H.LN)
+          OR (ISNULL(H.LN, 0) <= 0 AND GB.FIRMANO = H.FIRMANO AND GB.BELGENO = H.EVRAKNO))
+      ORDER BY GB.IND DESC
+    ) B
+    OUTER APPLY (
+      SELECT GH.IND AS satirInd, GH.IZAHAT AS arac, ISNULL(GH.TUTAR, 0) AS satirTutar,
+             CAST(GH.ACIKLAMA AS NVARCHAR(500)) AS satirAciklama
+      FROM ${satirTablosu} GH
+      WHERE GH.EVRAKNO = B.IND
+    ) R` : ''}
+    WHERE LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) IN ('13', '83')
+      AND ISNULL(H.ALACAK, 0) > 0
+      AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
+      ${kosullar.length ? 'AND ' + kosullar.join(' AND ') : ''}
+    ORDER BY H.TARIH, H.IND${girisVar ? ', R.satirInd' : ''}
+  `, parametreler);
+
+  // Aynı cari hareketine ait ödeme satırlarını topla.
+  const hareketler = new Map();
+  for (const s of satirlar) {
+    const anahtar = Number(s.ind);
+    if (!hareketler.has(anahtar)) hareketler.set(anahtar, { ana: s, parcalar: [] });
+    if (s.arac != null || s.satirTutar != null) hareketler.get(anahtar).parcalar.push(s);
+  }
+
+  const sonuc = [];
+  for (const { ana, parcalar } of hareketler.values()) {
+    const ortak = {
+      ind: Number(ana.ind),
+      tarih: ana.tarih,
+      cariInd: Number(ana.cariInd),
+      cariAd: String(ana.cariAd || '').trim(),
+      belgeNo: String(ana.belgeNo || '').trim()
+    };
+    const alacak = Number(ana.alacak) || 0;
+    const yontemler = new Set(parcalar.map((p) => odemeYontemiCoz(ana.izahat, p.arac, p.satirAciklama)));
+
+    if (parcalar.length <= 1 || yontemler.size === 1) {
+      const p = parcalar[0] || {};
+      const yontem = odemeYontemiCoz(ana.izahat, p.arac, p.satirAciklama);
+      sonuc.push(Object.assign({}, ortak, {
+        yontem,
+        yontemAdi: ODEME_YONTEM_ADI[yontem],
+        tutar: alacak,
+        aciklama: odemeNotu(ana.baslikAciklama, p.satirAciklama)
+      }));
+      continue;
+    }
+    // Karma yöntemli fiş: her ödeme satırı kendi yöntemi ve tutarıyla.
+    for (const p of parcalar) {
+      const yontem = odemeYontemiCoz(ana.izahat, p.arac, p.satirAciklama);
+      sonuc.push(Object.assign({}, ortak, {
+        yontem,
+        yontemAdi: ODEME_YONTEM_ADI[yontem],
+        tutar: Number(p.satirTutar) || 0,
+        aciklama: odemeNotu(ana.baslikAciklama, p.satirAciklama)
+      }));
+    }
+  }
+
+  const yontemToplamlari = new Map();
+  for (const s of sonuc) {
+    if (!yontemToplamlari.has(s.yontem)) {
+      yontemToplamlari.set(s.yontem, { yontem: s.yontem, yontemAdi: s.yontemAdi, adet: 0, tutar: 0 });
+    }
+    const t = yontemToplamlari.get(s.yontem);
+    t.adet += 1;
+    t.tutar += s.tutar;
+  }
+
+  return {
+    baslangic,
+    bitis,
+    cari: cariInd ? await cariBasligi(v, firma, cariInd) : null,
+    satirlar: sonuc,
+    toplam: sonuc.reduce((t, s) => t + s.tutar, 0),
+    yontemToplamlari: [...yontemToplamlari.values()],
+    sinirda: satirlar.length >= 5000
+  };
+}
+
 module.exports = {
   haftaAraligi,
   haftalikOzet,
   haftalikDetay,
-  _test: { fisNoCoz, kasaTurleriniTopla, fislereBol, odemeAciklamasi }
+  odemeGecmisi,
+  _test: { fisNoCoz, kasaTurleriniTopla, fislereBol, odemeAciklamasi, odemeYontemiCoz, odemeNotu }
 };

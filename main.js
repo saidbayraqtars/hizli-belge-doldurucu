@@ -172,6 +172,7 @@ uc('yardimci:islemDetay', async (girdi) => yardimci.islemDetayGetir(girdi));
 
 uc('yazma:durum', async () => ({ acik: yazma.yazmaAcikMi() }));
 uc('yazma:belge', async (girdi) => yazma.belgeYaz(girdi));
+uc('yazma:odeme', async (girdi) => yazma.odemeYaz(girdi));
 uc('yazma:belgeGeriAl', async (girdi) => yazma.belgeGeriAl(girdi));
 uc('yazma:kasaIade', async (girdi) => yazma.kasaIadesiYaz(girdi));
 
@@ -186,10 +187,11 @@ uc('rapor:hafta', async (girdi) => {
 });
 uc('rapor:haftalikOzet', async (girdi) => rapor.haftalikOzet(girdi));
 uc('rapor:haftalikDetay', async (girdi) => rapor.haftalikDetay(girdi));
+uc('rapor:odemeGecmisi', async (girdi) => rapor.odemeGecmisi(girdi));
 
 // --- Cari kartı ------------------------------------------------------------
 
-uc('cari:alanlar', async (girdi) => cari.kartAlanlari(girdi));
+uc('cari:formBilgisi', async (girdi) => cari.kartFormBilgisi(girdi));
 uc('cari:ac', async (girdi) => cari.cariKartiAc(girdi));
 uc('cari:liste', async (girdi) => cari.carileriListele(girdi));
 

@@ -157,22 +157,43 @@ Bir müşteriye tıklamak onu Ekstre'de aynı haftayla açar.
 
 - **Ayrıntılı Rapor (fiş bazlı)** — `CİNSİ | K.ADET | K.TÜRÜ | K.TUTAR | FİYAT | TUTAR |
   AÇIKLAMA | FİŞ NO`, fiş fiş gruplu, ara toplamlı, en altta genel toplam; *Geri Gelen
-  Kasalar*, ÖDEME ve BAKİYE blokları. Aynı fişte aynı kasa türü tek kez toplanır.
+  Kasalar*, ÖDEME ve BAKİYE blokları. Kasa her satırda kendi adediyle görünür; fişin
+  türe göre kasa dağılımı (`30 PK · 36 UP`) ara toplam satırında.
   Çıktı bilerek dar: ürünü çok olan müşteride sayfa sayısı düşük kalsın.
 - **Toplu yazdırma** — her müşteri yeni sayfada; sonda boş sayfa çıkmaz.
+- Müşteri değişince aralık bu haftaya döner, açık ayrıntılı rapor yeni müşteri için yenilenir.
 - **Pazardan pazara gezinme**, **Haftalık Giriş/Çıkış tablosu** ve anında çalışan
   **süzgeçler** (tür, yön, açıklama/evrak no, en az tutar).
 
 ### 🗂️ Son Belgeler
 
-Tarih, tür, müşteri, Vega belge no, tutar. Arama kutusu müşteri, belge no, fiş no, tür ve
-kullanıcıda birlikte arar. **✎** belgeyi forma geri açar: 1–2 kg gibi hatalar düzeltilip
+Tarih, tür, müşteri, fiş no, Vega belge no, tutar. Kutu boşken son 200 belge görünür; arama
+sunucuda **bütün günlükte** (müşteri, fiş no, belge no, tür, kullanıcı, tarih) ve günlükte
+olmayan Vega belgelerinde (fatura notundaki fiş no dahil) yapılır. **✎** belgeyi forma geri açar: 1–2 kg gibi hatalar düzeltilip
 yeniden kaydedilir — eski ve yeni kayıt **tek transaction'da** değişir, yeni yazım
 başarısızsa eski belge korunur. **Geri Al** belgeyi Vega'dan ve yardımcı tablolardan
 tamamen siler; bakiye işlem öncesine döner.
 
 **Müşteri listesi** — arama kutusunun altındaki *Listeden Seç* bütün müşterileri
-gezilebilir pencerede açar. Yeni cari kartı bu programdan açılmaz; kartlar Vega'dan seçilir.
+gezilebilir pencerede açar.
+
+**Yeni Cari Kartı** — müşteri kutularının ve listenin yanındaki düğme. Kart Vega'nın cari
+tablosuna, Vega'nın kendi ekranından açılan kartlarla **aynı sütun ve değerlerle** yazılır
+(5 veritabanındaki 77 Vega kartıyla karşılaştırıldı; ayrıntı `db/cari.js` başında): şahıs
+`ISLETMETURU=1` + `ADI`/`SOYADI`, firma `ISLETMETURU=0`; `FIRMAADI` = `UNVAN` = tam ad;
+`UID`, `SUBEADI`, `DEPOIND`, izin bayrakları Vega varsayılanı. Kod önerilir (son kısa sayısal
+kod + 1), aynı kod kilitle engellenir. Özel Kod 1 Vega'nın tanım listesinden seçilir.
+
+### 💳 Ödemeler
+
+**Ödeme Al** — müşteri, tarih, tutar, yöntem (**Nakit (Kasa)** / **Havale** / **EFT**) ve
+açıklama; Vega'ya Cari Giriş tahsilatı olarak yazılır. Nakit `IZAHAT=1` + `TBLKASA`;
+havale/EFT Vega'nın kendi banka tahsilatları gibi `IZAHAT=11`, `PORTNO=-1`, `BANKANO=0`
+(kasaya ve banka hesabına işlenmez). Geri alma Son Belgeler'den.
+
+**Ödeme Geçmişi** — Vega'nın defterinden (programdan girilmemiş tahsilatlar dahil): tarih,
+müşteri, belge no, yöntem, açıklama, tutar; yönteme göre toplamlar. Tek müşteri ya da
+bütün müşteriler; **Yazdır** ile çıktı.
 
 ## 🧠 Nasıl çalışır
 

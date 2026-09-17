@@ -15,7 +15,7 @@
 
 const { sorgu, calistir, islem } = require('./sql');
 const { ayarOku } = require('./ayar');
-const { dogrula } = require('./firma');
+const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
 const vega = require('./vega');
 const kasa = require('./kasa');
 const os = require('os');
@@ -457,27 +457,138 @@ async function islemDetayGetir(secenek) {
   };
 }
 
+// Son Belgeler listesi. Arama verilmezse en yeni `limit` kayıt gelir.
+//
+// 17.09.2026 kullanıcı raporu: "00812 fiş numarası aramada çıkmıyor ama
+// ekstrede görünüyor". Arama yalnız indirilen son 200 kaydın içinde
+// yapılıyordu; daha eski fiş hiç bulunamıyordu. Arama artık sunucuda, bütün
+// günlükte yapılıyor (fiş no BD_BelgeSatir'den de taranıyor). Ayrıca günlükte
+// hiç kaydı olmayan ama Vega'da duran belge (VegaWin'den kesilmiş fatura, fiş
+// no'su fatura notunda) salt okunur satır olarak eklenir — ekstrede görünen
+// her belge burada da bulunabilsin.
+const ARAMA_HARMANI = 'Latin1_General_CI_AI';
+
+function aramaKosulu(ifade, parcalar, parametreler, onek) {
+  return parcalar.map((p, i) => {
+    const ad = onek + i;
+    parametreler[ad] = '%' + p + '%';
+    return `${ifade} COLLATE ${ARAMA_HARMANI} LIKE @${ad} COLLATE ${ARAMA_HARMANI}`;
+  });
+}
+
 async function sonIslemleriGetir(secenek) {
   await hazirla();
+  const db = vt();
   const limit = Math.min(Number((secenek && secenek.limit) || 100), 1000);
-  const parametreler = { firma: secenek && secenek.firma };
-  let filtre = '';
-  if (secenek && secenek.firma) filtre = 'WHERE I.Firma = @firma';
-  return sorgu(`
+  const parcalar = String((secenek && secenek.arama) || '')
+    .split(/\s+/).map((p) => p.trim()).filter(Boolean).slice(0, 6);
+  const parametreler = {};
+  const kosullar = [];
+  if (secenek && secenek.firma) {
+    kosullar.push('I.Firma = @firma');
+    parametreler.firma = secenek.firma;
+  }
+
+  if (parcalar.length) {
+    const metin = `(ISNULL(I.CariAd, '') + ' ' + ISNULL(I.BelgeNo, '') + ' ' +
+      ISNULL(I.Aciklama, '') + ' ' + ISNULL(I.Kullanici, '') + ' ' +
+      CASE I.Konu WHEN 'satisFaturasi' THEN N'Satış Faturası'
+                  WHEN 'cariCikis' THEN N'Cari Giriş'
+                  WHEN 'tahsilat' THEN N'Tahsilat Ödeme'
+                  WHEN 'KasaIade' THEN N'Kasa İadesi'
+                  ELSE ISNULL(I.Konu, '') END + ' ' +
+      CONVERT(NVARCHAR(10), I.Tarih, 104) + ' ' +
+      ISNULL((SELECT TOP 1 X.FisNo FROM [${db}].dbo.BD_BelgeSatir X
+              WHERE X.IslemId = I.Id AND ISNULL(X.FisNo, '') <> ''), ''))`;
+    kosullar.push(...aramaKosulu(metin, parcalar, parametreler, 'ara'));
+  }
+
+  const islemler = await sorgu(`
     SELECT TOP ${limit} I.Id,
            COALESCE(
-             (SELECT MIN(S.Tarih) FROM [${vt()}].dbo.BD_BelgeSatir S
+             (SELECT MIN(S.Tarih) FROM [${db}].dbo.BD_BelgeSatir S
               WHERE S.IslemId = I.Id AND ISNULL(S.GeriAlindi, 0) = 0),
-             (SELECT MIN(K.Tarih) FROM [${vt()}].dbo.BD_KasaHareket K
+             (SELECT MIN(K.Tarih) FROM [${db}].dbo.BD_KasaHareket K
               WHERE K.IslemId = I.Id),
              I.Tarih
            ) AS Tarih,
            I.Konu, I.Firma, I.Donem, I.CariInd, I.CariAd, I.BelgeNo,
+           (SELECT TOP 1 S.FisNo FROM [${db}].dbo.BD_BelgeSatir S
+            WHERE S.IslemId = I.Id AND ISNULL(S.FisNo, '') <> '') AS FisNo,
            I.Tutar, I.Aciklama, I.GeriAlindi, I.Kullanici, I.Bilgisayar
-    FROM [${vt()}].dbo.BD_Islem I
-    ${filtre}
+    FROM [${db}].dbo.BD_Islem I
+    ${kosullar.length ? 'WHERE ' + kosullar.join(' AND ') : ''}
     ORDER BY I.Id DESC
   `, parametreler);
+
+  if (!parcalar.length || !(secenek && secenek.firma && secenek.donem)) return islemler;
+
+  let vegadan = [];
+  try {
+    vegadan = await vegaBelgeleriniAra(secenek.firma, secenek.donem, parcalar, limit);
+  } catch (e) { /* Vega araması düşerse günlük sonuçları yine gösterilir */ }
+  return islemler.concat(vegadan);
+}
+
+// Günlükte olmayan Vega belgeleri — satış faturası ile cari giriş/çıkış.
+// Numarası günlükteki herhangi bir BelgeNo içinde geçen belge atlanır.
+async function vegaBelgeleriniAra(firmaHam, donemHam, parcalar, limit) {
+  const { firma, donem } = await dogrula(firmaHam, donemHam);
+  const v = vt();
+  const kaynaklar = [
+    { ad: 'TBLSATFATBASLIK', not: 'ALTNOT', konu: 'vegaSatisFaturasi' },
+    { ad: 'TBLCARGIRBASLIK', not: 'ACIKLAMA', konu: 'vegaCariGiris' },
+    { ad: 'TBLCARCIKBASLIK', not: 'ACIKLAMA', konu: 'vegaCariCikis' }
+  ];
+  const sonuc = [];
+
+  for (const k of kaynaklar) {
+    if (!(await tabloVarMi(firma, donem, k.ad))) continue;
+    const tam = tablo(v, firma, donem, k.ad);
+    const tutarIfadesi = (await vega.kolonVarMi(tam, 'TUTAR')) ? 'ISNULL(B.TUTAR, 0)' : '0';
+    const iptalFiltresi = (await vega.kolonVarMi(tam, 'IPTAL')) ? 'ISNULL(B.IPTAL, 0) = 0 AND' : '';
+    const parametreler = { firma };
+    const cariAd = `COALESCE(NULLIF(LTRIM(RTRIM(C.FIRMAADI)), ''), NULLIF(LTRIM(RTRIM(C.UNVAN)), ''), '')`;
+    const metin = `(ISNULL(B.BELGENO, '') + ' ' + ISNULL(CAST(B.${k.not} AS NVARCHAR(500)), '') + ' ' +
+      ${cariAd} + ' ' + CONVERT(NVARCHAR(10), B.TARIH, 104))`;
+    const kosullar = aramaKosulu(metin, parcalar, parametreler, 'va');
+    const r = await sorgu(`
+      SELECT TOP ${limit} B.IND AS vegaInd, B.TARIH AS Tarih, B.FIRMANO AS CariInd,
+             ${cariAd} AS CariAd, ISNULL(B.BELGENO, '') AS BelgeNo,
+             ${tutarIfadesi} AS Tutar,
+             CAST(B.${k.not} AS NVARCHAR(250)) AS Aciklama
+      FROM ${tam} B
+      LEFT JOIN ${kart(v, firma, 'TBLCARI')} C ON C.IND = B.FIRMANO
+      WHERE ${iptalFiltresi} ${kosullar.join(' AND ')}
+        AND NOT EXISTS (
+          SELECT 1 FROM [${v}].dbo.BD_Islem I
+          WHERE I.Firma = @firma AND ISNULL(B.BELGENO, '') <> ''
+            AND ISNULL(I.BelgeNo, '') LIKE '%' + B.BELGENO + '%')
+      ORDER BY B.TARIH DESC, B.IND DESC
+    `, parametreler);
+    for (const s of r) {
+      const not = String(s.Aciklama || '').trim();
+      const fis = /fis\s+(\S+)/i.exec(not);
+      sonuc.push({
+        Id: null,
+        kaynak: 'vega',
+        Tarih: s.Tarih,
+        Konu: k.konu,
+        Firma: firma,
+        Donem: donem,
+        CariInd: Number(s.CariInd),
+        CariAd: s.CariAd || '',
+        BelgeNo: String(s.BelgeNo || '').trim(),
+        FisNo: fis ? fis[1] : null,
+        Tutar: Number(s.Tutar) || 0,
+        Aciklama: not,
+        GeriAlindi: false,
+        Kullanici: '',
+        Bilgisayar: ''
+      });
+    }
+  }
+  return sonuc;
 }
 
 // --- Kasa depozito defteri ---------------------------------------------------

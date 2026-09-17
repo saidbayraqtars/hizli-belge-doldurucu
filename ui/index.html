@@ -16,6 +16,7 @@
     <button class="sekme" data-sekme="kasa">Kasa</button>
     <button class="sekme" data-sekme="rapor">Haftalık Rapor</button>
     <button class="sekme" data-sekme="ekstre">Ekstre</button>
+    <button class="sekme" data-sekme="odeme">Ödemeler</button>
     <button class="sekme" data-sekme="belgeler">Son Belgeler</button>
     <button class="sekme" data-sekme="ayar">Ayarlar</button>
   </nav>
@@ -42,6 +43,7 @@
           <div id="cariSecili" class="secili gizli"></div>
           <div class="altDugmeler">
             <button type="button" class="dugme mini ikincil" data-cari-liste="belge">Listeden Seç</button>
+            <button type="button" class="dugme mini ikincil" data-cari-yeni="belge">+ Yeni Cari Kartı</button>
           </div>
         </div>
         <div class="alan" id="musteriTipiAlani">
@@ -272,7 +274,7 @@
         <div class="alan buyuk">
           <label for="belgelerArama">Ara</label>
           <input type="text" id="belgelerArama" autocomplete="off"
-                 placeholder="Müşteri, belge no, tür ya da kullanıcı…">
+                 placeholder="Müşteri, fiş no, belge no, tür ya da kullanıcı…">
         </div>
         <div class="alan">
           <span class="ipucu" id="belgelerBilgi"></span>
@@ -284,6 +286,7 @@
             <th>Tarih</th>
             <th>Tür</th>
             <th class="genis">Müşteri</th>
+            <th>Fiş No</th>
             <th>Belge No</th>
             <th class="sayi">Tutar</th>
             <th>Kullanıcı</th>
@@ -306,6 +309,7 @@
           <div id="ekstreCariSecili" class="secili gizli"></div>
           <div class="altDugmeler">
             <button type="button" class="dugme mini ikincil" data-cari-liste="ekstre">Listeden Seç</button>
+            <button type="button" class="dugme mini ikincil" data-cari-yeni="ekstre">+ Yeni Cari Kartı</button>
           </div>
         </div>
         <div class="alan">
@@ -427,6 +431,119 @@
         <tbody id="ekstreGovde"></tbody>
       </table>
       <div id="ekstreOzet" class="ipucu"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ÖDEMELER ══════════════════ -->
+  <section class="sayfa" id="sayfa-odeme">
+    <div class="kutu">
+      <h2>Ödeme Al</h2>
+      <p class="ipucu">
+        Ödeme doğrudan Vega'ya <b>Cari Giriş (tahsilat)</b> olarak yazılır.
+        <b>Nakit</b> Vega kasasına da girer; <b>Havale</b> ve <b>EFT</b> kasaya
+        girmez. Yanlış girilen ödeme Son Belgeler'den geri alınır.
+      </p>
+      <div class="satirlar-ust">
+        <div class="alan buyuk">
+          <label for="odemeCariArama">Müşteri</label>
+          <input type="text" id="odemeCariArama" placeholder="İsim ya da kod yazın…" autocomplete="off">
+          <div id="odemeCariSonuc" class="acilir gizli"></div>
+          <div id="odemeCariSecili" class="secili gizli"></div>
+          <div class="altDugmeler">
+            <button type="button" class="dugme mini ikincil" data-cari-liste="odeme">Listeden Seç</button>
+            <button type="button" class="dugme mini ikincil" data-cari-yeni="odeme">+ Yeni Cari Kartı</button>
+          </div>
+        </div>
+        <div class="alan">
+          <label for="odemeTarih">Tarih</label>
+          <input type="date" id="odemeTarih">
+        </div>
+        <div class="alan">
+          <label for="odemeTutar">Tutar</label>
+          <input type="text" id="odemeTutar" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        </div>
+        <div class="alan">
+          <label for="odemeYontem">Ödeme Yöntemi</label>
+          <select id="odemeYontem">
+            <option value="nakit">Nakit (Kasa)</option>
+            <option value="havale">Havale</option>
+            <option value="eft">EFT</option>
+          </select>
+        </div>
+        <div class="alan buyuk">
+          <label for="odemeAciklama">Açıklama</label>
+          <input type="text" id="odemeAciklama" maxlength="200" autocomplete="off"
+                 placeholder="Örn. Ziraat havalesi, pazar tahsilatı…">
+        </div>
+        <div class="alan dugmeAlani">
+          <button class="dugme birincil" id="odemeKaydet">Ödemeyi Kaydet</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="kutu">
+      <h2>Ödeme Geçmişi</h2>
+      <div class="satirlar-ust">
+        <div class="alan">
+          <label for="odemeBaslangic">Başlangıç</label>
+          <input type="date" id="odemeBaslangic">
+        </div>
+        <div class="alan">
+          <label for="odemeBitis">Bitiş</label>
+          <input type="date" id="odemeBitis">
+        </div>
+        <div class="alan">
+          <label for="odemeYontemSuzgec">Yöntem</label>
+          <select id="odemeYontemSuzgec">
+            <option value="">Hepsi</option>
+            <option value="nakit">Nakit (Kasa)</option>
+            <option value="havale">Havale</option>
+            <option value="eft">EFT</option>
+            <option value="banka">Banka (diğer)</option>
+            <option value="kart">Kredi Kartı</option>
+            <option value="cek">Çek</option>
+            <option value="senet">Senet</option>
+            <option value="diger">Belirtilmemiş</option>
+          </select>
+        </div>
+        <div class="alan buyuk">
+          <label for="odemeArama">Ara</label>
+          <input type="text" id="odemeArama" placeholder="müşteri, açıklama, belge no…" autocomplete="off">
+        </div>
+        <div class="alan dugmeAlani">
+          <button class="dugme birincil" id="odemeGetir">Getir</button>
+          <button class="dugme ikincil" id="odemeYazdir">Yazdır</button>
+        </div>
+      </div>
+      <div class="haftaCubugu ince">
+        <button class="dugme ucuncul" id="odemeBuHafta">Bu Hafta</button>
+        <button class="dugme ucuncul" id="odemeBuAy">Bu Ay</button>
+        <button class="dugme ucuncul" id="odemeUcAy">Son 3 Ay</button>
+        <button class="dugme ucuncul" id="odemeTumu">Tüm Dönem</button>
+      </div>
+      <p class="ipucu">
+        Yukarıda müşteri seçiliyse yalnız onun ödemeleri, seçili değilse bütün
+        müşterilerin ödemeleri listelenir. Vega'dan elle girilmiş tahsilatlar da gelir.
+      </p>
+    </div>
+
+    <div class="kutu yazdirilir" id="odemeRapor">
+      <h1 class="raporBaslik">ÖDEME GEÇMİŞİ</h1>
+      <div class="raporUst" id="odemeRaporUst"></div>
+      <table class="veri rapor dar" id="odemeRaporTablo">
+        <thead>
+          <tr>
+            <th>TARİH</th>
+            <th class="genis cariSutun">MÜŞTERİ</th>
+            <th>BELGE NO</th>
+            <th>YÖNTEM</th>
+            <th class="genis">AÇIKLAMA</th>
+            <th class="sayi">TUTAR</th>
+          </tr>
+        </thead>
+        <tbody id="odemeRaporGovde"></tbody>
+      </table>
+      <div class="raporAlt" id="odemeRaporAlt"></div>
     </div>
   </section>
 
@@ -580,6 +697,7 @@
       </div>
       <div class="alan dugmeAlani">
         <button class="dugme ikincil" id="cariListeYenile">Yenile</button>
+        <button class="dugme birincil" id="cariListeYeni">+ Yeni Cari Kartı</button>
       </div>
     </div>
     <div class="pencereGovde">
@@ -598,6 +716,87 @@
       </table>
     </div>
     <div class="ipucu" id="cariListeBilgi"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ YENİ CARİ KARTI ══════════════════ -->
+<div class="perde gizli" id="cariYeniPerde">
+  <div class="pencere cariYeniPencere">
+    <div class="pencereBaslik">
+      <h2>Yeni Cari Kartı</h2>
+      <button type="button" class="dugme mini ucuncul" id="cariYeniKapat">Kapat</button>
+    </div>
+    <p class="ipucu">
+      Kart doğrudan Vega'nın cari kartları tablosuna, Vega'nın kendi ekranından
+      açılan kartlarla aynı alanlarla açılır. Cari kodu önerilir, değiştirilebilir.
+    </p>
+    <div class="izgara">
+      <div class="alan">
+        <label for="cariYeniTur">Kart türü</label>
+        <select id="cariYeniTur">
+          <option value="sahis" selected>Şahıs</option>
+          <option value="firma">Firma</option>
+        </select>
+      </div>
+      <div class="alan">
+        <label for="cariYeniKod">Cari Kodu *</label>
+        <input type="text" id="cariYeniKod" maxlength="50" autocomplete="off">
+      </div>
+      <div class="alan sahisAlani">
+        <label for="cariYeniAdi">Adı *</label>
+        <input type="text" id="cariYeniAdi" maxlength="40" autocomplete="off">
+      </div>
+      <div class="alan sahisAlani">
+        <label for="cariYeniSoyadi">Soyadı</label>
+        <input type="text" id="cariYeniSoyadi" maxlength="40" autocomplete="off">
+      </div>
+      <div class="alan buyuk firmaAlani gizli">
+        <label for="cariYeniUnvan">Firma Ünvanı *</label>
+        <input type="text" id="cariYeniUnvan" maxlength="255" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariYeniTelefon">Telefon</label>
+        <input type="text" id="cariYeniTelefon" maxlength="20" inputmode="tel" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariYeniTelefon2">İkinci Telefon</label>
+        <input type="text" id="cariYeniTelefon2" maxlength="20" inputmode="tel" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariYeniSehir">Adresi (köy / ilçe)</label>
+        <input type="text" id="cariYeniSehir" maxlength="25" autocomplete="off">
+      </div>
+      <div class="alan buyuk">
+        <label for="cariYeniAdres">Açık Adres</label>
+        <input type="text" id="cariYeniAdres" maxlength="250" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariYeniVergiDairesi">Vergi Dairesi</label>
+        <input type="text" id="cariYeniVergiDairesi" maxlength="50" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariYeniVergiNo" id="cariYeniVergiNoEtiket">TC Kimlik No</label>
+        <input type="text" id="cariYeniVergiNo" maxlength="11" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="alan">
+        <label for="cariYeniOzelKod1">Özel Kod 1</label>
+        <select id="cariYeniOzelKod1">
+          <option value="">(boş)</option>
+        </select>
+      </div>
+      <div class="alan">
+        <label for="cariYeniTip">Cari tipi</label>
+        <select id="cariYeniTip">
+          <option value="alici" selected>Alıcı (müşteri)</option>
+          <option value="satici">Satıcı (tedarikçi)</option>
+          <option value="ikisi">Alıcı + Satıcı</option>
+        </select>
+      </div>
+    </div>
+    <div class="eylemler sol">
+      <button type="button" class="dugme birincil buyuk" id="cariYeniKaydet">Cari Kartını Aç</button>
+    </div>
+    <div class="ipucu" id="cariYeniBilgi"></div>
   </div>
 </div>
 

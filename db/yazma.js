@@ -66,6 +66,17 @@ const TIP_STOK_GIRIS_IADE = 34; // Stok Giriş İade Fişi — bkz. stokGirisIad
 // boş ("-") kalıyordu; varsayılan NAKİT olacak ve para Vega'nın kasasına da
 // girecek.
 const ODEME_NAKIT = 1;
+// 17.09.2026: Ödemeler ekranındaki Havale / EFT. Yerel VEGADB kopyasında
+// Vega'nın kendi kestiği 877 cari giriş satırıyla doğrulandı: banka yoluyla
+// gelen tahsilat IZAHAT = 11, PORTNO = -1, BANKANO = 0 yazılıyor; ne TBLKASA'ya
+// ne de TBLBANKAHAREKETLERI'ne satır düşüyor. Havale ile EFT'yi Vega ayırmıyor,
+// ayrım hareket satırının ACIKLAMA'sında ("HAVALE" / "EFT") tutuluyor.
+const ODEME_BANKA = 11;
+const ODEME_YONTEMLERI = {
+  nakit: { arac: 'nakit', etiket: 'NAKİT' },
+  havale: { arac: 'banka', etiket: 'HAVALE' },
+  eft: { arac: 'banka', etiket: 'EFT' }
+};
 const KASA_ISLEM_GELIR = -2;
 const KASA_ISLEM_GIDER = -3;
 
@@ -543,7 +554,11 @@ async function kasaDefterineYaz(t, ayrinti) {
 
 async function cariDekontuYaz(t, ayrinti) {
   const { v, firma, donem, cariInd, tutar, aciklama, tarih, userNo, giris, borcMu, onek } = ayrinti;
-  const nakit = !!ayrinti.nakit;
+  // odemeAraci: 'nakit' (kasaya girer) | 'banka' (havale/EFT, kasaya girmez).
+  // Eski çağrılardaki nakit:true aynen çalışır.
+  const odemeAraci = ayrinti.odemeAraci || (ayrinti.nakit ? 'nakit' : null);
+  const nakit = odemeAraci === 'nakit';
+  const banka = odemeAraci === 'banka';
   // Tahsilat açıklaması belge başlığına aittir. `satirAciklamasi` açıkça
   // verilirse hareket satırına başlık açıklamasını kopyalamayız.
   const satirAciklamasiBelirlendi = Object.prototype.hasOwnProperty.call(ayrinti, 'satirAciklamasi');
@@ -634,8 +649,8 @@ async function cariDekontuYaz(t, ayrinti) {
     // (tahsilat). Mal satışını cari giriş olarak yazan dekontta para el
     // değiştirmediği için burası boş kalır — yoksa alınmamış para kasaya
     // girmiş görünürdü.
-    if (nakit) {
-      alanlar.IZAHAT = ODEME_NAKIT;
+    if (nakit || banka) {
+      alanlar.IZAHAT = nakit ? ODEME_NAKIT : ODEME_BANKA;
       alanlar.PORTNO = -1;
       alanlar.BANKANO = 0;
     }
@@ -680,7 +695,7 @@ async function cariDekontuYaz(t, ayrinti) {
     // İkincisini başlık IND'i ve belge tipiyle doldurmak, Vega'nın belgeyi
     // kendi satırlarıyla eşleştirmesini bozuyordu.
     islemInd: ilkSatirInd,
-    islemIzahat: nakit ? ODEME_NAKIT : undefined
+    islemIzahat: nakit ? ODEME_NAKIT : (banka ? ODEME_BANKA : undefined)
   });
   kayitlar.push(...cari);
 
@@ -1381,6 +1396,65 @@ async function belgeYaz(secenek) {
 }
 
 // ================================================================
+//  Ödeme (tahsilat) — Ödemeler ekranı
+// ================================================================
+//
+// 17.09.2026 kullanıcı isteği: belgeden bağımsız ödeme girişi, yöntemi
+// seçilerek (Nakit / Havale / EFT) ve açıklamalı. Belge Gir'deki tahsilatla
+// aynı Cari Giriş dekontu; fark yalnız ödeme aracı:
+//   nakit  → IZAHAT 1 + TBLKASA gelir satırı (kasaya girer)
+//   havale → IZAHAT 11, hareket açıklaması "HAVALE" (kasaya girmez)
+//   eft    → IZAHAT 11, hareket açıklaması "EFT"    (kasaya girmez)
+// Başlık açıklaması "HAVALE - kullanıcı notu" biçiminde; Ekstre ve ayrıntılı
+// raporun ÖDEME bloğu bunu gösterir. Geri alma Son Belgeler'den yapılır.
+async function odemeYaz(secenek) {
+  kilitKontrol();
+  await yardimci.hazirla();
+
+  const tutar = Math.round((Number(secenek.tutar) || 0) * 100) / 100;
+  if (!(tutar > 0)) throw new Error('Ödeme tutarı sıfırdan büyük olmalı.');
+  const cariInd = Number(secenek.cariInd);
+  if (!cariInd) throw new Error('Müşteri seçilmeli.');
+  const yontemKodu = String(secenek.yontem || '').toLowerCase();
+  const yontem = ODEME_YONTEMLERI[yontemKodu];
+  if (!yontem) throw new Error('Ödeme yöntemi Nakit, Havale ya da EFT olmalı.');
+
+  const { firma, donem } = await dogrula(secenek.firma, secenek.donem);
+  const v = vt();
+  const tarih = new Date(secenek.tarih || Date.now());
+  const not = String(secenek.aciklama || '').trim();
+  const baslikAciklamasi = (not ? `${yontem.etiket} - ${not}` : `${yontem.etiket} tahsilat`)
+    .substring(0, 250);
+  const onek = await onekTespitEt(firma, donem);
+
+  return islem(async (t) => {
+    const d = await cariDekontuYaz(t, {
+      v, firma, donem, cariInd, tutar, tarih,
+      userNo: Number(secenek.userNo || 0),
+      giris: true,
+      aciklama: baslikAciklamasi,
+      // Nakitte satır açıklaması Belge Gir tahsilatıyla aynı (boş); bankada
+      // havale/EFT ayrımı yalnız burada durduğu için yazılır.
+      satirAciklamasi: yontem.arac === 'banka' ? yontem.etiket : null,
+      odemeAraci: yontem.arac,
+      onek
+    });
+
+    const islemId = await yardimci.islemYaz(t, {
+      konu: 'tahsilat',
+      firma, donem, tarih, cariInd, cariAd: secenek.cariAd || null,
+      belgeNo: d.belgeNo,
+      tutar,
+      aciklama: baslikAciklamasi,
+      yazilan: [{ ad: 'Tahsilat', tur: 'tahsilat', yontem: yontemKodu, aciklama: baslikAciklamasi, ...d }],
+      kullanici: secenek.kullanici
+    });
+
+    return { tamam: true, belgeNo: d.belgeNo, islemId, tutar, yontem: yontemKodu };
+  });
+}
+
+// ================================================================
 //  Kasa iadesi — doğrudan Vega'ya yaz
 // ================================================================
 //
@@ -1554,7 +1628,10 @@ async function belgeGeriAl(secenek) {
 module.exports = {
   yazmaAcikMi,
   kilitKontrol,
+  // Vega tablosuna şema uyumlu INSERT — cari kartı açma da kullanıyor (db/cari.js).
+  ekle,
   belgeYaz,
+  odemeYaz,
   kasaIadesiYaz,
   belgeGeriAl,
   belgeOneki,

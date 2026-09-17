@@ -36,4 +36,17 @@ assert.strictEqual(_test.odemeAciklamasi({
   evrakNo: 'H0002'
 }), 'Tahsilat · H0002');
 
-console.log('Rapor birim testleri geçti: fiş no, kasa türü ve tahsilat açıklaması.');
+// Ödeme geçmişi: Vega ödeme aracı + program açıklaması → yöntem.
+assert.strictEqual(_test.odemeYontemiCoz('13', 1, null), 'nakit');
+assert.strictEqual(_test.odemeYontemiCoz('13', 11, 'HAVALE'), 'havale');
+assert.strictEqual(_test.odemeYontemiCoz('13', 11, 'EFT'), 'eft');
+assert.strictEqual(_test.odemeYontemiCoz('13', 11, 'Kredi kartı'), 'kart');
+assert.strictEqual(_test.odemeYontemiCoz('13', 11, 'ödeme'), 'banka');
+assert.strictEqual(_test.odemeYontemiCoz('83', null, null), 'havale');
+assert.strictEqual(_test.odemeYontemiCoz('13', null, null), 'diger');
+assert.strictEqual(_test.odemeNotu('HAVALE - Ziraat', 'HAVALE'), 'Ziraat');
+assert.strictEqual(_test.odemeNotu('NAKİT tahsilat', null), '');
+assert.strictEqual(_test.odemeNotu('EFT - pazar', 'EFT'), 'pazar');
+assert.strictEqual(_test.odemeNotu('Tahsilat', 'Kredi kartı'), 'Tahsilat · Kredi kartı');
+
+console.log('Rapor birim testleri geçti: fiş no, kasa türü, tahsilat açıklaması ve ödeme yöntemi.');
