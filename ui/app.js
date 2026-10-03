@@ -55,6 +55,49 @@ function sayiOku(ham) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// ─── Tutar alanları: binlik ayraç ───
+//
+// 03.10.2026 müşteri isteği: tutar yazarken araya nokta kendiliğinden girsin
+// (40000 → 40.000). tutarGirdisiBagla ile işaretlenen alanlarda nokta YALNIZ
+// binlik ayraçtır, ondalık her zaman virgüldür — bu alanlar sayiOku ile değil
+// tutarOku ile okunur (sayiOku tek başına duran noktayı ondalık sayar: o
+// kurala göre "40.000" kırk olurdu). Miktar/adet alanlarına bağlanmaz.
+function tutarBicimle(ham) {
+  const m = String(ham == null ? '' : ham).replace(/[^\d,]/g, '');
+  const virgul = m.indexOf(',');
+  let tam = virgul >= 0 ? m.slice(0, virgul) : m;
+  tam = tam.replace(/^0+(?=\d)/, '');
+  const gruplu = tam.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  if (virgul < 0) return gruplu;
+  return (gruplu || '0') + ',' + m.slice(virgul + 1).replace(/,/g, '');
+}
+
+function tutarOku(ham) {
+  const m = String(ham == null ? '' : ham).replace(/[\s.]/g, '').replace(',', '.');
+  if (!m) return 0;
+  const n = Number(m);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function tutarGirdisiBagla(girdi) {
+  girdi.dataset.tutar = '1';
+  girdi.addEventListener('input', () => {
+    const eski = girdi.value;
+    const yeni = tutarBicimle(eski);
+    if (yeni === eski) return;
+    // İmleç, solundaki rakam/virgül sayısı korunarak yeniden konur; araya
+    // giren noktalar yazarken imleci kaydırmasın.
+    const imlec = girdi.selectionStart == null ? eski.length : girdi.selectionStart;
+    const solda = eski.slice(0, imlec).replace(/[^\d,]/g, '').length;
+    girdi.value = yeni;
+    let konum = 0;
+    for (let sayac = 0; konum < yeni.length && sayac < solda; konum++) {
+      if (/[\d,]/.test(yeni[konum])) sayac++;
+    }
+    girdi.setSelectionRange(konum, konum);
+  });
+}
+
 function para(n) {
   return (Number(n) || 0).toLocaleString('tr-TR', {
     minimumFractionDigits: 2,
@@ -581,6 +624,7 @@ function satirEkle() {
   daraliMiktarHucre.textContent = '0';
 
   const fiyat = sayiHucresi('TL');
+  tutarGirdisiBagla(fiyat.girdi);
 
   const tutarHucre = document.createElement('td');
   tutarHucre.className = 'hesaplanan';
@@ -640,7 +684,7 @@ function satirEkle() {
 
   function stokSecildi(kart) {
     if (kart && kart.fiyat) {
-      fiyat.girdi.value = String(kart.fiyat).replace('.', ',');
+      sayiGirdisineYaz(fiyat.girdi, kart.fiyat);
     }
     toplamlariGuncelle();
     // Önce kilo giriliyor: ürün seçiminden sonra doğrudan Brüt Miktar'a geç.
@@ -771,7 +815,7 @@ function satirOku(tr) {
   const stok = durum.stokHaritasi.get(etiket) || null;
   const brutMiktar = sayiOku(s.brutMiktarGirdi.value);
   const kasaAdedi = sayiOku(s.kasaAdediGirdi.value);
-  const fiyatGirilen = sayiOku(s.fiyatGirdi.value);
+  const fiyatGirilen = tutarOku(s.fiyatGirdi.value);
   const kasaStokNo = s.tipSecim.value ? Number(s.tipSecim.value) : null;
   const kasa = kasaStokNo ? durum.kasaKartlari.find((k) => k.id === kasaStokNo) : null;
 
@@ -832,7 +876,7 @@ function toplamlariGuncelle() {
     kasa += s.kasaTutari;
     kdv += kdvOrani ? Math.round(s.tutar * kdvOrani) / 100 : 0;
   }
-  const tahsilat = sayiOku(el('tahsilat').value);
+  const tahsilat = tutarOku(el('tahsilat').value);
   const genelFatura = urun + kdv + kasa; // Satış Faturası Olarak Kaydet
   const genelCariGiris = urun + kasa;    // Cari Giriş Olarak Kaydet (KDV eklenmez)
 
@@ -851,6 +895,7 @@ function toplamlariGuncelle() {
 
 el('musteriTipi').addEventListener('change', () => belgeCari.tekrarAra());
 el('satirEkle').addEventListener('click', () => satirEkle());
+tutarGirdisiBagla(el('tahsilat'));
 el('tahsilat').addEventListener('input', () => toplamlariGuncelle());
 el('kdvDahil').addEventListener('change', () => toplamlariGuncelle());
 
@@ -953,7 +998,7 @@ async function belgeKaydet(belgeTuru) {
     });
   }
 
-  const tahsilat = sayiOku(el('tahsilat').value);
+  const tahsilat = tutarOku(el('tahsilat').value);
   if (!satirlar.length && !(tahsilat > 0)) {
     return bildir('Belgeye en az bir satır ya da tahsilat girilmeli.', 'hata');
   }
@@ -1087,6 +1132,7 @@ function alisSatirEkle(odakla) {
   const birimHucre = document.createElement('td');
   birimHucre.className = 'hesaplanan';
   const fiyat = sayiHucresi('TL');
+  tutarGirdisiBagla(fiyat.girdi);
   const tutarHucre = document.createElement('td');
   tutarHucre.className = 'hesaplanan';
   tutarHucre.textContent = '0,00';
@@ -1173,7 +1219,7 @@ function alisSatirOku(tr) {
   const etiket = a.stokGirdi.value.trim();
   const stok = durum.stokHaritasi.get(etiket) || null;
   const miktar = sayiOku(a.miktarGirdi.value);
-  const fiyat = sayiOku(a.fiyatGirdi.value);
+  const fiyat = tutarOku(a.fiyatGirdi.value);
   return {
     etiket, stok, miktar, fiyat,
     tutar: Math.round(miktar * fiyat * 100) / 100,
@@ -1312,6 +1358,7 @@ async function alisKaydet() {
 // ═══════════════════════ KASA ═══════════════════════
 
 function kasaKartiSecimDoldur(secim) {
+  const eski = secim.value;
   secim.innerHTML = '';
   const bos = document.createElement('option');
   bos.value = '';
@@ -1323,6 +1370,7 @@ function kasaKartiSecimDoldur(secim) {
     o.textContent = k.kod;
     secim.appendChild(o);
   }
+  if (eski && durum.kasaKartlari.some((k) => String(k.id) === eski)) secim.value = eski;
 }
 
 function kasaIadeTutariHesapla(acikAdet, acikTutar, iadeAdet) {
@@ -1334,35 +1382,198 @@ function kasaIadeTutariHesapla(acikAdet, acikTutar, iadeAdet) {
   return Math.round((tutar / acik) * adet * 100) / 100;
 }
 
-async function iadeBilgisiniGuncelle() {
-  const bilgi = el('iadeBilgi');
-  const cari = iadeCari.secili();
-  if (!cari) { bilgi.textContent = ''; return; }
-  try {
-    const liste = await cagir('yardimci:kasaBakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
-    if (!liste.length) {
-      bilgi.textContent = 'Bu müşteride açık kasa görünmüyor.';
-      return;
+// ─── Kasa iadesi satırları ───
+//
+// 03.10.2026 müşteri isteği: aynı fişte ikinci (üçüncü…) kasa tipi için satır
+// eklenebilsin, her satırda kasanın geri alındığı birim fiyat girilebilsin.
+// Birim fiyat kasa tipi seçilince müşterideki açık depozitonun birim
+// fiyatıyla dolar; kullanıcı değiştirmezse sunucuya gönderilmez (eski
+// davranış, fark yok). Düşük fiyat girilirse depozito yine tamamen kapanır,
+// aradaki fark ayrı dekontla yazılır (bkz. db/yazma.js → kasaIadesiYaz).
+
+// Seçili müşterinin açık kasaları (yardimci:kasaBakiye) — satır hesapları için.
+let iadeAcikKasalar = [];
+
+function iadeSatirEkle(odakla) {
+  const govde = el('iadeSatirGovde');
+  const tr = document.createElement('tr');
+
+  const tipHucre = document.createElement('td');
+  const tip = document.createElement('select');
+  kasaKartiSecimDoldur(tip);
+  tipHucre.appendChild(tip);
+
+  const acikHucre = document.createElement('td');
+  acikHucre.className = 'hesaplanan';
+
+  const girdiHucresi = (yerTutucu) => {
+    const td = document.createElement('td');
+    const i = document.createElement('input');
+    i.type = 'text';
+    i.className = 'sayi';
+    i.inputMode = 'decimal';
+    i.autocomplete = 'off';
+    i.placeholder = yerTutucu;
+    td.appendChild(i);
+    return { td, girdi: i };
+  };
+  const adet = girdiHucresi('adet');
+  const fiyat = girdiHucresi('TL');
+  tutarGirdisiBagla(fiyat.girdi);
+
+  const depozitoHucre = document.createElement('td');
+  depozitoHucre.className = 'hesaplanan';
+  const farkHucre = document.createElement('td');
+  farkHucre.className = 'hesaplanan';
+
+  const silHucre = document.createElement('td');
+  silHucre.className = 'sayi';
+  const sil = document.createElement('button');
+  sil.type = 'button';
+  sil.className = 'dugme mini ucuncul';
+  sil.textContent = 'Sil';
+  sil.tabIndex = -1;
+  sil.addEventListener('click', () => {
+    tr.remove();
+    if (!govde.children.length) iadeSatirEkle(false);
+    iadeSatirlariniHesapla();
+  });
+  silHucre.appendChild(sil);
+
+  tr.append(tipHucre, acikHucre, adet.td, fiyat.td, depozitoHucre, farkHucre, silHucre);
+  govde.appendChild(tr);
+
+  // fiyatElle: kullanıcı birim fiyatı kendisi yazdı mı. Yazmadıysa kasa
+  // tipi değişince açık depozitonun birim fiyatı yeniden gelir.
+  tr._iade = {
+    tipSecim: tip, adetGirdi: adet.girdi, fiyatGirdi: fiyat.girdi,
+    acikHucre, depozitoHucre, farkHucre, fiyatElle: false, varsayilanFiyat: null
+  };
+
+  tip.addEventListener('change', () => {
+    tr._iade.fiyatElle = false;
+    iadeSatirlariniHesapla();
+  });
+  adet.girdi.addEventListener('input', () => iadeSatirlariniHesapla());
+  fiyat.girdi.addEventListener('input', () => {
+    tr._iade.fiyatElle = fiyat.girdi.value.trim() !== '';
+    iadeSatirlariniHesapla();
+  });
+  for (const girdi of [adet.girdi, fiyat.girdi]) {
+    girdi.addEventListener('keydown', (olay) => {
+      if (olay.key === 'Enter') el('iadeKaydet').click();
+    });
+  }
+
+  iadeSatirlariniHesapla();
+  if (odakla !== false) tip.focus();
+  return tr;
+}
+
+function iadeSatirlari() {
+  return [...el('iadeSatirGovde').children].filter((tr) => tr._iade);
+}
+
+// Bir satır boş mu (kasa tipi ve adet ikisi de girilmemiş).
+function iadeSatiriBosMu(s) {
+  return !s.tipSecim.value && !sayiOku(s.adetGirdi.value);
+}
+
+// Açık adet/tutar satır sırasıyla düşülür: aynı tip iki satıra yazılırsa
+// ikinci satır birincinin kalanını görür (sunucu da aynı sırayla denetler).
+// Düzenlemede, düzenlenen iadenin kendisi açık kasaya geri eklenir.
+function iadeAcikKasaHaritasi() {
+  const harita = new Map();
+  for (const k of iadeAcikKasalar) {
+    harita.set(Number(k.stokNo), { adet: Number(k.acikAdet) || 0, tutar: Number(k.acikTutar) || 0 });
+  }
+  if (iadeDuzenleme && iadeDuzenleme.stokNo) {
+    const no = Number(iadeDuzenleme.stokNo);
+    const k = harita.get(no) || { adet: 0, tutar: 0 };
+    harita.set(no, { adet: k.adet + iadeDuzenleme.adet, tutar: k.tutar + iadeDuzenleme.tutar });
+  }
+  return harita;
+}
+
+function iadeSatirlariniHesapla() {
+  const harita = iadeAcikKasaHaritasi();
+  for (const tr of iadeSatirlari()) {
+    const s = tr._iade;
+    const stokNo = Number(s.tipSecim.value);
+    const acik = stokNo ? (harita.get(stokNo) || { adet: 0, tutar: 0 }) : null;
+    s.acikHucre.textContent = acik ? miktarYaz(acik.adet) : '';
+    s.depozitoHucre.textContent = '';
+    s.farkHucre.textContent = '';
+    s.depozitoHucre.classList.remove('hata');
+    s.farkHucre.classList.remove('hata');
+    s.varsayilanFiyat = null;
+    if (!acik) continue;
+
+    const birimDepozito = acik.adet > 0 ? Math.round((acik.tutar / acik.adet) * 100) / 100 : 0;
+    s.varsayilanFiyat = birimDepozito;
+    if (!s.fiyatElle) sayiGirdisineYaz(s.fiyatGirdi, birimDepozito);
+
+    const adet = sayiOku(s.adetGirdi.value);
+    if (!(adet > 0)) continue;
+    if (adet > acik.adet + 0.0005) {
+      s.depozitoHucre.textContent = `açık ${miktarYaz(acik.adet)}`;
+      s.depozitoHucre.classList.add('hata');
+      continue;
     }
-    let metin = 'Açık kasalar: ' +
-      liste.map((k) => `${k.kasaTipiKod} ${miktarYaz(k.acikAdet)} adet (${para(k.acikTutar)} TL)`)
-        .join(' · ');
-    const stokNo = Number(el('iadeKasaTipi').value);
-    const adet = sayiOku(el('iadeAdet').value);
-    const secili = liste.find((k) => Number(k.stokNo) === stokNo);
-    if (secili && adet > 0 && adet <= secili.acikAdet) {
-      const kapanacak = kasaIadeTutariHesapla(secili.acikAdet, secili.acikTutar, adet);
-      metin += ` · Bu iadede kapanacak depozito: ${para(kapanacak)} TL`;
+    const kapanacak = kasaIadeTutariHesapla(acik.adet, acik.tutar, adet);
+    s.depozitoHucre.textContent = para(kapanacak);
+    const fiyatMetni = s.fiyatGirdi.value.trim();
+    if (s.fiyatElle && fiyatMetni) {
+      const fark = Math.round((kapanacak - tutarOku(fiyatMetni) * adet) * 100) / 100;
+      if (Math.abs(fark) > Math.max(0.01, adet * 0.005)) {
+        // Eksi fark: fiyat açık depozitodan yüksek — sunucu reddeder.
+        s.farkHucre.textContent = para(fark);
+        s.farkHucre.classList.toggle('hata', fark < 0);
+      }
     }
-    bilgi.textContent = metin;
-  } catch (e) {
-    bilgi.textContent = 'Kasa bakiyesi okunamadı: ' + e.message;
+    // Sonraki aynı tip satır kalan açıkla hesaplansın.
+    harita.set(stokNo, {
+      adet: acik.adet - adet,
+      tutar: Math.round((acik.tutar - kapanacak) * 100) / 100
+    });
   }
 }
 
+async function iadeBilgisiniGuncelle() {
+  const bilgi = el('iadeBilgi');
+  const cari = iadeCari.secili();
+  if (!cari) {
+    iadeAcikKasalar = [];
+    bilgi.textContent = '';
+    iadeSatirlariniHesapla();
+    return;
+  }
+  try {
+    iadeAcikKasalar = await cagir('yardimci:kasaBakiye', { firma: firmaKodu(), cariInd: cari.cariInd });
+    bilgi.textContent = iadeAcikKasalar.length
+      ? 'Açık kasalar: ' + iadeAcikKasalar
+          .map((k) => `${k.kasaTipiKod} ${miktarYaz(k.acikAdet)} adet (${para(k.acikTutar)} TL)`)
+          .join(' · ')
+      : 'Bu müşteride açık kasa görünmüyor.';
+  } catch (e) {
+    iadeAcikKasalar = [];
+    bilgi.textContent = 'Kasa bakiyesi okunamadı: ' + e.message;
+  }
+  iadeSatirlariniHesapla();
+}
+
+// Formdaki kasa satırlarını temizler, tek boş satır bırakır.
+function iadeSatirlariniSifirla() {
+  el('iadeSatirGovde').innerHTML = '';
+  iadeSatirEkle(false);
+}
+
+el('iadeSatirEkle').addEventListener('click', () => iadeSatirEkle());
+
 // Kasa iadesi düzeltme (30.09.2026 müşteri isteği: "düşülen paraları
 // düzeltemiyoruz"). Son Belgeler'deki ✎ iadeyi bu forma açar; kaydedince eski
-// iade silinip yenisi aynı transaction'da yazılır.
+// iade silinip yenisi aynı transaction'da yazılır. Düzenlenen iade tek
+// satırdır; düzenlemede satır eklenmez.
 let iadeDuzenleme = null;
 
 function iadeDuzenlemesiniKapat() {
@@ -1371,35 +1582,58 @@ function iadeDuzenlemesiniKapat() {
   el('iadeDuzenlemeBilgi').textContent = '';
   el('iadeKaydet').textContent = 'İadeyi Kaydet';
   el('iadeDuzenlemeIptal').classList.add('gizli');
+  el('iadeSatirEkle').classList.remove('gizli');
 }
+
+// Kasa tipleri yüklenince satırlardaki seçim kutuları tazelenir.
+function iadeSatirSecimleriniTazele() {
+  for (const tr of iadeSatirlari()) kasaKartiSecimDoldur(tr._iade.tipSecim);
+  iadeSatirlariniHesapla();
+}
+
+iadeSatirlariniSifirla();
 
 el('iadeDuzenlemeIptal').addEventListener('click', () => {
   iadeDuzenlemesiniKapat();
-  el('iadeAdet').value = '';
+  iadeSatirlariniSifirla();
   el('iadeFisNo').value = '';
   el('iadeTarih').value = bugun();
   uyariKapat();
 });
 
 async function kasaIadeDuzenlemeyiAc(d) {
-  sekmeAc('kasa');
-  iadeCari.sec(d.cari);
   const kasa = durum.kasaKartlari.find((k) => Number(k.id) === Number(d.stokNo));
   if (!kasa) {
     throw new Error(`${d.stokKodu || 'Bu'} kasa tipi artık listede yok; iade düzenlenemez, geri alınabilir.`);
   }
-  el('iadeKasaTipi').value = String(kasa.id);
-  sayiGirdisineYaz(el('iadeAdet'), d.adet);
+  sekmeAc('kasa');
+  iadeDuzenleme = {
+    islemId: Number(d.islemId),
+    stokNo: Number(kasa.id),
+    adet: Number(d.adet) || 0,
+    tutar: Number(d.tutar) || 0
+  };
+  iadeCari.sec(d.cari);
+
+  el('iadeSatirGovde').innerHTML = '';
+  const tr = iadeSatirEkle(false);
+  const s = tr._iade;
+  s.tipSecim.value = String(kasa.id);
+  sayiGirdisineYaz(s.adetGirdi, d.adet);
+  if (d.birimFiyat != null) {
+    sayiGirdisineYaz(s.fiyatGirdi, d.birimFiyat);
+    s.fiyatElle = true;
+  }
   el('iadeTarih').value = tarihKutusu(d.tarih);
   el('iadeFisNo').value = d.fisNo || '';
 
-  iadeDuzenleme = { islemId: Number(d.islemId) };
   const bilgi = el('iadeDuzenlemeBilgi');
   bilgi.textContent = `${d.cari.ad} · ${miktarYaz(d.adet)} adet ${d.stokKodu || ''} kasa iadesi düzenleniyor. ` +
     'Kaydetme tamamlanmazsa eski iade aynen korunur.';
   bilgi.classList.remove('gizli');
   el('iadeKaydet').textContent = 'Değişiklikleri Kaydet';
   el('iadeDuzenlemeIptal').classList.remove('gizli');
+  el('iadeSatirEkle').classList.add('gizli');
   iadeBilgisiniGuncelle();
   bildir('Kasa iadesi düzenlemeye açıldı. Düzeltip Değişiklikleri Kaydet’e basın.', '');
 }
@@ -1412,11 +1646,33 @@ el('iadeKaydet').addEventListener('click', async () => {
   }
   const cari = iadeCari.secili();
   if (!cari) return bildir('Müşteri seçilmedi.', 'hata');
-  const stokNo = el('iadeKasaTipi').value;
-  if (!stokNo) return bildir('Kasa tipi seçilmedi.', 'hata');
-  const adet = sayiOku(el('iadeAdet').value);
-  if (!(adet > 0)) return bildir('İade adedi sıfırdan büyük olmalı.', 'hata');
-  const kasa = durum.kasaKartlari.find((k) => k.id === Number(stokNo));
+
+  const dolu = iadeSatirlari().map((tr) => tr._iade).filter((s) => !iadeSatiriBosMu(s));
+  if (!dolu.length) return bildir('Kasa tipi ve iade adedi girilmedi.', 'hata');
+  const satirlar = [];
+  for (const [i, s] of dolu.entries()) {
+    const sira = dolu.length > 1 ? `${i + 1}. satır: ` : '';
+    const stokNo = Number(s.tipSecim.value);
+    if (!stokNo) return bildir(sira + 'Kasa tipi seçilmedi.', 'hata');
+    const adet = sayiOku(s.adetGirdi.value);
+    if (!(adet > 0)) return bildir(sira + 'İade adedi sıfırdan büyük olmalı.', 'hata');
+    const kasa = durum.kasaKartlari.find((k) => k.id === stokNo);
+    // Kullanıcı fiyatı değiştirmediyse gönderilmez: sunucu açık depozitonun
+    // kuruşu kuruşuna tam değeriyle yazar.
+    const fiyatMetni = s.fiyatGirdi.value.trim();
+    let birimFiyat = null;
+    if (s.fiyatElle && fiyatMetni) {
+      birimFiyat = tutarOku(fiyatMetni);
+      if (s.varsayilanFiyat != null && Math.abs(birimFiyat - s.varsayilanFiyat) < 0.005) birimFiyat = null;
+    }
+    satirlar.push({
+      stokNo,
+      stokKodu: kasa ? kasa.kod : null,
+      stokAdi: kasa ? kasa.ad : null,
+      adet,
+      birimFiyat
+    });
+  }
 
   const dugme = el('iadeKaydet');
   dugme.disabled = true;
@@ -1426,27 +1682,29 @@ el('iadeKaydet').addEventListener('click', async () => {
       donem: donemKodu(),
       cariInd: cari.cariInd,
       cariAd: cari.ad,
-      stokNo: Number(stokNo),
-      stokKodu: kasa ? kasa.kod : null,
-      stokAdi: kasa ? kasa.ad : null,
-      adet,
+      satirlar,
       tarih: el('iadeTarih').value || bugun(),
       fisNo: el('iadeFisNo').value.trim(),
       duzenlenenIslemId: iadeDuzenleme ? iadeDuzenleme.islemId : null
     });
 
-    let mesaj =
-      (sonuc.duzenlendi ? 'İade düzeltildi: ' : 'İade kaydedildi: ') +
-      `${miktarYaz(sonuc.adet)} adet, ${para(sonuc.tutar)} TL. ` +
-      `Müşteride kalan: ${miktarYaz(sonuc.kalanAdet)} adet, ${para(sonuc.kalanTutar)} TL.`;
-    if (sonuc.belgeNo) mesaj += ` Vega belge no: ${sonuc.belgeNo}.`;
+    const parcalar = (sonuc.satirlar || []).map((s) => {
+      let m = `${s.stokKodu || 'Kasa'} ${miktarYaz(s.adet)} adet, ${para(s.tutar)} TL depozito kapandı`;
+      if (s.fark > 0) {
+        m += ` (stoğa ${para(s.birimFiyat)} TL'den ${para(s.fisTutari)} TL, fark ${para(s.fark)} TL)`;
+      }
+      m += `, kalan ${miktarYaz(s.kalanAdet)} adet`;
+      const nolar = [s.belgeNo, s.farkBelgeNo].filter(Boolean).join(' / ');
+      if (nolar) m += ` · Vega belge no: ${nolar}`;
+      return m;
+    });
+    bildir((sonuc.duzenlendi ? 'İade düzeltildi: ' : 'İade kaydedildi: ') + parcalar.join(' — ') + '.', 'basarili');
 
-    bildir(mesaj, 'basarili');
     if (iadeDuzenleme) {
       iadeDuzenlemesiniKapat();
       el('iadeTarih').value = bugun();
     }
-    el('iadeAdet').value = '';
+    iadeSatirlariniSifirla();
     el('iadeFisNo').value = '';
     await iadeBilgisiniGuncelle();
     await iadeCari.yenile();
@@ -1457,9 +1715,6 @@ el('iadeKaydet').addEventListener('click', async () => {
     dugme.disabled = false;
   }
 });
-
-el('iadeKasaTipi').addEventListener('change', () => iadeBilgisiniGuncelle());
-el('iadeAdet').addEventListener('input', () => iadeBilgisiniGuncelle());
 
 el('kasaYenile').addEventListener('click', () => kasaBakiyesiniYukle());
 
@@ -1579,7 +1834,8 @@ function belgeTuruAdi(konu) {
 
 function sayiGirdisineYaz(girdi, deger) {
   const n = Number(deger) || 0;
-  girdi.value = n ? String(n).replace('.', ',') : '';
+  const metin = n ? String(n).replace('.', ',') : '';
+  girdi.value = girdi.dataset.tutar ? tutarBicimle(metin) : metin;
 }
 
 // Son Belgeler ve Ödeme Geçmişi'ndeki ✎ — kaydın türüne göre doğru formu açar.
@@ -1599,7 +1855,7 @@ async function belgeDuzenlemeyiAc(islemId) {
     belgeFormunuTemizle(true);
     el('belgeTarih').value = tarihKutusu(d.tarih);
     el('fisNo').value = d.fisNo || '';
-    el('tahsilat').value = d.tahsilat ? String(d.tahsilat).replace('.', ',') : '';
+    sayiGirdisineYaz(el('tahsilat'), d.tahsilat);
     el('tahsilatAciklama').value = d.tahsilatAciklama || '';
     el('kdvDahil').checked = false; // Günlükte saklanan fiyat zaten net fiyattır.
     belgeCari.sec(d.cari);
@@ -2065,8 +2321,6 @@ el('raporGetir').addEventListener('click', () => raporGetir());
 el('raporBuHafta').addEventListener('click', () => raporHaftayaGit(new Date()));
 el('raporOncekiHafta').addEventListener('click', () => raporHaftaKaydir(-7));
 el('raporSonrakiHafta').addEventListener('click', () => raporHaftaKaydir(7));
-el('raporTip').addEventListener('change', () => raporGetir());
-el('raporMusteriTipi').addEventListener('change', () => raporGetir());
 el('raporArama').addEventListener('input', () => raporGenelCiz());
 el('raporYazdir').addEventListener('click', () => {
   raporSecimiGorunurYap();
@@ -2098,9 +2352,12 @@ function raporSayfasiAcildi() {
   }
 }
 
+// Not sütununun başlığı her zaman bugünün tarihidir (03.10.2026 müşteri
+// isteği): kâğıda basıldığı gün elle not tutuluyor. Önceden seçili haftanın
+// Cumartesi'si yazılıyordu; geçmiş hafta seçilince geri tarih çıkıyordu.
 function raporHaftaEtiketiniGuncelle() {
   el('raporHaftaEtiket').textContent = haftaEtiketi(raporDurum.hafta);
-  el('raporGenelTarih').textContent = tarihYaz(haftaSonu(raporDurum.hafta));
+  el('raporGenelTarih').textContent = tarihYaz(new Date());
 }
 
 function raporHaftayaGit(tarih) {
@@ -2133,8 +2390,9 @@ async function raporGetir() {
       donem: donemKodu(),
       baslangic: tarihKutusu(haftaBasi(raporDurum.hafta)),
       bitis: tarihKutusu(haftaSonu(raporDurum.hafta)),
-      tip: el('raporTip').value || null,
-      musteriTipi: el('raporMusteriTipi').value || null
+      // Süzgeç kutuları 03.10.2026'da kaldırıldı: alıcı kartlarının hepsi.
+      tip: 'alici',
+      musteriTipi: null
     });
     raporHaftaEtiketiniGuncelle();
     raporGenelCiz();
@@ -2182,13 +2440,7 @@ function raporGenelCiz() {
 
   govde.innerHTML = '';
   if (!satirlar.length) {
-    // Toptan/perakende süzgeci açıkken liste boşsa sebebi çoğunlukla cari
-    // kartlarında Özel Kod 1'in boş olmasıdır — kullanıcı raporu bozuk sanmasın.
-    const secilenTip = el('raporMusteriTipi').value;
-    boslukTemizle(govde, 7, secilenTip && !el('raporArama').value.trim()
-      ? `Bu haftada gösterilecek müşteri yok. Özel Kod 1 = ${secilenTip} olan ` +
-        'müşterilerde bu hafta hareket yoksa süzgeci "Hepsi" yapın.'
-      : 'Bu haftada gösterilecek müşteri yok.');
+    boslukTemizle(govde, 7, 'Bu haftada gösterilecek müşteri yok.');
     el('raporGenelToplam').textContent = '0,00';
     raporSecimBilgisi();
     return;
@@ -2661,6 +2913,7 @@ el('odemeKaydet').addEventListener('click', () => odemeKaydet());
 el('odemeGetir').addEventListener('click', () => odemeGecmisiGetir());
 el('odemeYazdir').addEventListener('click', () => yazdir(el('odemeRapor')));
 el('odemeArama').addEventListener('input', () => odemeGecmisiCiz());
+tutarGirdisiBagla(el('odemeTutar'));
 for (const id of ['odemeTutar', 'odemeFisNo', 'odemeAciklama']) {
   el(id).addEventListener('keydown', (olay) => {
     if (olay.key === 'Enter') odemeKaydet();
@@ -2737,7 +2990,7 @@ async function odemeKaydet() {
   }
   const cari = odemeCari.secili();
   if (!cari) return bildir('Müşteri seçilmedi.', 'hata');
-  const tutar = sayiOku(el('odemeTutar').value);
+  const tutar = tutarOku(el('odemeTutar').value);
   if (!(tutar > 0)) return bildir('Ödeme tutarı girilmedi.', 'hata');
 
   const dugme = el('odemeKaydet');
@@ -3550,7 +3803,6 @@ async function ozelKodlariYukle() {
   }
   ozelKodSecimiDoldur(el('musteriTipi'), el('musteriTipiAlani'),
     ozelKodIlkYukleme ? 'TOPTAN' : null);
-  ozelKodSecimiDoldur(el('raporMusteriTipi'), el('raporMusteriTipiAlani'), null);
   ozelKodIlkYukleme = false;
 }
 
@@ -3588,7 +3840,7 @@ async function kasaKartlariniYukle() {
     durum.kasaKartlari = [];
     bildir('Kasa tipleri okunamadı: ' + e.message, 'hata');
   }
-  kasaKartiSecimDoldur(el('iadeKasaTipi'));
+  iadeSatirSecimleriniTazele();
   kasaSatirSecimleriniTazele();
   kasaKartlariTablosunuDoldur();
   await kasaTipiSorunlariniGoster();

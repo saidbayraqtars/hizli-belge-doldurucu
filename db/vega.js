@@ -496,7 +496,8 @@ async function ekstreKasaBaglari(v, firma, donem, parametreler) {
         JOIN [${v}].dbo.BD_Islem I ON I.Id = K.IslemId
         WHERE I.Firma = @bdFirma AND I.Donem = @bdDonem AND I.CariInd = H.FIRMANO
           AND I.Konu = 'KasaIade' AND I.GeriAlindi = 0
-          AND ISNULL(H.EVRAKNO, '') <> '' AND I.BelgeNo = H.EVRAKNO
+          AND ISNULL(H.EVRAKNO, '') <> ''
+          AND (I.BelgeNo = H.EVRAKNO OR I.BelgeNo LIKE H.EVRAKNO + ' / %')
       ) KI`);
     alanlar.push('KS.adet', 'KI.adet');
   }
@@ -519,6 +520,39 @@ async function ekstreKasaBaglari(v, firma, donem, parametreler) {
   return {
     joinlar: joinlar.join(''),
     ifade: alanlar.length ? `COALESCE(${alanlar.join(', ')}, 0)` : '0'
+  };
+}
+
+// GETDATE() ile yazılmış "işlemin yapıldığı an" sütunları (BD_Islem.KayitTarihi,
+// TBLCARIHAREKETLERI.ISLEMTARIHI) sunucunun YEREL saatini taşır; mssql sürücüsü
+// datetime'ı UTC sayarak okuduğu için ekranda saat, Türkiye'de 3 saat ileri
+// çıkıyordu (03.10.2026, sınamada 21:47'lik kayıt 00:47 göründü). Okurken
+// sunucunun o anki farkıyla gerçek UTC'ye çevrilir; arayüz yerel saatle yazar.
+// Belge tarihi (TARIH) JS'ten yazıldığı için bu çeviriye girmez.
+function yerelAniUtcYap(ifade) {
+  return `DATEADD(MINUTE, DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()), ${ifade})`;
+}
+
+// Yalnız kasa iadesinin adedi (KI) — ayrıntılı raporun ÖDEME bloğu için
+// (03.10.2026 müşteri isteği: "ekstrede iade adetleri gözükmüyor"). Satış
+// tarafının adetleri (KS/KF) ÖDEME satırlarına karışmasın diye ayrı.
+// Adet pozitif döner (defterde iade eksi tutulur).
+async function kasaIadeAdetBagi(v, firma, donem, parametreler) {
+  if (!(await bdTablolariVarMi(v))) return { joinlar: '', ifade: '0' };
+  parametreler.bdFirma = firma;
+  parametreler.bdDonem = donem;
+  return {
+    joinlar: `
+      OUTER APPLY (
+        SELECT -SUM(K.Adet) AS adet
+        FROM [${v}].dbo.BD_KasaHareket K
+        JOIN [${v}].dbo.BD_Islem I ON I.Id = K.IslemId
+        WHERE I.Firma = @bdFirma AND I.Donem = @bdDonem AND I.CariInd = H.FIRMANO
+          AND I.Konu = 'KasaIade' AND I.GeriAlindi = 0
+          AND ISNULL(H.EVRAKNO, '') <> ''
+          AND (I.BelgeNo = H.EVRAKNO OR I.BelgeNo LIKE H.EVRAKNO + ' / %')
+      ) KI`,
+    ifade: 'ISNULL(KI.adet, 0)'
   };
 }
 
@@ -565,7 +599,7 @@ async function cariEkstre(secenek) {
     SELECT TOP ${limit}
       H.IND AS ind,
       H.TARIH AS tarih,
-      ${islemTarihiVar ? 'H.ISLEMTARIHI' : 'NULL'} AS islemTarihi,
+      ${islemTarihiVar ? yerelAniUtcYap('H.ISLEMTARIHI') : 'NULL'} AS islemTarihi,
       ISNULL(H.IZAHAT, '') AS izahat,
       ISNULL(H.EVRAKNO, '') AS evrakNo,
       ${aciklamaIfadesi} AS aciklama,
@@ -656,6 +690,8 @@ module.exports = {
   cariEkstre,
   izahatAdi,
   aciklamaBaglari,
+  kasaIadeAdetBagi,
+  yerelAniUtcYap,
   kolonVarMi,
   cariTipFiltresi,
   musteriTipiFiltresi,

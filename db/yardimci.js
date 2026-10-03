@@ -527,6 +527,10 @@ async function kasaIadeDetayi(id, kayit) {
     { id }
   ))[0];
   if (!k) throw new Error('Bu kasa iadesinin kasa defteri kaydı bulunamadı.');
+  // 03.10.2026: elle girilen iade birim fiyatı Yazilan'da saklanır.
+  let yazilan = [];
+  try { yazilan = JSON.parse(kayit.Yazilan || '[]'); } catch (e) { yazilan = []; }
+  const fis = yazilan.find((y) => y && y.tur === 'kasaIade') || {};
   return {
     islemId: id,
     tur: 'kasaIade',
@@ -537,6 +541,8 @@ async function kasaIadeDetayi(id, kayit) {
     stokNo: Number(k.StokNo),
     stokKodu: k.StokKodu || '',
     adet: Math.abs(Number(k.Adet) || 0),
+    tutar: Number(kayit.Tutar) || 0,
+    birimFiyat: fis.birimFiyat != null ? Number(fis.birimFiyat) : null,
     cari: { cariInd: Number(kayit.CariInd), ad: kayit.CariAd || '', bakiye: await cariBakiyesiOku(kayit) }
   };
 }
@@ -651,9 +657,55 @@ function aramaKosulu(ifade, parcalar, parametreler, onek) {
   });
 }
 
+// 03.10.2026 müşteri raporu: "ödemelerden girilenlerin saatleri gözükmüyor".
+// KayitTarihi sütunu 30.09.2026'da eklendi; göç, eski kaydın anını yalnız
+// BD_BelgeSatir / BD_KasaHareket'ten geri doldurabildi. Ödeme (tahsilat) ve
+// tutarsız cari giriş kayıtlarının ikisinde de satırı yok, saatleri boş
+// kaldı. Bu kayıtların gerçek anı programın Vega'ya yazdığı cari hareketin
+// ISLEMTARIHI'nde duruyor (cariHareketEkle → GETDATE()). Oturum başına bir
+// kez, her firma/dönem için o hareketten doldurulur. Yeni kayıtlarda sütunun
+// GETDATE varsayılanı zaten anı yazıyor.
+let kayitZamaniTamamlandiVt = null;
+
+async function kayitZamanlariniTamamla(db, zorla) {
+  if (!islemEkKolonlari || (kayitZamaniTamamlandiVt === db && !zorla)) return;
+  kayitZamaniTamamlandiVt = db;
+  try {
+    const gruplar = await sorgu(`
+      SELECT DISTINCT Firma, Donem FROM [${db}].dbo.BD_Islem
+      WHERE KayitTarihi IS NULL AND ISNULL(BelgeNo, '') <> ''
+        AND Firma IS NOT NULL AND Donem IS NOT NULL`);
+    for (const g of gruplar) {
+      const firma = String(g.Firma || '').trim();
+      const donem = String(g.Donem || '').trim();
+      if (!/^[A-Za-z0-9_]+$/.test(firma) || !/^[A-Za-z0-9_]+$/.test(donem)) continue;
+      if (!(await tabloVarMi(firma, donem, 'TBLCARIHAREKETLERI'))) continue;
+      const hareket = tablo(db, firma, donem, 'TBLCARIHAREKETLERI');
+      if (!(await vega.kolonVarMi(hareket, 'ISLEMTARIHI'))) continue;
+      // BelgeNo birden çok belgeyi ' / ' ile tutabilir (fatura / tahsilat).
+      await calistir(`
+        UPDATE I SET KayitTarihi = X.an
+        FROM [${db}].dbo.BD_Islem I
+        CROSS APPLY (
+          SELECT MIN(H.ISLEMTARIHI) AS an
+          FROM ${hareket} H
+          WHERE H.FIRMANO = I.CariInd AND ISNULL(H.EVRAKNO, '') <> ''
+            AND ' / ' + I.BelgeNo + ' / ' LIKE '% / ' + LTRIM(RTRIM(H.EVRAKNO)) + ' / %'
+        ) X
+        WHERE I.KayitTarihi IS NULL AND I.Firma = @firma AND I.Donem = @donem
+          AND ISNULL(I.BelgeNo, '') <> '' AND X.an IS NOT NULL`,
+        { firma: g.Firma, donem: g.Donem });
+    }
+  } catch (e) {
+    // Saat yalnız bilgi; dolduramazsak liste yine açılır.
+    console.error('[kayitZamani] geri doldurulamadı:', e.message);
+  }
+}
+
 async function sonIslemleriGetir(secenek) {
   await hazirla();
   const db = vt();
+  await kayitZamanlariniTamamla(db);
   const limit = Math.min(Number((secenek && secenek.limit) || 100), 1000);
   const parcalar = String((secenek && secenek.arama) || '')
     .split(/\s+/).map((p) => p.trim()).filter(Boolean).slice(0, 6);
@@ -694,7 +746,7 @@ async function sonIslemleriGetir(secenek) {
               WHERE S.IslemId = I.Id AND ISNULL(S.FisNo, '') <> ''),
              ${islemEkKolonlari ? "NULLIF(I.FisNo, '')" : 'NULL'}
            ) AS FisNo,
-           ${islemEkKolonlari ? 'I.KayitTarihi' : 'NULL AS KayitTarihi'},
+           ${islemEkKolonlari ? vega.yerelAniUtcYap('I.KayitTarihi') + ' AS KayitTarihi' : 'NULL AS KayitTarihi'},
            I.Tutar, I.Aciklama, I.GeriAlindi, I.Kullanici, I.Bilgisayar
     FROM [${db}].dbo.BD_Islem I
     ${kosullar.length ? 'WHERE ' + kosullar.join(' AND ') : ''}
@@ -722,6 +774,14 @@ async function vegaBelgeleriniAra(firmaHam, donemHam, parcalar, limit) {
     { ad: 'TBLCARCIKBASLIK', not: 'ACIKLAMA', konu: 'vegaCariCikis' }
   ];
   const sonuc = [];
+  // Belgenin girildiği an: cari hareketin ISLEMTARIHI (03.10.2026).
+  const hareket = tablo(v, firma, donem, 'TBLCARIHAREKETLERI');
+  const anVar = (await tabloVarMi(firma, donem, 'TBLCARIHAREKETLERI')) &&
+    (await vega.kolonVarMi(hareket, 'ISLEMTARIHI'));
+  const anIfadesi = anVar
+    ? vega.yerelAniUtcYap(`(SELECT MIN(H.ISLEMTARIHI) FROM ${hareket} H
+        WHERE H.FIRMANO = B.FIRMANO AND ISNULL(B.BELGENO, '') <> '' AND H.EVRAKNO = B.BELGENO)`)
+    : 'NULL';
 
   for (const k of kaynaklar) {
     if (!(await tabloVarMi(firma, donem, k.ad))) continue;
@@ -737,6 +797,7 @@ async function vegaBelgeleriniAra(firmaHam, donemHam, parcalar, limit) {
       SELECT TOP ${limit} B.IND AS vegaInd, B.TARIH AS Tarih, B.FIRMANO AS CariInd,
              ${cariAd} AS CariAd, ISNULL(B.BELGENO, '') AS BelgeNo,
              ${tutarIfadesi} AS Tutar,
+             ${anIfadesi} AS KayitTarihi,
              CAST(B.${k.not} AS NVARCHAR(250)) AS Aciklama
       FROM ${tam} B
       LEFT JOIN ${kart(v, firma, 'TBLCARI')} C ON C.IND = B.FIRMANO
@@ -761,7 +822,7 @@ async function vegaBelgeleriniAra(firmaHam, donemHam, parcalar, limit) {
         CariAd: s.CariAd || '',
         BelgeNo: String(s.BelgeNo || '').trim(),
         FisNo: fis ? fis[1] : null,
-        KayitTarihi: null,
+        KayitTarihi: s.KayitTarihi || null,
         Tutar: Number(s.Tutar) || 0,
         Aciklama: not,
         GeriAlindi: false,
@@ -938,6 +999,7 @@ module.exports = {
   islemGetir,
   islemDetayGetir,
   sonIslemleriGetir,
+  kayitZamanlariniTamamla,
   kasaHareketiYaz,
   kasaBakiyesi,
   acikKasaDurumu,

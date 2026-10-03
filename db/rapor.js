@@ -36,7 +36,9 @@
 const { sorgu } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
-const { izahatAdi, aciklamaBaglari, musteriTipiFiltresi, kolonVarMi } = require('./vega');
+const {
+  izahatAdi, aciklamaBaglari, kasaIadeAdetBagi, yerelAniUtcYap, musteriTipiFiltresi, kolonVarMi
+} = require('./vega');
 const yardimci = require('./yardimci');
 
 function vt() {
@@ -44,9 +46,11 @@ function vt() {
 }
 
 function odemeAciklamasi(satir) {
+  const adet = Number(satir.iadeAdedi) || 0;
   const parcalar = [
     izahatAdi(satir.izahat),
     satir.belgeAciklama,
+    adet ? adet.toLocaleString('tr-TR', { maximumFractionDigits: 3 }) + ' adet' : '',
     satir.evrakNo
   ].map((deger) => String(deger || '').trim()).filter(Boolean);
   return parcalar.filter((deger, sira) =>
@@ -522,21 +526,27 @@ async function haftalikDetay(secenek) {
   // başlık bağlarını kullanarak ayrıntılı raporun açıklama sütununa da taşırız.
   const { joinlar: aciklamaJoinlari, aciklamaIfadesi } =
     await aciklamaBaglari(v, firma, donem);
+  // Kasa iadesi satırında kaç kasa geri geldiği de yazılır (03.10.2026).
+  const odemeParametreleri = { cariInd, bas: baslangic, ertesi };
+  const iadeAdet = await kasaIadeAdetBagi(v, firma, donem, odemeParametreleri);
   const o = await sorgu(
     `SELECT H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
             ISNULL(H.EVRAKNO, '') AS evrakNo,
             ${aciklamaIfadesi} AS belgeAciklama,
+            ${iadeAdet.ifade} AS iadeAdedi,
             ISNULL(H.ALACAK, 0) AS alacak
      FROM ${hareketTablosu} H
      ${aciklamaJoinlari}
+     ${iadeAdet.joinlar}
      WHERE H.FIRMANO = @cariInd AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
        AND H.TARIH >= @bas AND H.TARIH < @ertesi AND ISNULL(H.ALACAK, 0) <> 0
      ORDER BY H.TARIH, H.IND`,
-    { cariInd, bas: baslangic, ertesi }
+    odemeParametreleri
   );
   const odemeler = o.map((s) => ({
     tarih: s.tarih,
     alinan: Number(s.alacak) || 0,
+    iadeAdedi: Number(s.iadeAdedi) || 0,
     aciklama: odemeAciklamasi(s)
   }));
   const odemeToplam = odemeler.reduce((t, s) => t + s.alinan, 0);
@@ -673,12 +683,12 @@ async function odemeGecmisi(secenek) {
   const satirlar = await sorgu(`
     SELECT TOP 5000
       H.IND AS ind, H.TARIH AS tarih, H.FIRMANO AS cariInd,
-      ${islemTarihiVar ? 'H.ISLEMTARIHI' : 'NULL'} AS islemTarihi,
+      ${islemTarihiVar ? yerelAniUtcYap('H.ISLEMTARIHI') : 'NULL'} AS islemTarihi,
       ${AD_IFADESI} AS cariAd,
       LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) AS izahat,
       ISNULL(H.EVRAKNO, '') AS belgeNo,
       ISNULL(H.ALACAK, 0) AS alacak,
-      P.Id AS islemId, P.Konu AS islemKonu, P.KayitTarihi AS kayitTarihi,
+      P.Id AS islemId, P.Konu AS islemKonu, ${yerelAniUtcYap('P.KayitTarihi')} AS kayitTarihi,
       COALESCE(${ekKolon ? "NULLIF(P.FisNo, '')" : 'NULL'},
         (SELECT TOP 1 S.FisNo FROM [${v}].dbo.BD_BelgeSatir S
          WHERE S.IslemId = P.Id AND ISNULL(S.FisNo, '') <> '')) AS fisNo,

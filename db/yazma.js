@@ -1908,17 +1908,46 @@ async function odemeYaz(secenek) {
 // seçili değilse eski yola (yalnız cari dekont) düşülür — geriye dönük
 // uyumluluk için.
 //
-// İade bedeli kasa kartının güncel fiyatından değil BD_KasaHareket'teki açık
-// adet/tutardan hesaplanır. Açık tutar sıfırsa Vega'ya parasal belge yazılmaz,
-// ama fiziksel kasa iadesi deftere yine işlenir.
+// Kapanan depozito kasa kartının güncel fiyatından değil BD_KasaHareket'teki
+// açık adet/tutardan hesaplanır. Açık tutar sıfırsa Vega'ya parasal belge
+// yazılmaz, ama fiziksel kasa iadesi deftere yine işlenir.
+//
+// 03.10.2026 müşteri isteği — iki ekleme:
+//   1. Aynı fişte birden çok kasa tipi ("2. kasa için satır ekle"):
+//      `satirlar` dizisi. Her satır kendi BD_Islem kaydı ve kendi Vega
+//      belgesiyle yazılır (Son Belgeler'de ayrı satır, ayrı ✎); hepsi TEK
+//      transaction — biri düşerse hiçbiri yazılmaz. Aynı tip iki kez
+//      girilirse ikinci satır birincinin düştüğü adetten sonra denetlenir.
+//   2. Birim fiyat: kasa 20'ye verilip 15'e geri alınabiliyor. Kullanıcıyla
+//      sayıyla teyit edildi (10 kasa × 20 = 200 depozito, 15'ten iade):
+//      müşterinin depozito borcu YİNE TAMAMEN kapanır (200), kasalar stoğa
+//      girilen fiyattan girer (Stok Giriş İade Fişi 150), aradaki 50 ayrı bir
+//      Cari Çıkış dekontuyla (ALACAK) kapatılır. Birim fiyat boş gelirse ya da
+//      açık depozitonun birim fiyatına eşitse eski davranış: tek fiş, fark yok.
+//      Açık depozitonun birim fiyatından YÜKSEK fiyat reddedilir — müşteriye
+//      vermediğimiz depozitoyu geri ödemiş oluruz.
+//
+// BD_Islem.BelgeNo: "fiş" ya da "fiş / fark dekontu". Ekstredeki iade adedi
+// ilk numaraya bağlanır (bkz. db/vega.js kasaIadeAdetBagi).
 async function kasaIadesiYaz(secenek) {
   kilitKontrol();
   await yardimci.hazirla();
 
-  const adet = Number(secenek.adet);
-  if (!(adet > 0)) throw new Error('İade adedi sıfırdan büyük olmalı.');
   if (!Number(secenek.cariInd)) throw new Error('Müşteri seçilmeli.');
-  if (!secenek.stokNo) throw new Error('Kasa tipi seçilmeli.');
+  const satirlar = (Array.isArray(secenek.satirlar) && secenek.satirlar.length)
+    ? secenek.satirlar
+    : [{
+        stokNo: secenek.stokNo, stokKodu: secenek.stokKodu, stokAdi: secenek.stokAdi,
+        adet: secenek.adet, birimFiyat: secenek.birimFiyat
+      }];
+  satirlar.forEach((s, i) => {
+    const sira = satirlar.length > 1 ? `${i + 1}. satır: ` : '';
+    if (!s.stokNo) throw new Error(sira + 'Kasa tipi seçilmeli.');
+    if (!(Number(s.adet) > 0)) throw new Error(sira + 'İade adedi sıfırdan büyük olmalı.');
+    if (s.birimFiyat != null && s.birimFiyat !== '' && !(Number(s.birimFiyat) >= 0)) {
+      throw new Error(sira + 'Birim fiyat geçersiz.');
+    }
+  });
 
   const { firma, donem } = await dogrula(secenek.firma, secenek.donem);
   const v = vt();
@@ -1927,6 +1956,9 @@ async function kasaIadesiYaz(secenek) {
   // 30.09.2026: kasa iadesine fiş no + düzeltme (bkz. odemeYaz).
   const fisNo = String(secenek.fisNo || '').trim().substring(0, 50);
   const duzenlenenIslemId = Number(secenek.duzenlenenIslemId) || null;
+  if (duzenlenenIslemId && satirlar.length > 1) {
+    throw new Error('Düzenlenen iade tek satırlıdır; ek kasa tipini ayrı iade olarak girin.');
+  }
   const eski = duzenlenenIslemId
     ? await duzenlenecekKaydiOku(duzenlenenIslemId, ['KasaIade'], firma, donem)
     : null;
@@ -1934,14 +1966,12 @@ async function kasaIadesiYaz(secenek) {
   const onek = await onekTespitEt(firma, donem);
   const a = ayarOku();
   const depo = Number(secenek.depo != null ? secenek.depo : a.varsayilanDepo) || 0;
-  const aciklama = `KASA IADE${secenek.stokKodu ? ' - ' + secenek.stokKodu : ''}` +
-    (fisNo ? ' - Fiş ' + fisNo : '');
 
   const stokGirisVarMi = depo &&
     (await tabloVarMi(firma, donem, 'TBLSTKGIRBASLIK')) &&
     (await tabloVarMi(firma, donem, 'TBLSTKGIRHAREKET'));
 
-  const sonuc = await islem(async (t) => {
+  const sonuclar = await islem(async (t) => {
     // Eski iade önce silinir: açık kasa sayısı düzeltilen iadeden önceki
     // haline döner, yeni adet ona göre denetlenir.
     if (eski) {
@@ -1949,91 +1979,177 @@ async function kasaIadesiYaz(secenek) {
       await yardimci.islemKayitlariniTamSil(t, duzenlenenIslemId);
     }
 
-    // Güncel kasa kartı fiyatı iade borcunu değiştirmez. Örneğin 9 kasa
-    // 500 TL'den verildiyse, kart bugün 300 TL olsa bile 9'u geri geldiğinde
-    // açık 4.500 TL'nin tamamı kapanır. Kısmi iadede açık tutarın adet başına
-    // ortalaması kullanılır; son iadede kuruş kalmaması için tamamı alınır.
-    const acik = await yardimci.acikKasaDurumu(firma, cariInd, secenek.stokNo, t);
-    if (adet > acik.acikAdet) {
+    const yazilanlar = [];
+    for (const s of satirlar) {
+      yazilanlar.push(await kasaIadeSatiriYaz(t, {
+        v, firma, donem, cariInd, cariAd: secenek.cariAd, tarih, fisNo, depo, onek,
+        stokGirisVarMi, userNo: secenek.userNo, kullanici: secenek.kullanici
+      }, s));
+    }
+    return yazilanlar;
+  });
+
+  const ilk = sonuclar[0];
+  return {
+    tamam: true,
+    satirlar: sonuclar,
+    // Tek satırlı eski çağrılar için ilk satırın özeti.
+    belgeNo: ilk.belgeNo,
+    islemId: ilk.islemId,
+    adet: ilk.adet,
+    depozito: ilk.depozito,
+    tutar: ilk.tutar,
+    kalanAdet: ilk.kalanAdet,
+    kalanTutar: ilk.kalanTutar,
+    duzenlendi: !!eski
+  };
+}
+
+async function kasaIadeSatiriYaz(t, o, s) {
+  const { v, firma, donem, cariInd, tarih, fisNo, depo, onek, stokGirisVarMi } = o;
+  const adet = Number(s.adet);
+  const stokKodu = s.stokKodu || null;
+  const aciklama = `KASA IADE${stokKodu ? ' - ' + stokKodu : ''}` +
+    (fisNo ? ' - Fiş ' + fisNo : '');
+
+  // Güncel kasa kartı fiyatı iade borcunu değiştirmez. Örneğin 9 kasa
+  // 500 TL'den verildiyse, kart bugün 300 TL olsa bile 9'u geri geldiğinde
+  // açık 4.500 TL'nin tamamı kapanır. Kısmi iadede açık tutarın adet başına
+  // ortalaması kullanılır; son iadede kuruş kalmaması için tamamı alınır.
+  const acik = await yardimci.acikKasaDurumu(firma, cariInd, s.stokNo, t);
+  if (adet > acik.acikAdet + 0.0005) {
+    throw new Error(
+      `Bu müşteride ${stokKodu || 'bu'} tipinden ${acik.acikAdet} kasa açık görünüyor; ${adet} kasa iade alınamaz.`
+    );
+  }
+  const tamIade = Math.abs(adet - acik.acikAdet) < 0.0005;
+  const tutar = tamIade
+    ? acik.acikTutar
+    : Math.round((acik.acikTutar / acik.acikAdet) * adet * 100) / 100;
+  const depozito = adet ? tutar / adet : 0;
+
+  // Birim fiyat (kasanın geri alındığı fiyat). Boşsa depozitonun kendisi.
+  // Ortalama depozito kuruşlu çıkabildiği için (100 TL / 3 kasa) ekranda
+  // yuvarlanmış hali gelirse fark kuruş düzeyinde kalır — o zaman fark
+  // dekontu açılmaz, fiş depozitonun tam değeriyle yazılır.
+  const fiyatGirildi = s.birimFiyat != null && s.birimFiyat !== '';
+  let fisFiyati = depozito;
+  let fisTutari = tutar;
+  let fark = 0;
+  if (fiyatGirildi) {
+    const fiyat = Number(s.birimFiyat);
+    // Sıfır fiyatla stok fişi tutarsız kalır (stoğa bedelsiz giriş + tüm
+    // depozito fark dekontundan); kullanıcı boş bırakmalı ya da fiyat girmeli.
+    if (tutar > 0 && !(fiyat > 0)) {
+      throw new Error(`${stokKodu || 'Kasa'}: birim fiyat sıfır olamaz; açık depozitodan iade için boş bırakın.`);
+    }
+    const girilenTutar = Math.round(fiyat * adet * 100) / 100;
+    const kalan = Math.round((tutar - girilenTutar) * 100) / 100;
+    const kurusPayi = Math.max(0.01, adet * 0.005);
+    if (kalan < -kurusPayi) {
       throw new Error(
-        `Bu müşteride bu tipten ${acik.acikAdet} kasa açık görünüyor; ${adet} kasa iade alınamaz.`
+        `${stokKodu || 'Kasa'}: birim fiyat (${fiyat.toLocaleString('tr-TR')} TL), müşterideki açık depozitonun ` +
+        `birim fiyatından (${(Math.round(depozito * 100) / 100).toLocaleString('tr-TR')} TL) büyük olamaz.`
       );
     }
-    const tamIade = Math.abs(adet - acik.acikAdet) < 0.0005;
-    const tutar = tamIade
-      ? acik.acikTutar
-      : Math.round((acik.acikTutar / acik.acikAdet) * adet * 100) / 100;
-    const depozito = adet ? tutar / adet : 0;
-
-    let dekont = null;
-    if (tutar > 0 && stokGirisVarMi) {
-      const kasaKarti = (await kasaKartlariniCoz(firma, [secenek.stokNo], t))
-        .get(Number(secenek.stokNo));
-      dekont = await stokGirisIadesiYaz(t, {
-        v, firma, donem, cariInd,
-        stokNo: kasaKarti.stokNo, stokKodu: kasaKarti.kod,
-        stokAdi: kasaKarti.ad, stokTipi: kasaKarti.stokTipi,
-        birimEx: kasaKarti.birimEx, birim: kasaKarti.birim,
-        carpan: kasaKarti.carpan,
-        adet, fiyat: depozito, depo, tarih, aciklama, onek
-      });
-    } else if (tutar > 0) {
-      dekont = await cariDekontuYaz(t, {
-        v, firma, donem, cariInd, tutar,
-        tarih, userNo: Number(secenek.userNo || 0),
-        // Kasa iadesi: parayı biz müşteriye veriyoruz → Cari ÇIKIŞ. Müşterinin
-        // kasa depozito borcu bu kadar azalır → ALACAK (borcMu:false).
-        giris: false,
-        borcMu: false,
-        aciklama,
-        onek
-      });
+    if (kalan > kurusPayi) {
+      fisFiyati = fiyat;
+      fisTutari = girilenTutar;
+      fark = kalan;
     }
+  }
 
-    const islemId = await yardimci.islemYaz(t, {
-      konu: 'KasaIade',
-      firma, donem, tarih, cariInd, cariAd: secenek.cariAd,
-      belgeNo: dekont ? dekont.belgeNo : null,
-      tutar,
-      aciklama: 'Kasa iadesi',
-      fisNo: fisNo || null,
-      yazilan: dekont ? [{ ad: 'Kasa iadesi', tur: 'kasaIade', ...dekont }] : [],
-      kullanici: secenek.kullanici
+  const yazilan = [];
+  let fisBelgeNo = null;
+  let farkBelgeNo = null;
+
+  if (fisTutari > 0 && stokGirisVarMi) {
+    const kasaKarti = (await kasaKartlariniCoz(firma, [s.stokNo], t))
+      .get(Number(s.stokNo));
+    const fis = await stokGirisIadesiYaz(t, {
+      v, firma, donem, cariInd,
+      stokNo: kasaKarti.stokNo, stokKodu: kasaKarti.kod,
+      stokAdi: kasaKarti.ad, stokTipi: kasaKarti.stokTipi,
+      birimEx: kasaKarti.birimEx, birim: kasaKarti.birim,
+      carpan: kasaKarti.carpan,
+      adet, fiyat: fisFiyati, depo, tarih, aciklama, onek
     });
-
-    await yardimci.kasaHareketiYaz(t, {
-      firma, donem, tarih, cariInd, cariAd: secenek.cariAd,
-      stokNo: secenek.stokNo,
-      stokKodu: secenek.stokKodu,
-      stokAdi: secenek.stokAdi,
-      adet: -adet,
-      depozito,
-      tutar: -tutar,
-      yon: 'iade',
-      islemId,
-      kullanici: secenek.kullanici
+    fisBelgeNo = fis.belgeNo;
+    yazilan.push({
+      ad: 'Kasa iadesi', tur: 'kasaIade', ...fis,
+      birimFiyat: fiyatGirildi ? Number(s.birimFiyat) : null
     });
+  } else if (fisTutari > 0) {
+    // Stok giriş fişi yazılamayan kurulum: depozitonun tamamı tek cari
+    // dekontla kapanır, fark ayrıca açılmaz (stok değeri zaten yazılmıyor).
+    const dekont = await cariDekontuYaz(t, {
+      v, firma, donem, cariInd, tutar,
+      tarih, userNo: Number(o.userNo || 0),
+      // Kasa iadesi: parayı biz müşteriye veriyoruz → Cari ÇIKIŞ. Müşterinin
+      // kasa depozito borcu bu kadar azalır → ALACAK (borcMu:false).
+      giris: false,
+      borcMu: false,
+      aciklama,
+      onek
+    });
+    fisBelgeNo = dekont.belgeNo;
+    fark = 0;
+    yazilan.push({ ad: 'Kasa iadesi', tur: 'kasaIade', ...dekont, birimFiyat: null });
+  }
 
-    return {
-      belgeNo: dekont ? dekont.belgeNo : null,
-      islemId,
-      depozito,
-      tutar,
-      kalanAdet: acik.acikAdet - adet,
-      kalanTutar: Math.round((acik.acikTutar - tutar) * 100) / 100
-    };
+  if (fark > 0 && fisBelgeNo) {
+    const farkAciklamasi = `KASA IADE FARKI${stokKodu ? ' - ' + stokKodu : ''}` +
+      (fisNo ? ' - Fiş ' + fisNo : '');
+    const dekont = await cariDekontuYaz(t, {
+      v, firma, donem, cariInd, tutar: fark,
+      tarih, userNo: Number(o.userNo || 0),
+      giris: false,
+      borcMu: false,
+      aciklama: farkAciklamasi,
+      onek
+    });
+    farkBelgeNo = dekont.belgeNo;
+    yazilan.push({ ad: 'Kasa iade farkı', tur: 'kasaIadeFarki', ...dekont });
+  }
+
+  const belgeNo = [fisBelgeNo, farkBelgeNo].filter(Boolean).join(' / ') || null;
+  const islemId = await yardimci.islemYaz(t, {
+    konu: 'KasaIade',
+    firma, donem, tarih, cariInd, cariAd: o.cariAd,
+    belgeNo,
+    tutar,
+    aciklama: 'Kasa iadesi',
+    fisNo: fisNo || null,
+    yazilan,
+    kullanici: o.kullanici
+  });
+
+  await yardimci.kasaHareketiYaz(t, {
+    firma, donem, tarih, cariInd, cariAd: o.cariAd,
+    stokNo: s.stokNo,
+    stokKodu,
+    stokAdi: s.stokAdi || null,
+    adet: -adet,
+    depozito,
+    tutar: -tutar,
+    yon: 'iade',
+    islemId,
+    kullanici: o.kullanici
   });
 
   return {
-    tamam: true,
-    belgeNo: sonuc.belgeNo,
-    islemId: sonuc.islemId,
+    belgeNo: fisBelgeNo,
+    farkBelgeNo,
+    islemId,
+    stokKodu,
     adet,
-    depozito: sonuc.depozito,
-    tutar: sonuc.tutar,
-    kalanAdet: sonuc.kalanAdet,
-    kalanTutar: sonuc.kalanTutar,
-    duzenlendi: !!eski
+    depozito,
+    tutar,
+    birimFiyat: fiyatGirildi && fark > 0 ? fisFiyati : null,
+    fisTutari: fisBelgeNo ? (fark > 0 ? fisTutari : tutar) : 0,
+    fark,
+    kalanAdet: acik.acikAdet - adet,
+    kalanTutar: Math.round((acik.acikTutar - tutar) * 100) / 100
   };
 }
 

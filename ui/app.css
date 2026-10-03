@@ -233,6 +233,13 @@ td.hesaplanan {
   color: #1f2937;
   white-space: nowrap;
 }
+td.hesaplanan.hata { color: #b91c1c; }
+
+/* Kasa iadesi satırları (03.10.2026): dar tablo, formun altında. */
+#iadeSatirTablo { width: auto; min-width: 640px; margin-top: 10px; }
+#iadeSatirTablo select { min-width: 130px; }
+#iadeSatirTablo input.sayi { width: 110px; }
+#iadeSatirTablo th.sayi, #iadeSatirTablo td.hesaplanan { min-width: 90px; }
 
 .bosSatir { text-align: center; color: #9ca3af; padding: 20px 8px; font-size: 13px; }
 
@@ -451,6 +458,10 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
 #raporGenelTablo { border: 2px solid #475569; }
 #raporGenelTablo th,
 #raporGenelTablo td { border: 2px solid #475569; }
+/* Soldaki boş sütun kâğıtta elle tahsilat notu (tutar, "Kart", "EFT",
+   gün) yazmak için. 03.10.2026 müşteri isteği: notlar sığmıyordu, sütun
+   yaklaşık üç katına çıkarıldı. */
+#raporGenelTablo .tarihSutun { width: 24%; }
 #raporGenel .raporGenelToplam {
   margin-top: 8px;
   padding-top: 0;
@@ -607,6 +618,11 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
   #raporGenelTablo td { border: 2px solid #000 !important; }
   #raporGenelTablo th,
   #raporGenelTablo td { padding: 3px 5px; line-height: 1.25; }
+  /* Not sütununa yer açmak için ad sütununun ekran alt sınırı kâğıtta yok;
+     tutar sütunları kendi içerik genişliğinde kalır (A4 dikey). */
+  #raporGenelTablo .tarihSutun { width: 32%; }
+  #raporGenelTablo th.genis { min-width: 0; }
+  #raporGenelTablo td.sayi { white-space: nowrap; }
   #raporGenel .raporBaslik { font-size: 20px; margin-bottom: 8px; }
 
   /* İlk müşteriden sonra yalnız yeni müşteri başlamadan sayfa atlat.

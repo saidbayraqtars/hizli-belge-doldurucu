@@ -13,12 +13,13 @@
   <div class="marka">Hızlı Belge Doldurucu</div>
   <nav class="sekmeler">
     <button class="sekme etkin" data-sekme="belge">Belge Gir</button>
-    <button class="sekme" data-sekme="alis">Alış Faturası</button>
     <button class="sekme" data-sekme="kasa">Kasa</button>
     <button class="sekme" data-sekme="rapor">Haftalık Rapor</button>
     <button class="sekme" data-sekme="ekstre">Ekstre</button>
     <button class="sekme" data-sekme="odeme">Ödemeler</button>
     <button class="sekme" data-sekme="belgeler">Son Belgeler</button>
+    <!-- 03.10.2026 müşteri isteği: Alış Faturası Son Belgeler'in sonrasına alındı. -->
+    <button class="sekme" data-sekme="alis">Alış Faturası</button>
     <button class="sekme" data-sekme="ayar">Ayarlar</button>
   </nav>
   <div class="durum">
@@ -204,8 +205,11 @@
       <h2>Kasa İadesi</h2>
       <p class="ipucu">
         Müşteriye verilen kasaların depozitosu cari borcuna eklenir. Kasalar geri
-        geldiğinde buradan düşülür. İade, kasa kartının bugünkü fiyatından değil,
-        müşteride o adet için açık duran gerçek depozito borcundan hesaplanır.
+        geldiğinde buradan düşülür: müşteride o adet için açık duran depozito
+        borcunun tamamı kapanır. <b>Birim Fiyat</b> kasanın geri alındığı
+        fiyattır — açık depozitodan düşükse kasa stoğa o fiyattan girer, aradaki
+        fark ayrı bir belgeyle müşterinin borcundan düşülür. Aynı fişte birden
+        çok kasa tipi için <b>+ Kasa Ekle</b>.
       </p>
       <div class="satirlar-ust">
         <div class="alan buyuk">
@@ -216,14 +220,6 @@
           <div class="altDugmeler">
             <button type="button" class="dugme mini ikincil" data-cari-liste="iade">Listeden Seç</button>
           </div>
-        </div>
-        <div class="alan">
-          <label for="iadeKasaTipi">Kasa Tipi</label>
-          <select id="iadeKasaTipi"></select>
-        </div>
-        <div class="alan kucuk">
-          <label for="iadeAdet">İade Adedi</label>
-          <input type="text" id="iadeAdet" inputmode="decimal" autocomplete="off">
         </div>
         <div class="alan">
           <label for="iadeTarih">Tarih</label>
@@ -238,6 +234,23 @@
           <button class="dugme ucuncul gizli" id="iadeDuzenlemeIptal">Düzenlemeyi İptal Et</button>
         </div>
       </div>
+      <!-- 03.10.2026 müşteri isteği: aynı fişte 2. kasa tipi için satır;
+           kasanın geri alındığı birim fiyat. Yazma: yazma:kasaIade satirlar[]. -->
+      <table class="veri girdi" id="iadeSatirTablo">
+        <thead>
+          <tr>
+            <th>Kasa Tipi</th>
+            <th class="sayi">Açık Adet</th>
+            <th class="sayi">İade Adedi</th>
+            <th class="sayi">Birim Fiyat</th>
+            <th class="sayi">Kapanacak Depozito</th>
+            <th class="sayi">Fark</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="iadeSatirGovde"></tbody>
+      </table>
+      <button class="dugme ikincil" id="iadeSatirEkle">+ Kasa Ekle</button>
       <div id="iadeBilgi" class="ipucu"></div>
     </div>
 
@@ -268,26 +281,15 @@
         <div class="haftaEtiket" id="raporHaftaEtiket">—</div>
         <button class="dugme ikincil" id="raporSonrakiHafta" title="Sonraki hafta">▶</button>
         <button class="dugme ucuncul" id="raporBuHafta">Bu Hafta</button>
-        <div class="alan kucuk">
-          <label for="raporTip">Kart tipi</label>
-          <select id="raporTip">
-            <option value="">Hepsi</option>
-            <option value="alici" selected>Alıcı (müşteri)</option>
-            <option value="satici">Satıcı (tedarikçi)</option>
-          </select>
-        </div>
-        <div class="alan kucuk" id="raporMusteriTipiAlani">
-          <label for="raporMusteriTipi">Özel Kod 1</label>
-          <select id="raporMusteriTipi" title="Cari kartındaki Özel Kod 1 (TOPTAN, PERAKENDE…)">
-            <option value="" selected>Hepsi</option>
-          </select>
-        </div>
+        <!-- 03.10.2026 müşteri isteği: Kart tipi ve Özel Kod 1 süzgeçleri
+             kaldırıldı; rapor her zaman alıcı (müşteri) kartlarının hepsini
+             getirir (bkz. raporGetir). -->
         <div class="alan buyu">
           <label for="raporArama">Listede ara</label>
           <input type="text" id="raporArama" placeholder="müşteri adı…" autocomplete="off">
         </div>
         <button class="dugme birincil buyuk" id="raporGetir">Raporu Getir</button>
-        <button class="dugme ikincil" id="raporYazdir">Yazdır</button>
+        <button class="dugme birincil buyuk" id="raporYazdir">Yazdır</button>
         <button class="dugme ikincil" id="raporTopluEkstre">Seçilenlerin Ekstresi</button>
         <button class="dugme ucuncul" id="raporSecimTemizle">Seçimi Temizle</button>
       </div>
