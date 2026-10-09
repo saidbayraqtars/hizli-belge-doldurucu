@@ -206,10 +206,10 @@
       <p class="ipucu">
         Müşteriye verilen kasaların depozitosu cari borcuna eklenir. Kasalar geri
         geldiğinde buradan düşülür: müşteride o adet için açık duran depozito
-        borcunun tamamı kapanır. <b>Birim Fiyat</b> kasanın geri alındığı
-        fiyattır — açık depozitodan düşükse kasa stoğa o fiyattan girer, aradaki
-        fark ayrı bir belgeyle müşterinin borcundan düşülür. Aynı fişte birden
-        çok kasa tipi için <b>+ Kasa Ekle</b>.
+        borcunun tamamı kapanır, müşteride açık kasa kalmaz. <b>Birim Fiyat</b>
+        kasanın geri alındığı fiyattır: müşterinin borcundan adet × birim fiyat
+        düşülür. Açık depozitodan düşükse aradaki fark müşterinin borcunda kalır.
+        Aynı fişte birden çok kasa tipi için <b>+ Kasa Ekle</b>.
       </p>
       <div class="satirlar-ust">
         <div class="alan buyuk">
@@ -244,11 +244,23 @@
             <th class="sayi">İade Adedi</th>
             <th class="sayi">Birim Fiyat</th>
             <th class="sayi">Kapanacak Depozito</th>
-            <th class="sayi">Fark</th>
+            <th class="sayi">Borçtan Düşecek</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="iadeSatirGovde"></tbody>
+        <!-- 06.10.2026 müşteri isteği: kasaların tutarı altta toplansın. -->
+        <tfoot>
+          <tr class="toplamSatir">
+            <td>Toplam</td>
+            <td></td>
+            <td class="sayi" id="iadeToplamAdet"></td>
+            <td></td>
+            <td class="sayi" id="iadeToplamDepozito"></td>
+            <td class="sayi" id="iadeToplamDusen"></td>
+            <td></td>
+          </tr>
+        </tfoot>
       </table>
       <button class="dugme ikincil" id="iadeSatirEkle">+ Kasa Ekle</button>
       <div id="iadeBilgi" class="ipucu"></div>
@@ -281,17 +293,16 @@
         <div class="haftaEtiket" id="raporHaftaEtiket">—</div>
         <button class="dugme ikincil" id="raporSonrakiHafta" title="Sonraki hafta">▶</button>
         <button class="dugme ucuncul" id="raporBuHafta">Bu Hafta</button>
-        <!-- 03.10.2026 müşteri isteği: Kart tipi ve Özel Kod 1 süzgeçleri
-             kaldırıldı; rapor her zaman alıcı (müşteri) kartlarının hepsini
-             getirir (bkz. raporGetir). -->
-        <div class="alan buyu">
-          <label for="raporArama">Listede ara</label>
-          <input type="text" id="raporArama" placeholder="müşteri adı…" autocomplete="off">
+        <!-- 06.10.2026 müşteri isteği: Listede ara, Raporu Getir ve
+             Seçilenlerin Ekstresi kaldırıldı; yalnız Yazdır ve Özel Kod 1
+             grubu (TOPTAN / PERAKENDE / FİRMA). Rapor hafta ya da grup
+             değişince kendiliğinden gelir (bkz. raporGetir). -->
+        <div class="secimGrubu" id="raporGrup" role="group" aria-label="Müşteri grubu">
+          <button type="button" class="dugme ikincil" data-grup="TOPTAN">Toptan</button>
+          <button type="button" class="dugme ikincil" data-grup="PERAKENDE">Perakende</button>
+          <button type="button" class="dugme ikincil" data-grup="FİRMA">Firma</button>
         </div>
-        <button class="dugme birincil buyuk" id="raporGetir">Raporu Getir</button>
         <button class="dugme birincil buyuk" id="raporYazdir">Yazdır</button>
-        <button class="dugme ikincil" id="raporTopluEkstre">Seçilenlerin Ekstresi</button>
-        <button class="dugme ucuncul" id="raporSecimTemizle">Seçimi Temizle</button>
       </div>
       <p class="ipucu">
         Hafta <b>Pazar</b> başlar, <b>Cumartesi</b> biter. Bu ekran çok müşterili
@@ -300,10 +311,9 @@
         müşteriye tıklayınca oraya, o hafta seçili olarak geçilir.
       </p>
       <p class="ipucu">
-        Soldaki kutucuklardan <b>birden fazla müşteri</b> işaretlenebilir:
-        <b>Yazdır</b> yalnız işaretlileri kâğıda basar,
-        <b>Seçilenlerin Ekstresi</b> her biri için fiş bazlı ayrıntılı dökümü
-        arka arkaya hazırlar (her müşteri ayrı sayfa).
+        Liste cari kartındaki <b>Özel Kod 1</b>'e göre gelir: Toptan, Perakende ya da Firma.
+        Soldaki kutucuklardan müşteri işaretlenirse <b>Yazdır</b> yalnız işaretlileri basar;
+        hiçbiri işaretli değilse listenin tamamını basar.
       </p>
       <p class="ipucu secimBilgi gizli" id="raporSecimBilgi"></p>
     </div>
@@ -331,17 +341,6 @@
       </div>
     </div>
 
-    <!-- Seçili müşterilerin ayrıntılı ekstreleri — arka arkaya, her biri ayrı sayfa -->
-    <div class="kutu yazdirilir gizli" id="topluEkstre">
-      <div class="baslikSatir yazdirilmaz">
-        <h2 id="topluEkstreBaslik">Seçilenlerin Ekstresi</h2>
-        <div class="eylemler">
-          <button class="dugme ikincil" id="topluEkstreYazdir">Yazdır</button>
-          <button class="dugme ucuncul" id="topluEkstreKapat">Kapat</button>
-        </div>
-      </div>
-      <div id="topluEkstreGovde"></div>
-    </div>
   </section>
 
   <!-- ══════════════════ SON BELGELER ══════════════════ -->

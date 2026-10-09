@@ -34,7 +34,11 @@
 //                        adı" notu yazıyordu — UNVAN faturaya ünvan olarak
 //                        basıldığı için kaldırıldı.
 //   Özel Kod 1         : KOD1; seçenekler F{firma}TBLCARIKODTAN (CATEGORY 1)
-//                        ile kartlarda kullanılan değerler.
+//                        ile kartlarda kullanılan değerler. Haftalık Rapor
+//                        grupları (TOPTAN / PERAKENDE / FİRMA) her zaman
+//                        listededir; Vega'da tanımlı değilse kart açılırken
+//                        TBLCARIKODTAN'a eklenir (06.10.2026 müşteri isteği:
+//                        tedarikçi kartı FİRMA koduyla açılsın).
 //
 // Vega kart açarken başka tabloya satır yazmıyor: müşteri kopyasında bütün
 // CARIIND/FIRMANO sütunları tarandı. 609'daki boş TBLCARIBANKAKARTLARI /
@@ -107,6 +111,21 @@ const VEGA_KART_VARSAYILANLARI = {
   SIPARISYAPILMASIN: false
 };
 
+// Haftalık Rapor'daki grup düğmeleriyle aynı değerler (ui/index.html #raporGrup).
+const SABIT_OZEL_KOD1 = ['TOPTAN', 'PERAKENDE', 'FİRMA'];
+
+const buyukHarf = (d) => String(d).toLocaleUpperCase('tr-TR');
+
+// Vega'daki değerler + eksik sabit gruplar. Vega'daki yazım korunur.
+function ozelKod1Secenekleri(vegadakiler) {
+  const liste = [...vegadakiler];
+  const anahtarlar = new Set(liste.map(buyukHarf));
+  for (const d of SABIT_OZEL_KOD1) {
+    if (!anahtarlar.has(buyukHarf(d))) liste.push(d);
+  }
+  return liste;
+}
+
 function metin(deger) {
   return String(deger == null ? '' : deger).replace(/\s+/g, ' ').trim();
 }
@@ -137,10 +156,14 @@ function kartSatiriKur(secenek, firmaBilgisi) {
   }
 
   const ozelKod1 = metin(secenek.ozelKod1);
-  if (ozelKod1 && firmaBilgisi && Array.isArray(firmaBilgisi.ozelKod1)) {
-    const gecerli = firmaBilgisi.ozelKod1.find((d) =>
-      d.toLocaleUpperCase('tr-TR') === ozelKod1.toLocaleUpperCase('tr-TR'));
-    if (!gecerli) throw new Error(`Özel Kod 1 "${ozelKod1}" Vega'da tanımlı değil.`);
+  const secenekler = firmaBilgisi && Array.isArray(firmaBilgisi.ozelKod1)
+    ? ozelKod1Secenekleri(firmaBilgisi.ozelKod1)
+    : [];
+  const kod1 = ozelKod1
+    ? secenekler.find((d) => buyukHarf(d) === buyukHarf(ozelKod1))
+    : null;
+  if (ozelKod1 && firmaBilgisi && !kod1) {
+    throw new Error(`Özel Kod 1 "${ozelKod1}" Vega'da tanımlı değil.`);
   }
 
   // Bağlantı tarihleri UTC olarak yazıyor (db/sql.js); Vega'daki gibi saatsiz
@@ -167,9 +190,7 @@ function kartSatiriKur(secenek, firmaBilgisi) {
     ADRESPOSTA: bosIse(metin(secenek.adres)),
     VERGIDAIRESI: buyuk(metin(secenek.vergiDairesi)),
     VERGINO: bosIse(vergiNo),
-    KOD1: ozelKod1
-      ? firmaBilgisi.ozelKod1.find((d) => d.toLocaleUpperCase('tr-TR') === ozelKod1.toLocaleUpperCase('tr-TR'))
-      : null,
+    KOD1: kod1 || (ozelKod1 && !firmaBilgisi ? ozelKod1 : null),
     KAYITTARIHI: bugun,
     SUBEADI: (firmaBilgisi && firmaBilgisi.subeAdi) || 'MERKEZ',
     DEPOIND: (firmaBilgisi && firmaBilgisi.depoInd) || 1
@@ -250,8 +271,25 @@ async function kartFormBilgisi(secenek) {
   const bilgi = await firmaKartBilgisi(v, firma, donem);
   return {
     onerilenKod: await kodOner(v, firma),
-    ozelKod1: bilgi.ozelKod1
+    ozelKod1: ozelKod1Secenekleri(bilgi.ozelKod1)
   };
+}
+
+// Sabit gruplardan biri Vega'nın Özel Kod 1 tanımlarında yoksa eklenir:
+// Vega'nın kart ekranında da açılır listede görünsün. Tablo yoksa (eski
+// kurulum) yalnız kart alanı yazılır.
+async function ozelKod1TanimiEkle(t, v, firma, kod) {
+  const kodTablosu = kart(v, firma, 'TBLCARIKODTAN');
+  await t.sorgu(
+    `IF OBJECT_ID(N'${kodTablosu}', N'U') IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM ${kodTablosu} WITH (UPDLOCK, HOLDLOCK)
+         WHERE CATEGORY = 1
+           AND LTRIM(RTRIM(KOD)) COLLATE Latin1_General_CI_AI = @kod COLLATE Latin1_General_CI_AI
+       )
+       INSERT INTO ${kodTablosu} (KOD, CATEGORY) VALUES (@kod, 1)`,
+    { kod }
+  );
 }
 
 async function cariKartiAc(secenek) {
@@ -262,6 +300,8 @@ async function cariKartiAc(secenek) {
   const cariTablosu = kart(v, firma, 'TBLCARI');
   const bilgi = await firmaKartBilgisi(v, firma, donem);
   const alanlar = kartSatiriKur(secenek || {}, bilgi);
+  const tanimEksik = alanlar.KOD1 &&
+    !bilgi.ozelKod1.some((d) => buyukHarf(d) === buyukHarf(alanlar.KOD1));
 
   const cariInd = await islem(async (t) => {
     const cakisan = await kodKullanimda(t, v, firma, alanlar.FIRMAKODU);
@@ -270,6 +310,7 @@ async function cariKartiAc(secenek) {
         `"${alanlar.FIRMAKODU}" kodu zaten kullanılıyor (kart no ${cakisan}). Başka bir kod yazın.`
       );
     }
+    if (tanimEksik) await ozelKod1TanimiEkle(t, v, firma, alanlar.KOD1);
     return yazma.ekle(t, cariTablosu, alanlar, {
       zorunlu: ['FIRMAKODU', 'FIRMAADI', 'FIRMATIPI', 'STATUS'],
       ozel: { UID: "'{' + CAST(NEWID() AS NVARCHAR(36)) + '}'" }
@@ -358,5 +399,5 @@ module.exports = {
   cariKartiAc,
   carileriListele,
   tipAdi,
-  _test: { kartSatiriKur, VEGA_KART_VARSAYILANLARI }
+  _test: { kartSatiriKur, ozelKod1Secenekleri, VEGA_KART_VARSAYILANLARI }
 };

@@ -240,6 +240,7 @@ td.hesaplanan.hata { color: #b91c1c; }
 #iadeSatirTablo select { min-width: 130px; }
 #iadeSatirTablo input.sayi { width: 110px; }
 #iadeSatirTablo th.sayi, #iadeSatirTablo td.hesaplanan { min-width: 90px; }
+#iadeSatirTablo tfoot td { font-weight: 700; border-top: 2px solid #c9d3e0; }
 
 .bosSatir { text-align: center; color: #9ca3af; padding: 20px 8px; font-size: 13px; }
 
@@ -498,13 +499,13 @@ table.veri.rapor tr.fisAra td.kasaTurDagilimi { font-size: 10.5px; font-weight: 
 table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
 .ipucu.secimBilgi { color: #1d4ed8; font-weight: 600; }
 
-/* Toplu ekstre: her müşteri kendi bloğunda, ekranda çizgiyle ayrılır. */
-.ekstreBlok + .ekstreBlok {
-  margin-top: 26px;
-  padding-top: 18px;
-  border-top: 2px solid #cbd2dc;
-}
-.topluEkstreDurum { color: #64748b; margin: 0 0 10px; }
+/* Haftalık Rapor müşteri grubu (Özel Kod 1): bitişik düğmeler, seçili mavi. */
+.secimGrubu { display: inline-flex; }
+.secimGrubu .dugme { border-radius: 0; margin-left: -1px; padding: 12px 18px; font-size: 15px; font-weight: 600; }
+.secimGrubu .dugme:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.secimGrubu .dugme:last-child { border-radius: 0 8px 8px 0; }
+.secimGrubu .dugme.secili { background: #2563eb; border-color: #2563eb; color: #fff; position: relative; }
+.secimGrubu .dugme.secili:hover:not(:disabled) { background: #1d4ed8; }
 
 .raporUst {
   display: flex;
@@ -625,19 +626,6 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
   #raporGenelTablo td.sayi { white-space: nowrap; }
   #raporGenel .raporBaslik { font-size: 20px; margin-bottom: 8px; }
 
-  /* İlk müşteriden sonra yalnız yeni müşteri başlamadan sayfa atlat.
-     Son bloktan sonra zorunlu atlama yapılmadığı için boş son sayfa oluşmaz. */
-  .ekstreBlok {
-    page-break-after: auto;
-    break-after: auto;
-    border-top: 0 !important;
-    padding-top: 0 !important;
-  }
-  .ekstreBlok + .ekstreBlok {
-    page-break-before: always;
-    break-before: page;
-  }
-  .topluEkstreDurum { display: none !important; }
 
   /* Daraltılmış çıktı: aynı müşteride sayfa sayısı yarıya iner. */
   table.veri.rapor { font-size: 9.5px; }

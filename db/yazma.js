@@ -1920,15 +1920,22 @@ async function odemeYaz(secenek) {
 //      girilirse ikinci satır birincinin düştüğü adetten sonra denetlenir.
 //   2. Birim fiyat: kasa 20'ye verilip 15'e geri alınabiliyor. Kullanıcıyla
 //      sayıyla teyit edildi (10 kasa × 20 = 200 depozito, 15'ten iade):
-//      müşterinin depozito borcu YİNE TAMAMEN kapanır (200), kasalar stoğa
-//      girilen fiyattan girer (Stok Giriş İade Fişi 150), aradaki 50 ayrı bir
-//      Cari Çıkış dekontuyla (ALACAK) kapatılır. Birim fiyat boş gelirse ya da
-//      açık depozitonun birim fiyatına eşitse eski davranış: tek fiş, fark yok.
-//      Açık depozitonun birim fiyatından YÜKSEK fiyat reddedilir — müşteriye
-//      vermediğimiz depozitoyu geri ödemiş oluruz.
+//      kasalar stoğa girilen fiyattan girer (Stok Giriş İade Fişi 150).
+//      Birim fiyat boş gelirse ya da açık depozitonun birim fiyatına eşitse
+//      fiş depozitonun tam değeriyle yazılır. Açık depozitonun birim
+//      fiyatından YÜKSEK fiyat reddedilir — müşteriye vermediğimiz depozitoyu
+//      geri ödemiş oluruz.
 //
-// BD_Islem.BelgeNo: "fiş" ya da "fiş / fark dekontu". Ekstredeki iade adedi
-// ilk numaraya bağlanır (bkz. db/vega.js kasaIadeAdetBagi).
+// 06.10.2026 müşteri isteği ("kasa iade farkları adamdan düşüyor, düşmese
+// hesabı doğru"): 03.10'da aradaki 50 ayrı bir Cari Çıkış dekontuyla (KASA
+// IADE FARKI) müşterinin borcundan da düşülüyordu; artık düşülmez. Müşterinin
+// cari borcundan yalnız fiş tutarı (150) düşer, 50 borçta kalır. Kasa
+// defterinde (BD_KasaHareket) ise kasalar ve depozitonun tamamı (200) kapanır:
+// müşteride açık kasa kalmaz.
+//
+// BD_Islem.BelgeNo: fiş numarası. 06.10'dan önceki iadelerde "fiş / fark
+// dekontu" olabilir; ekstredeki iade adedi ilk numaraya bağlanır (bkz.
+// db/vega.js kasaIadeAdetBagi).
 async function kasaIadesiYaz(secenek) {
   kilitKontrol();
   await yardimci.hazirla();
@@ -2030,8 +2037,9 @@ async function kasaIadeSatiriYaz(t, o, s) {
 
   // Birim fiyat (kasanın geri alındığı fiyat). Boşsa depozitonun kendisi.
   // Ortalama depozito kuruşlu çıkabildiği için (100 TL / 3 kasa) ekranda
-  // yuvarlanmış hali gelirse fark kuruş düzeyinde kalır — o zaman fark
-  // dekontu açılmaz, fiş depozitonun tam değeriyle yazılır.
+  // yuvarlanmış hali gelirse fark kuruş düzeyinde kalır — o zaman fiş
+  // depozitonun tam değeriyle yazılır. `fark`: müşterinin borcundan
+  // düşülmeyen, borçta kalan kısım (yalnız bilgi; ayrı belge yazılmaz).
   const fiyatGirildi = s.birimFiyat != null && s.birimFiyat !== '';
   let fisFiyati = depozito;
   let fisTutari = tutar;
@@ -2061,7 +2069,6 @@ async function kasaIadeSatiriYaz(t, o, s) {
 
   const yazilan = [];
   let fisBelgeNo = null;
-  let farkBelgeNo = null;
 
   if (fisTutari > 0 && stokGirisVarMi) {
     const kasaKarti = (await kasaKartlariniCoz(firma, [s.stokNo], t))
@@ -2080,10 +2087,10 @@ async function kasaIadeSatiriYaz(t, o, s) {
       birimFiyat: fiyatGirildi ? Number(s.birimFiyat) : null
     });
   } else if (fisTutari > 0) {
-    // Stok giriş fişi yazılamayan kurulum: depozitonun tamamı tek cari
-    // dekontla kapanır, fark ayrıca açılmaz (stok değeri zaten yazılmıyor).
+    // Stok giriş fişi yazılamayan kurulum: fiş tutarı tek cari dekontla
+    // müşterinin borcundan düşer.
     const dekont = await cariDekontuYaz(t, {
-      v, firma, donem, cariInd, tutar,
+      v, firma, donem, cariInd, tutar: fisTutari,
       tarih, userNo: Number(o.userNo || 0),
       // Kasa iadesi: parayı biz müşteriye veriyoruz → Cari ÇIKIŞ. Müşterinin
       // kasa depozito borcu bu kadar azalır → ALACAK (borcMu:false).
@@ -2093,26 +2100,13 @@ async function kasaIadeSatiriYaz(t, o, s) {
       onek
     });
     fisBelgeNo = dekont.belgeNo;
-    fark = 0;
-    yazilan.push({ ad: 'Kasa iadesi', tur: 'kasaIade', ...dekont, birimFiyat: null });
-  }
-
-  if (fark > 0 && fisBelgeNo) {
-    const farkAciklamasi = `KASA IADE FARKI${stokKodu ? ' - ' + stokKodu : ''}` +
-      (fisNo ? ' - Fiş ' + fisNo : '');
-    const dekont = await cariDekontuYaz(t, {
-      v, firma, donem, cariInd, tutar: fark,
-      tarih, userNo: Number(o.userNo || 0),
-      giris: false,
-      borcMu: false,
-      aciklama: farkAciklamasi,
-      onek
+    yazilan.push({
+      ad: 'Kasa iadesi', tur: 'kasaIade', ...dekont,
+      birimFiyat: fiyatGirildi ? Number(s.birimFiyat) : null
     });
-    farkBelgeNo = dekont.belgeNo;
-    yazilan.push({ ad: 'Kasa iade farkı', tur: 'kasaIadeFarki', ...dekont });
   }
 
-  const belgeNo = [fisBelgeNo, farkBelgeNo].filter(Boolean).join(' / ') || null;
+  const belgeNo = fisBelgeNo;
   const islemId = await yardimci.islemYaz(t, {
     konu: 'KasaIade',
     firma, donem, tarih, cariInd, cariAd: o.cariAd,
@@ -2139,14 +2133,13 @@ async function kasaIadeSatiriYaz(t, o, s) {
 
   return {
     belgeNo: fisBelgeNo,
-    farkBelgeNo,
     islemId,
     stokKodu,
     adet,
     depozito,
     tutar,
     birimFiyat: fiyatGirildi && fark > 0 ? fisFiyati : null,
-    fisTutari: fisBelgeNo ? (fark > 0 ? fisTutari : tutar) : 0,
+    fisTutari: fisBelgeNo ? fisTutari : 0,
     fark,
     kalanAdet: acik.acikAdet - adet,
     kalanTutar: Math.round((acik.acikTutar - tutar) * 100) / 100

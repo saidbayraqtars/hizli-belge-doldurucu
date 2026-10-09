@@ -777,6 +777,16 @@ async function odemeGecmisi(secenek) {
     }
   }
 
+  // 06.10.2026 müşteri isteği: en son işlem en üstte ("yeni ödemeleri görmek
+  // için en aşağı inmek zorundasın"). Anahtar işlem zamanı; boşsa belge tarihi,
+  // sonra cari hareket sırası. Karma fişin parçaları aynı anahtarı taşır,
+  // kararlı sıralama onları kendi sırasında bırakır.
+  const an = (d) => (d ? new Date(d).getTime() || 0 : 0);
+  sonuc.sort((a, b) =>
+    (an(b.kayitZamani) - an(a.kayitZamani)) ||
+    (an(b.tarih) - an(a.tarih)) ||
+    (b.ind - a.ind));
+
   const yontemToplamlari = new Map();
   for (const s of sonuc) {
     if (!yontemToplamlari.has(s.yontem)) {

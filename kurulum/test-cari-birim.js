@@ -51,4 +51,12 @@ assert.throws(() => _test.kartSatiriKur({ kod: '1', tur: 'firma' }, firma), /ün
 assert.throws(() => _test.kartSatiriKur({ kod: '1', adi: 'a', vergiNo: '12a' }, firma), /Vergi/);
 assert.throws(() => _test.kartSatiriKur({ kod: '1', adi: 'a', ozelKod1: 'UYDURMA' }, firma), /tanımlı değil/);
 
+// 06.10.2026: Haftalık Rapor grupları Vega'da tanımlı olmasa da seçilebilir
+// (FİRMA kart açılırken TBLCARIKODTAN'a eklenir); Vega'daki yazım korunur.
+const tedarikci = _test.kartSatiriKur({ kod: 'T1', adi: 'hal', ozelKod1: 'firma', tip: 'satici' }, firma);
+assert.strictEqual(tedarikci.KOD1, 'FİRMA');
+assert.strictEqual(tedarikci.FIRMATIPI, 2);
+assert.deepStrictEqual(_test.ozelKod1Secenekleri(['Toptan', 'ANLAŞMALI']),
+  ['Toptan', 'ANLAŞMALI', 'PERAKENDE', 'FİRMA']);
+
 console.log('Cari kartı birim testleri geçti: şahıs/firma alanları, Vega varsayılanları, denetimler.');
