@@ -470,3 +470,7 @@ kurulum/
 **Bayraktar Yazılım** · VegaWin ile birlikte çalışan, VegaWin'in yerini almayan bir yardımcı
 
 </div>
+
+---
+
+**Lisans:** Kaynak kod tescillidir — tüm hakları saklıdır. İzinsiz kullanılamaz, kopyalanamaz, dağıtılamaz ya da satılamaz. Ayrıntı: [LICENSE](LICENSE).
