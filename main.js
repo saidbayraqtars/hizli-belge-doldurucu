@@ -189,6 +189,8 @@ uc('rapor:hafta', async (girdi) => {
 uc('rapor:haftalikOzet', async (girdi) => rapor.haftalikOzet(girdi));
 uc('rapor:haftalikDetay', async (girdi) => rapor.haftalikDetay(girdi));
 uc('rapor:odemeGecmisi', async (girdi) => rapor.odemeGecmisi(girdi));
+// Ekstrede çift tıklanan hareketin belgesi (27.10.2026).
+uc('rapor:belgeAyrintisi', async (girdi) => rapor.belgeAyrintisi(girdi));
 
 // --- Cari kartı ------------------------------------------------------------
 

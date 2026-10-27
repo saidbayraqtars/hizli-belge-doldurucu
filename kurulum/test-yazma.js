@@ -1090,24 +1090,43 @@ async function calistir() {
   kontrol('2. satir: fiyat girilmedi, kalan 80 tek fisle kapandi, fark yok',
     d2 && d2.tutar === 80 && d2.fisTutari === 80 && d2.fark === 0 && d2.kalanAdet === 0,
     d2 ? `${d2.tutar} · ${d2.fark} · kalan ${d2.kalanAdet}` : 'yok');
+  // 27.10.2026: bir iadenin bütün satırları tek kayıt ve tek Vega fişi.
+  kontrol('Iki satir ayni islem ve ayni Vega fisi',
+    d1 && d2 && d1.islemId === d2.islemId && d1.islemId === cokSatir.islemId &&
+      d1.belgeNo === cokSatir.belgeNo && d2.belgeNo === cokSatir.belgeNo,
+    `${cokSatir.islemId} · ${cokSatir.belgeNo}`);
 
   const sD = await tumSayilar();
-  kontrol('Iki stok giris iade fisi, fark dekontu yok',
-    sD.TBLSTKGIRBASLIK === 2 && sD.TBLCARCIKBASLIK === 0,
-    `stkgir ${sD.TBLSTKGIRBASLIK} · carcik ${sD.TBLCARCIKBASLIK}`);
-  const fiyatlarD = await sql.sorgu(`SELECT MIKTAR, FIYATI FROM ${vtAdi('TBLSTKGIRHAREKET', true)} ORDER BY IND`);
-  kontrol('Stok fislerinde fiyat: 15 (girilen) ve 20 (depozito)',
+  kontrol('Tek stok giris iade fisi, iki satir, fark dekontu yok',
+    sD.TBLSTKGIRBASLIK === 1 && sD.TBLSTKGIRHAREKET === 2 && sD.TBLCARCIKBASLIK === 0,
+    `stkgir ${sD.TBLSTKGIRBASLIK}/${sD.TBLSTKGIRHAREKET} · carcik ${sD.TBLCARCIKBASLIK}`);
+  const baslikD = await sql.sorgu(`SELECT TUTAR, CAST(ALTNOT AS NVARCHAR(200)) AS ALTNOT
+    FROM ${vtAdi('TBLSTKGIRBASLIK', true)}`);
+  kontrol('Fis basligi toplam 170, imza KASA IADE',
+    baslikD.length === 1 && Number(baslikD[0].TUTAR) === 170 && /^KASA IADE/.test(baslikD[0].ALTNOT),
+    baslikD.length ? `${baslikD[0].TUTAR} · ${baslikD[0].ALTNOT}` : 'yok');
+  const fiyatlarD = await sql.sorgu(`SELECT MIKTAR, FIYATI, GERCEKTOPLAM FROM ${vtAdi('TBLSTKGIRHAREKET', true)} ORDER BY IND`);
+  kontrol('Stok fisi satirlari: 6 × 15 ve 4 × 20, satir toplamlari ayri',
     fiyatlarD.length === 2 && Number(fiyatlarD[0].MIKTAR) === 6 && Number(fiyatlarD[0].FIYATI) === 15 &&
-      Number(fiyatlarD[1].MIKTAR) === 4 && Number(fiyatlarD[1].FIYATI) === 20,
-    fiyatlarD.map((r) => `${r.MIKTAR}×${r.FIYATI}`).join(' · '));
+      Number(fiyatlarD[0].GERCEKTOPLAM) === 90 &&
+      Number(fiyatlarD[1].MIKTAR) === 4 && Number(fiyatlarD[1].FIYATI) === 20 &&
+      Number(fiyatlarD[1].GERCEKTOPLAM) === 80,
+    fiyatlarD.map((r) => `${r.MIKTAR}×${r.FIYATI}=${r.GERCEKTOPLAM}`).join(' · '));
+  const stokBagD = await sql.sorgu(`
+    SELECT COUNT(*) AS adet FROM ${vtAdi('TBLSTKGIRHAREKET', true)} H
+    JOIN ${vtAdi('TBLSTOKHAREKETLERI', true)} S ON S.LN = H.IND
+    JOIN ${vtAdi('TBLDEPOENVANTER', true)} E ON E.HAREKETIND = H.IND`);
+  kontrol('Her fis satirinin stok hareketi ve envanteri var', Number(stokBagD[0].adet) === 2,
+    String(stokBagD[0].adet));
   const alacakD = await sql.sorgu(`
-    SELECT LTRIM(RTRIM(IZAHAT)) AS izahat, SUM(ISNULL(ALACAK,0)) AS alacak, SUM(ISNULL(BORC,0)) AS borc
+    SELECT LTRIM(RTRIM(IZAHAT)) AS izahat, COUNT(*) AS adet, SUM(ISNULL(ALACAK,0)) AS alacak, SUM(ISNULL(BORC,0)) AS borc
     FROM ${vtAdi('TBLCARIHAREKETLERI', true)} WHERE LTRIM(RTRIM(IZAHAT)) IN ('34', '11')
     GROUP BY LTRIM(RTRIM(IZAHAT))`);
   const alacakHarita = new Map(alacakD.map((r) => [r.izahat, r]));
-  kontrol('Cari: yalniz stok fisleri 170 ALACAK, cari cikis yok',
-    Number((alacakHarita.get('34') || {}).alacak) === 170 && !alacakHarita.has('11'),
-    alacakD.map((r) => `${r.izahat}: ${r.alacak}/${r.borc}`).join(' · '));
+  kontrol('Cari: tek hareket 170 ALACAK, cari cikis yok',
+    Number((alacakHarita.get('34') || {}).alacak) === 170 &&
+      Number((alacakHarita.get('34') || {}).adet) === 1 && !alacakHarita.has('11'),
+    alacakD.map((r) => `${r.izahat}: ${r.adet} × ${r.alacak}/${r.borc}`).join(' · '));
   const bakiyeSonraD = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
   kontrol('Musterinin borcu yalniz fis tutari (170) kadar dustu, 30 borcta',
     Math.abs((bakiyeOnceD - bakiyeSonraD) - 170) < 0.01, `${bakiyeOnceD} → ${bakiyeSonraD}`);
@@ -1117,51 +1136,72 @@ async function calistir() {
   const islemlerD = await sql.sorgu(`
     SELECT Id, BelgeNo, Tutar, FisNo FROM [${VEGA_TEST}].dbo.BD_Islem
     WHERE Konu = 'KasaIade' ORDER BY Id`);
-  kontrol('Her satir ayri islem; BelgeNo yalniz fis, Tutar kapanan depozito',
-    islemlerD.length === 2 && islemlerD[0].BelgeNo === d1.belgeNo &&
-      islemlerD[1].BelgeNo === d2.belgeNo && Number(islemlerD[0].Tutar) === 120 &&
-      islemlerD.every((r) => r.FisNo === 'SINAMA-D'),
-    islemlerD.map((r) => `${r.BelgeNo} (${r.Tutar})`).join(' · '));
+  const defterD = await sql.sorgu(`
+    SELECT IslemId, Adet, Tutar FROM [${VEGA_TEST}].dbo.BD_KasaHareket WHERE Yon = 'iade' ORDER BY Id`);
+  kontrol('Tek islem: BelgeNo fis, Tutar kapanan depozito 200; defterde iki satir',
+    islemlerD.length === 1 && islemlerD[0].BelgeNo === cokSatir.belgeNo &&
+      Number(islemlerD[0].Tutar) === 200 && islemlerD[0].FisNo === 'SINAMA-D' &&
+      defterD.length === 2 && defterD.every((r) => Number(r.IslemId) === Number(islemlerD[0].Id)) &&
+      Number(defterD[0].Adet) === -6 && Number(defterD[1].Tutar) === -80,
+    islemlerD.map((r) => `${r.BelgeNo} (${r.Tutar})`).join(' · ') +
+      ' · defter ' + defterD.map((r) => `${r.Adet}/${r.Tutar}`).join(' '));
+  const sonBelgelerD = await yardimci.sonIslemleriGetir({ firma: FIRMA, limit: 10 });
+  kontrol('Son Belgeler iadeyi tek satir gosteriyor',
+    sonBelgelerD.filter((k) => k.Konu === 'KasaIade').length === 1);
 
   const ekstreD = await rapor.haftalikDetay({
     firma: FIRMA, donem: DONEM, cariInd: cari.cariInd,
     baslangic: tarihAnahtari(new Date()), bitis: tarihAnahtari(new Date())
   });
   const odemeMetinleri = ekstreD.odemeler.map((o) => o.aciklama);
-  kontrol('Ekstre ODEME blogunda iade adetleri yaziyor (6 ve 4), fark satiri yok',
-    odemeMetinleri.some((m) => m.includes('6 adet') && m.includes(d1.belgeNo)) &&
-      odemeMetinleri.some((m) => m.includes('4 adet') && m.includes(d2.belgeNo)) &&
-      !odemeMetinleri.some((m) => m.includes('KASA IADE FARKI')),
+  kontrol('Ekstre ODEME: tek iade satiri, 10 adet, fark satiri yok',
+    odemeMetinleri.length === 1 && odemeMetinleri[0].includes('10 adet') &&
+      odemeMetinleri[0].includes(cokSatir.belgeNo) && !odemeMetinleri[0].includes('KASA IADE FARKI'),
     odemeMetinleri.join(' | '));
   kontrol('Ekstre ODEME toplami 170', Math.abs(ekstreD.odemeToplam - 170) < 0.01, String(ekstreD.odemeToplam));
+  const iadeHareketi = ekstreD.hareketler.find((h) => h.evrakNo === cokSatir.belgeNo);
+  kontrol('Hesap hareketlerinde iade: ODENEN 170, KALAN = bakiye',
+    !!iadeHareketi && iadeHareketi.alacak === 170 && iadeHareketi.islem === 'Stok Giriş İade Fişi' &&
+      Math.abs(ekstreD.hareketler[ekstreD.hareketler.length - 1].kalan - ekstreD.bakiye) < 0.01,
+    iadeHareketi ? `${iadeHareketi.islem} · ${iadeHareketi.alacak} · ${iadeHareketi.aciklama}` : 'yok');
 
-  // Düzenleme: birinci satırın fiyatı 15 → 18, sonra fiyatsız.
-  const detayD = await yardimci.islemDetayGetir({ islemId: d1.islemId });
-  kontrol('Duzenleme detayi birim fiyat, adet ve tutari veriyor',
-    detayD.birimFiyat === 15 && detayD.adet === 6 && detayD.tutar === 120,
-    `${detayD.birimFiyat} · ${detayD.adet} · ${detayD.tutar}`);
-  const cokSatirDuzenleme = await reddedildiMi(() =>
-    iadeD([kasaSatiri(3, 15), kasaSatiri(3, null)], { duzenlenenIslemId: d1.islemId }));
-  kontrol('Duzenlemede ikinci satir reddedildi', !!cokSatirDuzenleme, cokSatirDuzenleme || 'kabul edildi');
-  const duz1 = await iadeD([kasaSatiri(6, 18)], { duzenlenenIslemId: d1.islemId });
+  // Ekstrede çift tıklanan iade hareketinin belge ayrıntısı.
+  const ayrintiD = await rapor.belgeAyrintisi({
+    firma: FIRMA, donem: DONEM, cariInd: cari.cariInd, ind: iadeHareketi ? iadeHareketi.ind : 0
+  });
+  kontrol('Belge ayrintisi: program kaydi, iki kasa satiri (6 × 15, 4 × 20), duzenlenebilir',
+    ayrintiD.kaynak === 'program' && ayrintiD.islemId === cokSatir.islemId && ayrintiD.duzenlenebilir &&
+      ayrintiD.satirlar.length === 2 && ayrintiD.satirlar[0].miktar === 6 &&
+      ayrintiD.satirlar[0].tutar === 90 && ayrintiD.satirlar[1].tutar === 80,
+    ayrintiD.satirlar.map((s) => `${s.cinsi} ${s.miktar}×${s.fiyat}=${s.tutar}`).join(' · '));
+
+  // Düzenleme: bütün satırlar birlikte açılır, satır sayısı değiştirilebilir.
+  const detayD = await yardimci.islemDetayGetir({ islemId: cokSatir.islemId });
+  kontrol('Duzenleme detayi iki satiri birim fiyat, adet ve tutarla veriyor',
+    detayD.satirlar.length === 2 &&
+      detayD.satirlar[0].birimFiyat === 15 && detayD.satirlar[0].adet === 6 && detayD.satirlar[0].tutar === 120 &&
+      detayD.satirlar[1].birimFiyat === null && detayD.satirlar[1].adet === 4 && detayD.satirlar[1].tutar === 80,
+    detayD.satirlar.map((s) => `${s.adet}/${s.birimFiyat}/${s.tutar}`).join(' · '));
+  const duz1 = await iadeD([kasaSatiri(6, 18), kasaSatiri(4, null)], { duzenlenenIslemId: cokSatir.islemId });
   const sDuz1 = await tumSayilar();
   const bakiyeDuz1 = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
-  kontrol('Duzenleme (18 TL): fis 108, 12 borcta; belge sayilari degismedi',
+  kontrol('Duzenleme (18 TL + fiyatsiz): fis 108 + 80, 12 borcta; yine tek fis',
     duz1.duzenlendi && duz1.satirlar[0].fisTutari === 108 && duz1.satirlar[0].fark === 12 &&
-      sDuz1.TBLSTKGIRBASLIK === 2 && sDuz1.TBLCARCIKBASLIK === 0 &&
+      duz1.satirlar[1].fisTutari === 80 &&
+      sDuz1.TBLSTKGIRBASLIK === 1 && sDuz1.TBLSTKGIRHAREKET === 2 && sDuz1.TBLCARCIKBASLIK === 0 &&
       Math.abs((bakiyeOnceD - bakiyeDuz1) - 188) < 0.01,
     `${duz1.satirlar[0].fisTutari}/${duz1.satirlar[0].fark} · stkgir ${sDuz1.TBLSTKGIRBASLIK} · ${bakiyeOnceD} → ${bakiyeDuz1}`);
-  const duz2 = await iadeD([kasaSatiri(6, null)], { duzenlenenIslemId: duz1.islemId });
+  const duz2 = await iadeD([kasaSatiri(10, null)], { duzenlenenIslemId: duz1.islemId });
   const sDuz2 = await tumSayilar();
   const bakiyeDuz = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
-  kontrol('Duzenleme (fiyatsiz): borc dususu 200',
-    duz2.satirlar[0].fark === 0 && sDuz2.TBLCARCIKBASLIK === 0 && sDuz2.TBLSTKGIRBASLIK === 2 &&
+  kontrol('Duzenleme (tek satira indi, fiyatsiz): borc dususu 200, tek satirli fis',
+    duz2.satirlar.length === 1 && duz2.satirlar[0].fark === 0 && sDuz2.TBLCARCIKBASLIK === 0 &&
+      sDuz2.TBLSTKGIRBASLIK === 1 && sDuz2.TBLSTKGIRHAREKET === 1 &&
       Math.abs((bakiyeOnceD - bakiyeDuz) - 200) < 0.01,
     `carcik ${sDuz2.TBLCARCIKBASLIK} · ${bakiyeOnceD} → ${bakiyeDuz}`);
 
   const duz3 = await iadeD([kasaSatiri(6, 15)], { duzenlenenIslemId: duz2.islemId });
   await yazma.belgeGeriAl({ islemId: duz3.islemId });
-  await yazma.belgeGeriAl({ islemId: d2.islemId });
   const sGeriD = await tumSayilar();
   const bakiyeGeriD = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
   const acikGeriD = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
@@ -1170,6 +1210,117 @@ async function calistir() {
       Math.abs(bakiyeGeriD - bakiyeOnceD) < 0.01 &&
       acikGeriD.length === 1 && Number(acikGeriD[0].acikAdet) === 10,
     `stkgir ${sGeriD.TBLSTKGIRBASLIK} · carcik ${sGeriD.TBLCARCIKBASLIK} · ${bakiyeGeriD} · acik ${acikGeriD.length ? acikGeriD[0].acikAdet : 0}`);
+
+  // 27.10.2026'dan önceki çok satırlı iade: her tip ayrı kayıttı. Aynı dakikada
+  // yazılmış parçalar Son Belgeler'de birleşir, birlikte düzenlenir/geri alınır.
+  const eski1 = await iadeD([kasaSatiri(3, null)]);
+  const eski2 = await iadeD([kasaSatiri(2, null)]);
+  await sql.calistir(`UPDATE [${VEGA_TEST}].dbo.BD_Islem SET KayitTarihi =
+      (SELECT KayitTarihi FROM [${VEGA_TEST}].dbo.BD_Islem WHERE Id = @a)
+    WHERE Id = @b`, { a: eski1.islemId, b: eski2.islemId });
+  const eskiListe = (await yardimci.sonIslemleriGetir({ firma: FIRMA, limit: 10 }))
+    .filter((k) => k.Konu === 'KasaIade');
+  const eskiGrup = eskiListe[0] || {};
+  kontrol('Eski parcali iade Son Belgeler’de tek satir, iki parca',
+    eskiListe.length === 1 && Array.isArray(eskiGrup.Idler) &&
+      eskiGrup.Idler.join(',') === [eski1.islemId, eski2.islemId].join(',') &&
+      Number(eskiGrup.Tutar) === 100,
+    `${eskiListe.length} satir · ${(eskiGrup.Idler || []).join(',')} · ${eskiGrup.Tutar}`);
+  const eskiDetay = await yardimci.islemDetayGetir({ islemId: eskiGrup.Id, islemIdleri: eskiGrup.Idler });
+  kontrol('Eski parcali iadenin detayi iki satir',
+    eskiDetay.satirlar.length === 2 && eskiDetay.satirlar[0].adet === 3 && eskiDetay.satirlar[1].adet === 2);
+  const eskiDuz = await iadeD([kasaSatiri(3, null), kasaSatiri(2, null)],
+    { duzenlenenIslemIdleri: eskiGrup.Idler });
+  const sEski = await tumSayilar();
+  const eskiKalan = await sql.sorgu(`SELECT COUNT(*) AS adet FROM [${VEGA_TEST}].dbo.BD_Islem WHERE Konu = 'KasaIade'`);
+  kontrol('Eski parcalar duzenlenince tek kayit ve tek fis oldu',
+    eskiDuz.duzenlendi && Number(eskiKalan[0].adet) === 1 &&
+      sEski.TBLSTKGIRBASLIK === 1 && sEski.TBLSTKGIRHAREKET === 2,
+    `islem ${eskiKalan[0].adet} · stkgir ${sEski.TBLSTKGIRBASLIK}/${sEski.TBLSTKGIRHAREKET}`);
+  await yazma.belgeGeriAl({ islemId: eskiDuz.islemId });
+  const p1 = await iadeD([kasaSatiri(1, null)]);
+  const p2 = await iadeD([kasaSatiri(1, null)]);
+  await yazma.belgeGeriAl({ islemId: p1.islemId, islemIdleri: [p1.islemId, p2.islemId] });
+  const acikSon = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
+  const sSon = await tumSayilar();
+  kontrol('Birlesik geri alma iki parcayi birlikte sildi',
+    sSon.TBLSTKGIRBASLIK === 0 && acikSon.length === 1 && Number(acikSon[0].acikAdet) === 10,
+    `stkgir ${sSon.TBLSTKGIRBASLIK} · acik ${acikSon.length ? acikSon[0].acikAdet : 0}`);
+
+  // ======================================================================
+  // 27.10.2026 müşteri isteği: bir ürün satırına birden çok kasa ("+ Kasa
+  // Ekle"). Kilo bölünmez; ek kasa ürünle aynı sıra numarasıyla kaydedilir,
+  // ekstrede ürün tek satır görünür.
+  bolum('D2 — Urun satirina ek kasa');
+
+  const ekBelge = await yazma.belgeYaz({
+    firma: FIRMA, donem: DONEM, tarih: new Date(),
+    cariInd: cari.cariInd, cariAd: cari.ad,
+    belgeTuru: 'cariCikis', fisNo: 'SINAMA-EK',
+    satirlar: [
+      {
+        stokNo: stoklar[0].stokNo, stokKodu: stoklar[0].kod, stokAdi: stoklar[0].ad,
+        birim: stoklar[0].birim, birimEx: stoklar[0].birimEx,
+        brutMiktar: 50, daraliMiktar: 46.25, fiyat: 10, tutar: 462.5,
+        kasaAdedi: 2, kasaDarasi: 1.5, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
+        kasaDepozito: 20, kasaTutari: 40
+      },
+      {
+        ekKasa: true, stokNo: null, brutMiktar: 0, daraliMiktar: 0, fiyat: 0, tutar: 0,
+        kasaAdedi: 0.5, kasaDarasi: 1.5, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
+        kasaDepozito: 20, kasaTutari: 10
+      },
+      {
+        stokNo: stoklar[1].stokNo, stokKodu: stoklar[1].kod, stokAdi: stoklar[1].ad,
+        birim: stoklar[1].birim, birimEx: stoklar[1].birimEx,
+        brutMiktar: 5, daraliMiktar: 5, fiyat: 20, tutar: 100,
+        kasaAdedi: 0, kasaStokNo: null, kasaTipiKod: null, kasaDepozito: 0, kasaTutari: 0
+      }
+    ]
+  });
+  kontrol('Ek kasali belge yazildi', ekBelge.tamam && ekBelge.kasaTutari === 50, ekBelge.belgeNo);
+  const ekSatirlar = await sql.sorgu(`SELECT SiraNo, StokNo, KasaAdedi, Tutar
+    FROM [${VEGA_TEST}].dbo.BD_BelgeSatir WHERE IslemId = @id ORDER BY Id`, { id: ekBelge.islemId });
+  kontrol('Ek kasa urunle ayni sira numarasinda, urunsuz',
+    ekSatirlar.length === 3 && ekSatirlar[0].SiraNo === 1 && ekSatirlar[1].SiraNo === 1 &&
+      ekSatirlar[1].StokNo === null && ekSatirlar[2].SiraNo === 2,
+    ekSatirlar.map((s) => `${s.SiraNo}:${s.StokNo}:${s.KasaAdedi}`).join(' · '));
+  const ekDefter = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
+  kontrol('Kasa defterine iki kasa satiri da islendi (10 + 2,5)',
+    ekDefter.length === 1 && Number(ekDefter[0].acikAdet) === 12.5,
+    ekDefter.length ? String(ekDefter[0].acikAdet) : 'yok');
+  const ekDetay = await yardimci.islemDetayGetir({ islemId: ekBelge.islemId });
+  kontrol('Duzenleme detayinda ek kasa urun satirinin altinda',
+    ekDetay.satirlar.length === 2 && ekDetay.satirlar[0].ekKasalar.length === 1 &&
+      ekDetay.satirlar[0].ekKasalar[0].kasaAdedi === 0.5 && ekDetay.satirlar[1].ekKasalar.length === 0);
+  const ekEkstre = await rapor.haftalikDetay({
+    firma: FIRMA, donem: DONEM, cariInd: cari.cariInd,
+    baslangic: tarihAnahtari(new Date()), bitis: tarihAnahtari(new Date())
+  });
+  const ekFis = ekEkstre.gruplar.find((g) => g.fisNo === 'SINAMA-EK');
+  const ekUrun = ekFis ? ekFis.satirlar[0] : null;
+  kontrol('Ekstrede urun tek satir, kasalar birlikte (2,5 adet, 50 TL)',
+    !!ekFis && ekFis.satirlar.length === 2 && ekUrun.kasaAdedi === 2.5 && ekUrun.kasaTutari === 50 &&
+      ekUrun.kasaTipiKod.includes('·'),
+    ekUrun ? `${ekUrun.cinsi} · ${ekUrun.kasaAdedi} · ${ekUrun.kasaTipiKod} · ${ekUrun.kasaTutari}` : 'yok');
+  const ekDuz = await yazma.belgeYaz({
+    firma: FIRMA, donem: DONEM, tarih: new Date(),
+    cariInd: cari.cariInd, cariAd: cari.ad,
+    belgeTuru: 'cariCikis', fisNo: 'SINAMA-EK',
+    duzenlenenIslemId: ekBelge.islemId,
+    satirlar: [{
+      stokNo: stoklar[0].stokNo, stokKodu: stoklar[0].kod, stokAdi: stoklar[0].ad,
+      birim: stoklar[0].birim, birimEx: stoklar[0].birimEx,
+      brutMiktar: 50, daraliMiktar: 47, fiyat: 10, tutar: 470,
+      kasaAdedi: 2, kasaDarasi: 1.5, kasaStokNo: kasa.id, kasaTipiKod: kasa.kod,
+      kasaDepozito: 20, kasaTutari: 40
+    }]
+  });
+  const ekDefterDuz = await yardimci.kasaBakiyesi({ firma: FIRMA, cariInd: cari.cariInd });
+  kontrol('Ek kasa duzenlemede kaldirilinca defterden de dustu',
+    ekDuz.duzenlendi && ekDefterDuz.length === 1 && Number(ekDefterDuz[0].acikAdet) === 12,
+    ekDefterDuz.length ? String(ekDefterDuz[0].acikAdet) : 'yok');
+  await yazma.belgeGeriAl({ islemId: ekDuz.islemId });
 
   // ======================================================================
   // 03.10.2026: 30.09 göçünden önceki ödemelerin işlem saati boş kalmıştı;

@@ -101,7 +101,8 @@
         <b>Tab</b> fiyat alanından sonra açıklama ve Sil'i atlayıp yeni satıra geçer ·
         <b>↓</b> alttaki satıra geçer, son satırdaysanız
         yeni satır açar · <b>↑</b> üste çıkar · <b>Enter</b> yeni satır açar ·
-        ürün kutusunda kelimeleri ayrı ayrı yazabilirsiniz ("kapya biber" / "biber kapya" aynı).
+        ürün kutusunda kelimeleri ayrı ayrı yazabilirsiniz ("kapya biber" / "biber kapya" aynı) ·
+        Kasa Tipi'nin yanındaki <b>+</b> aynı ürüne başka tipte kasa ekler (kilo bölünmez, her kasanın darası düşülür).
       </p>
     </div>
 
@@ -235,7 +236,10 @@
         </div>
       </div>
       <!-- 03.10.2026 müşteri isteği: aynı fişte 2. kasa tipi için satır;
-           kasanın geri alındığı birim fiyat. Yazma: yazma:kasaIade satirlar[]. -->
+           kasanın geri alındığı birim fiyat. Yazma: yazma:kasaIade satirlar[].
+           27.10.2026: müşterinin açık kasaları formun sağında ayrıntılı. -->
+      <div class="iadeDuzen">
+      <div class="iadeForm">
       <table class="veri girdi" id="iadeSatirTablo">
         <thead>
           <tr>
@@ -263,12 +267,36 @@
         </tfoot>
       </table>
       <button class="dugme ikincil" id="iadeSatirEkle">+ Kasa Ekle</button>
-      <div id="iadeBilgi" class="ipucu"></div>
+      </div>
+      <aside class="iadeAcikPanel">
+        <h3>Müşterideki Açık Kasalar</h3>
+        <table class="veri" id="iadeAcikTablo">
+          <thead>
+            <tr>
+              <th>Kasa Tipi</th>
+              <th class="sayi">Açık Adet</th>
+              <th class="sayi">Birim</th>
+              <th class="sayi">Depozito</th>
+            </tr>
+          </thead>
+          <tbody id="iadeAcikGovde"></tbody>
+          <tfoot>
+            <tr class="toplamSatir">
+              <td>Toplam</td>
+              <td class="sayi" id="iadeAcikToplamAdet"></td>
+              <td></td>
+              <td class="sayi" id="iadeAcikToplamTutar"></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div id="iadeBilgi" class="ipucu">Müşteri seçin.</div>
+      </aside>
+      </div>
     </div>
 
     <div class="kutu">
       <div class="baslikSatir">
-        <h2>Müşteride Duran Kasalar</h2>
+        <h2>Müşteride Duran Kasalar <span class="baslikEki" id="kasaListeMusteri"></span></h2>
         <button class="dugme ikincil" id="kasaYenile">Yenile</button>
       </div>
       <table class="veri" id="kasaTablo">
@@ -502,6 +530,7 @@
     </div>
 
     <div class="kutu">
+      <p class="ipucu yazdirilmaz">Bir harekete çift tıklayınca belgenin ayrıntısı açılır.</p>
       <table class="veri" id="ekstreTablo">
         <thead>
           <tr>
@@ -791,6 +820,38 @@
       </table>
     </div>
     <div class="ipucu" id="cariListeBilgi"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ BELGE AYRINTISI ══════════════════ -->
+<!-- 27.10.2026: ekstrede bir harekete çift tıklayınca açılır. -->
+<div class="perde gizli" id="belgeAyrintiPerde">
+  <div class="pencere genisPencere">
+    <div class="pencereBaslik">
+      <h2 id="belgeAyrintiBaslik">Belge</h2>
+      <button type="button" class="dugme mini ucuncul" id="belgeAyrintiKapat">Kapat</button>
+    </div>
+    <div class="raporUst" id="belgeAyrintiUst"></div>
+    <div class="pencereGovde">
+      <table class="veri rapor" id="belgeAyrintiTablo">
+        <thead>
+          <tr>
+            <th class="genis">CİNSİ</th>
+            <th>KASA</th>
+            <th class="sayi">K.TUTAR</th>
+            <th class="sayi">MİKTAR</th>
+            <th class="sayi">FİYAT</th>
+            <th class="sayi">TUTAR</th>
+            <th>AÇIKLAMA</th>
+          </tr>
+        </thead>
+        <tbody id="belgeAyrintiGovde"></tbody>
+      </table>
+    </div>
+    <div class="ipucu" id="belgeAyrintiBilgi"></div>
+    <div class="eylemler">
+      <button type="button" class="dugme birincil gizli" id="belgeAyrintiDuzenle">Belgeyi Düzenle</button>
+    </div>
   </div>
 </div>
 

@@ -327,6 +327,15 @@ eski yola (yalnız cari dekont, §5) düşer — geriye dönük uyumluluk için.
 `kurulum/vega-test-olustur.sql`'e bu iki tablo da eklendi;
 `kurulum/test-yazma.js` §C bu deseni sınıyor.
 
+**Çok satırlı iade (27.10.2026):** bir iadedeki bütün kasa tipleri TEK
+`TBLSTKGIRBASLIK` başlığının satırlarıdır (her tip bir `TBLSTKGIRHAREKET` +
+`TBLSTOKHAREKETLERI` + `TBLDEPOENVANTER`), başlık `TUTAR`'ı satırların toplamı,
+cari harekette tek `ALACAK`. Programda tek `BD_Islem`, her tip bir
+`BD_KasaHareket` satırı; satırların elle girilen birim fiyatı `Yazilan`'daki
+`satirlar` dizisinde. 03.10–27.10.2026 arası her tip ayrı başlık ve ayrı
+`BD_Islem` olarak yazıldı; Son Belgeler aynı dakikadaki parçaları birleşik
+gösterir, düzenlenince tek fişe dönüşür. `test-yazma.js` §D sınıyor.
+
 ---
 
 ## 5.2. Cari kartı açma — `TBLCARI` (24.08.2026) ✅

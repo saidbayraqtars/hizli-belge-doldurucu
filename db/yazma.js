@@ -1336,8 +1336,15 @@ async function alisFaturasiKaydet(secenek) {
 //                         └─→ TBLDEPOENVANTER.BELGEIND
 //   TBLSTKGIRHAREKET.IND ─┬─→ TBLSTOKHAREKETLERI.LN
 //                         └─→ TBLDEPOENVANTER.HAREKETIND
+//
+// 27.10.2026 müşteri isteği ("aynı saat aynı dakika satır satır yazmış,
+// toplu görmek istiyor"): bir iadedeki bütün kasa tipleri TEK fişin
+// satırlarıdır (`kalemler`). Tekil stokNo/adet/fiyat hâlâ kabul edilir.
 async function stokGirisIadesiYaz(t, ayrinti) {
-  const { v, firma, donem, cariInd, stokNo, stokKodu, stokAdi, stokTipi, birimEx, birim, carpan, adet, fiyat, depo, tarih, aciklama, onek } = ayrinti;
+  const { v, firma, donem, cariInd, depo, tarih, aciklama, onek } = ayrinti;
+  const kalemler = Array.isArray(ayrinti.kalemler) && ayrinti.kalemler.length
+    ? ayrinti.kalemler
+    : [ayrinti];
 
   const baslikTam = tablo(v, firma, donem, 'TBLSTKGIRBASLIK');
   const hareketTam = tablo(v, firma, donem, 'TBLSTKGIRHAREKET');
@@ -1345,7 +1352,7 @@ async function stokGirisIadesiYaz(t, ayrinti) {
   const envanterTam = tablo(v, firma, donem, 'TBLDEPOENVANTER');
   const belgeNo = await siradakiBelgeNo(t, v, firma, donem, onek || belgeOneki());
 
-  const tutar = Number(adet) * Number(fiyat);
+  const tutar = kalemler.reduce((top, k) => top + Number(k.adet) * Number(k.fiyat), 0);
 
   const baslikInd = await ekle(
     t,
@@ -1392,91 +1399,95 @@ async function stokGirisIadesiYaz(t, ayrinti) {
 
   const kayitlar = [{ tablo: 'TBLSTKGIRBASLIK', ind: baslikInd, donemli: true }];
 
-  const satirInd = await ekle(
-    t,
-    hareketTam,
-    {
-      EVRAKNO: baslikInd,
-      DETAY: 0,
-      TARIH: tarih,
-      FIRMANO: Number(cariInd),
-      STOKNO: Number(stokNo),
-      MALINCINSI: stokAdi || stokKodu || '',
-      STOKKODU: stokKodu || null,
-      STOKTIPI: Number(stokTipi) || 0,
-      MIKTAR: Number(adet),
-      BIRIMMIKTAR: Number(carpan) || 1,
-      BIRIM: birim || '',
-      BIRIMEX: Number(birimEx),
-      KDV: 0,
-      // Maliyet alanlarının VegaWin deseni henüz doğrulanmadı; önceki
-      // davranışı koru. Kart eşleşmesi düzeltmesi bu alanları değiştirmesin.
-      AFIYATI: 1,
-      FIYATI: Number(fiyat),
-      GERCEKTOPLAM: tutar,
-      DEPO: Number(depo),
-      SATISKOSULU: 1,
-      SERIMIKTAR: 1,
-      ENVANTER: Number(adet),
-      PARABIRIMI: 'TL',
-      KUR: 1,
-      GRUPMIKTAR: 1,
-      ACIKLAMA: null
-    },
-    { zorunlu: ['EVRAKNO', 'STOKNO', 'MIKTAR'] }
-  );
-  kayitlar.push({ tablo: 'TBLSTKGIRHAREKET', ind: satirInd, donemli: true });
+  for (const k of kalemler) {
+    const { stokNo, stokKodu, stokAdi, stokTipi, birimEx, birim, carpan, adet, fiyat } = k;
+    const satirTutari = Number(adet) * Number(fiyat);
+    const satirInd = await ekle(
+      t,
+      hareketTam,
+      {
+        EVRAKNO: baslikInd,
+        DETAY: 0,
+        TARIH: tarih,
+        FIRMANO: Number(cariInd),
+        STOKNO: Number(stokNo),
+        MALINCINSI: stokAdi || stokKodu || '',
+        STOKKODU: stokKodu || null,
+        STOKTIPI: Number(stokTipi) || 0,
+        MIKTAR: Number(adet),
+        BIRIMMIKTAR: Number(carpan) || 1,
+        BIRIM: birim || '',
+        BIRIMEX: Number(birimEx),
+        KDV: 0,
+        // Maliyet alanlarının VegaWin deseni henüz doğrulanmadı; önceki
+        // davranışı koru. Kart eşleşmesi düzeltmesi bu alanları değiştirmesin.
+        AFIYATI: 1,
+        FIYATI: Number(fiyat),
+        GERCEKTOPLAM: satirTutari,
+        DEPO: Number(depo),
+        SATISKOSULU: 1,
+        SERIMIKTAR: 1,
+        ENVANTER: Number(adet),
+        PARABIRIMI: 'TL',
+        KUR: 1,
+        GRUPMIKTAR: 1,
+        ACIKLAMA: null
+      },
+      { zorunlu: ['EVRAKNO', 'STOKNO', 'MIKTAR'] }
+    );
+    kayitlar.push({ tablo: 'TBLSTKGIRHAREKET', ind: satirInd, donemli: true });
 
-  const stokInd = await ekle(
-    t,
-    stokHareketTam,
-    {
-      EVRAKNO: belgeNo,
-      BELGENO: baslikInd,
-      LN: satirInd,
-      IZAHAT: TIP_STOK_GIRIS_IADE,
-      TARIH: tarih,
-      STOKNO: Number(stokNo),
-      FIRMANO: Number(cariInd),
-      GIREN: Number(adet),
-      CIKAN: 0,
-      TUTAR: tutar,
-      DEPO: Number(depo),
-      KDV: 0,
-      IADE: 1,
-      BIRIMFIYAT: Number(fiyat),
-      BIRIMMALIYET: Number(fiyat),
-      BIRIMEX: Number(birimEx),
-      PARABIRIMI: 'TL',
-      KUR: 1,
-      ACIKLAMA: null
-    },
-    {
-      zorunlu: ['STOKNO', 'IZAHAT', 'GIREN'],
-      ozel: { SIRALAMATARIHI: 'GETDATE()', SIRALAMATARIHIEX: 'CONVERT(FLOAT, GETDATE())' }
-    }
-  );
-  kayitlar.push({ tablo: 'TBLSTOKHAREKETLERI', ind: stokInd, donemli: true });
+    const stokInd = await ekle(
+      t,
+      stokHareketTam,
+      {
+        EVRAKNO: belgeNo,
+        BELGENO: baslikInd,
+        LN: satirInd,
+        IZAHAT: TIP_STOK_GIRIS_IADE,
+        TARIH: tarih,
+        STOKNO: Number(stokNo),
+        FIRMANO: Number(cariInd),
+        GIREN: Number(adet),
+        CIKAN: 0,
+        TUTAR: satirTutari,
+        DEPO: Number(depo),
+        KDV: 0,
+        IADE: 1,
+        BIRIMFIYAT: Number(fiyat),
+        BIRIMMALIYET: Number(fiyat),
+        BIRIMEX: Number(birimEx),
+        PARABIRIMI: 'TL',
+        KUR: 1,
+        ACIKLAMA: null
+      },
+      {
+        zorunlu: ['STOKNO', 'IZAHAT', 'GIREN'],
+        ozel: { SIRALAMATARIHI: 'GETDATE()', SIRALAMATARIHIEX: 'CONVERT(FLOAT, GETDATE())' }
+      }
+    );
+    kayitlar.push({ tablo: 'TBLSTOKHAREKETLERI', ind: stokInd, donemli: true });
 
-  const envanterInd = await ekle(
-    t,
-    envanterTam,
-    {
-      TARIH: tarih,
-      STOKNO: Number(stokNo),
-      DEPO: Number(depo),
-      ENVANTER: Number(adet), // pozitif — satıştaki -miktar'ın tersi, kasa stoğa geri girdi
-      BELGETIPI: TIP_STOK_GIRIS_IADE,
-      BELGEIND: baslikInd,
-      HAREKETIND: satirInd,
-      ACIKLAMA: null
-    },
-    {
-      zorunlu: ['STOKNO', 'ENVANTER', 'BELGETIPI'],
-      ozel: { SIRALAMATARIHI: 'GETDATE()', SIRALAMATARIHIEX: 'CONVERT(FLOAT, GETDATE())' }
-    }
-  );
-  kayitlar.push({ tablo: 'TBLDEPOENVANTER', ind: envanterInd, donemli: true });
+    const envanterInd = await ekle(
+      t,
+      envanterTam,
+      {
+        TARIH: tarih,
+        STOKNO: Number(stokNo),
+        DEPO: Number(depo),
+        ENVANTER: Number(adet), // pozitif — satıştaki -miktar'ın tersi, kasa stoğa geri girdi
+        BELGETIPI: TIP_STOK_GIRIS_IADE,
+        BELGEIND: baslikInd,
+        HAREKETIND: satirInd,
+        ACIKLAMA: null
+      },
+      {
+        zorunlu: ['STOKNO', 'ENVANTER', 'BELGETIPI'],
+        ozel: { SIRALAMATARIHI: 'GETDATE()', SIRALAMATARIHIEX: 'CONVERT(FLOAT, GETDATE())' }
+      }
+    );
+    kayitlar.push({ tablo: 'TBLDEPOENVANTER', ind: envanterInd, donemli: true });
+  }
 
   const cari = await cariHareketEkle(t, {
     v, firma, donem, cariInd,
@@ -1731,17 +1742,30 @@ async function belgeYaz(secenek) {
     // okunuyor. Faturasız (Cari Giriş) belgede Vega'da satır kırılımı hiç
     // olmadığı için tek kaynak bu; faturalı belgede de aynı satırlar yazılıyor
     // ki rapor iki akışta da aynı görünsün.
+    //
+    // 27.10.2026 müşteri isteği: bir ürün satırına "+ Kasa Ekle" ile ikinci
+    // (üçüncü…) kasa tipi. Arayüz ek kasayı ürün satırının hemen ardından
+    // `ekKasa: true` işaretli ürünsüz satır olarak gönderir; ürün satırıyla
+    // AYNI SiraNo'yla yazılır. Rapor ve düzenleme bu bağla ürüne katar
+    // (db/rapor.js → ekKasalariBirlestir). Vega'da her kasa tipi zaten ayrı
+    // KASA kalemi (kasaSatirlari), kilo ürün satırında tek.
     let siraNo = 0;
+    let ustSira = null;
     for (const s of satirlar) {
       const tutar = Number(s.tutar) || 0;
       const kasaTutari = Number(s.kasaTutari) || 0;
-      if (!tutar && !kasaTutari && !Number(s.daraliMiktar)) continue;
+      if (!tutar && !kasaTutari && !Number(s.daraliMiktar) && !(Number(s.kasaAdedi) > 0)) {
+        if (!s.ekKasa) ustSira = null;
+        continue;
+      }
+      const sira = s.ekKasa && ustSira != null ? ustSira : ++siraNo;
+      if (!s.ekKasa) ustSira = sira;
       await yardimci.belgeSatirYaz(t, {
         islemId, firma, donem, tarih, cariInd, cariAd,
         belgeTuru: secenek.belgeTuru,
         belgeNo,
         fisNo: secenek.fisNo || null,
-        siraNo: ++siraNo,
+        siraNo: sira,
         stokNo: s.stokNo,
         stokKodu: s.stokKodu,
         stokAdi: s.stokAdi,
@@ -1914,10 +1938,12 @@ async function odemeYaz(secenek) {
 //
 // 03.10.2026 müşteri isteği — iki ekleme:
 //   1. Aynı fişte birden çok kasa tipi ("2. kasa için satır ekle"):
-//      `satirlar` dizisi. Her satır kendi BD_Islem kaydı ve kendi Vega
-//      belgesiyle yazılır (Son Belgeler'de ayrı satır, ayrı ✎); hepsi TEK
-//      transaction — biri düşerse hiçbiri yazılmaz. Aynı tip iki kez
-//      girilirse ikinci satır birincinin düştüğü adetten sonra denetlenir.
+//      `satirlar` dizisi; hepsi TEK transaction — biri düşerse hiçbiri
+//      yazılmaz. Aynı tip iki kez girilirse ikinci satır birincinin
+//      düştüğü adetten sonra denetlenir. 27.10.2026 müşteri isteği ("satır
+//      satır yazmış, toplu görmek istiyor"): satırlar artık ayrı ayrı değil,
+//      TEK BD_Islem kaydı ve TEK Vega fişinin satırları olarak yazılır; Son
+//      Belgeler'de tek satır, ✎ ile bütün satırlarıyla birlikte açılır.
 //   2. Birim fiyat: kasa 20'ye verilip 15'e geri alınabiliyor. Kullanıcıyla
 //      sayıyla teyit edildi (10 kasa × 20 = 200 depozito, 15'ten iade):
 //      kasalar stoğa girilen fiyattan girer (Stok Giriş İade Fişi 150).
@@ -1962,13 +1988,17 @@ async function kasaIadesiYaz(secenek) {
   const tarih = new Date(secenek.tarih || Date.now());
   // 30.09.2026: kasa iadesine fiş no + düzeltme (bkz. odemeYaz).
   const fisNo = String(secenek.fisNo || '').trim().substring(0, 50);
-  const duzenlenenIslemId = Number(secenek.duzenlenenIslemId) || null;
-  if (duzenlenenIslemId && satirlar.length > 1) {
-    throw new Error('Düzenlenen iade tek satırlıdır; ek kasa tipini ayrı iade olarak girin.');
+  // Düzenlenen iade. 27.10.2026'dan önce satır satır yazılmış bir iade Son
+  // Belgeler'de tek satır görünür ve bütün parçaları birlikte düzenlenir
+  // (duzenlenenIslemIdleri); kaydedilince tek işlem olarak yeniden yazılır.
+  const duzenlenenler = [...new Set(
+    [].concat(secenek.duzenlenenIslemIdleri || [], secenek.duzenlenenIslemId || [])
+      .map(Number).filter(Boolean)
+  )];
+  const eskiler = [];
+  for (const id of duzenlenenler) {
+    eskiler.push(Object.assign({ id }, await duzenlenecekKaydiOku(id, ['KasaIade'], firma, donem)));
   }
-  const eski = duzenlenenIslemId
-    ? await duzenlenecekKaydiOku(duzenlenenIslemId, ['KasaIade'], firma, donem)
-    : null;
 
   const onek = await onekTespitEt(firma, donem);
   const a = ayarOku();
@@ -1978,52 +2008,147 @@ async function kasaIadesiYaz(secenek) {
     (await tabloVarMi(firma, donem, 'TBLSTKGIRBASLIK')) &&
     (await tabloVarMi(firma, donem, 'TBLSTKGIRHAREKET'));
 
-  const sonuclar = await islem(async (t) => {
+  const sonuc = await islem(async (t) => {
     // Eski iade önce silinir: açık kasa sayısı düzeltilen iadeden önceki
     // haline döner, yeni adet ona göre denetlenir.
-    if (eski) {
-      await vegaKaydiniGeriAl(t, eski.yazilan, firma, donem);
-      await yardimci.islemKayitlariniTamSil(t, duzenlenenIslemId);
+    for (const e of eskiler) {
+      await vegaKaydiniGeriAl(t, e.yazilan, firma, donem);
+      await yardimci.islemKayitlariniTamSil(t, e.id);
     }
 
-    const yazilanlar = [];
+    // Defter bu iade yazılmadan önce okunur; aynı tip iki satıra yazılırsa
+    // ikinci satır birincinin düştüğü adetten sonra denetlenir.
+    const dusulen = new Map();
+    const hesaplar = [];
     for (const s of satirlar) {
-      yazilanlar.push(await kasaIadeSatiriYaz(t, {
-        v, firma, donem, cariInd, cariAd: secenek.cariAd, tarih, fisNo, depo, onek,
-        stokGirisVarMi, userNo: secenek.userNo, kullanici: secenek.kullanici
-      }, s));
+      const no = Number(s.stokNo);
+      const defter = await yardimci.acikKasaDurumu(firma, cariInd, no, t);
+      const once = dusulen.get(no) || { adet: 0, tutar: 0 };
+      const h = kasaIadeHesapla({
+        acikAdet: defter.acikAdet - once.adet,
+        acikTutar: Math.round((defter.acikTutar - once.tutar) * 100) / 100
+      }, s);
+      dusulen.set(no, { adet: once.adet + h.adet, tutar: once.tutar + h.tutar });
+      hesaplar.push(h);
     }
-    return yazilanlar;
+
+    const kodlar = [...new Set(hesaplar.map((h) => h.stokKodu).filter(Boolean))];
+    const aciklama = (`KASA IADE${kodlar.length ? ' - ' + kodlar.join(', ') : ''}` +
+      (fisNo ? ' - Fiş ' + fisNo : '')).substring(0, 100);
+    // Düzenleme formunu yeniden doldurmak için satırların elle girilen birim
+    // fiyatı (yoksa null) günlükte saklanır.
+    const satirOzeti = hesaplar.map((h) => ({
+      stokNo: h.stokNo, stokKodu: h.stokKodu, adet: h.adet, birimFiyat: h.birimFiyat
+    }));
+
+    // Açık depozitosu olan satırlar tek Vega belgesinin satırlarıdır; tutarı
+    // sıfır olan (bedelsiz verilmiş) kasa yalnız deftere işlenir.
+    const fisli = hesaplar.filter((h) => h.fisTutari > 0);
+    const yazilan = [];
+    let belgeNo = null;
+    if (fisli.length && stokGirisVarMi) {
+      const kartlar = await kasaKartlariniCoz(firma, fisli.map((h) => h.stokNo), t);
+      const fis = await stokGirisIadesiYaz(t, {
+        v, firma, donem, cariInd, depo, tarih, aciklama, onek,
+        kalemler: fisli.map((h) => {
+          const k = kartlar.get(Number(h.stokNo));
+          return {
+            stokNo: k.stokNo, stokKodu: k.kod, stokAdi: k.ad, stokTipi: k.stokTipi,
+            birimEx: k.birimEx, birim: k.birim, carpan: k.carpan,
+            adet: h.adet, fiyat: h.fisFiyati
+          };
+        })
+      });
+      belgeNo = fis.belgeNo;
+      yazilan.push({ ad: 'Kasa iadesi', tur: 'kasaIade', ...fis, satirlar: satirOzeti });
+    } else if (fisli.length) {
+      // Stok giriş fişi yazılamayan kurulum: fiş tutarı tek cari dekontla
+      // müşterinin borcundan düşer. Kasa iadesi: parayı biz müşteriye
+      // veriyoruz → Cari ÇIKIŞ; depozito borcu bu kadar azalır → ALACAK.
+      const dekont = await cariDekontuYaz(t, {
+        v, firma, donem, cariInd, tarih, userNo: Number(secenek.userNo || 0),
+        giris: false,
+        borcMu: false,
+        aciklama,
+        kalemler: fisli.map((h) => ({
+          tutar: h.fisTutari,
+          aciklama: `KASA IADE${h.stokKodu ? ' - ' + h.stokKodu : ''}`
+        })),
+        onek
+      });
+      belgeNo = dekont.belgeNo;
+      yazilan.push({ ad: 'Kasa iadesi', tur: 'kasaIade', ...dekont, satirlar: satirOzeti });
+    } else {
+      yazilan.push({ ad: 'Kasa iadesi', tur: 'kasaIadeDefter', satirlar: satirOzeti });
+    }
+
+    const islemId = await yardimci.islemYaz(t, {
+      konu: 'KasaIade',
+      firma, donem, tarih, cariInd, cariAd: secenek.cariAd,
+      belgeNo,
+      tutar: Math.round(hesaplar.reduce((top, h) => top + h.tutar, 0) * 100) / 100,
+      aciklama: 'Kasa iadesi',
+      fisNo: fisNo || null,
+      yazilan,
+      kullanici: secenek.kullanici
+    });
+
+    for (const h of hesaplar) {
+      await yardimci.kasaHareketiYaz(t, {
+        firma, donem, tarih, cariInd, cariAd: secenek.cariAd,
+        stokNo: h.stokNo,
+        stokKodu: h.stokKodu,
+        stokAdi: h.stokAdi,
+        adet: -h.adet,
+        depozito: h.depozito,
+        tutar: -h.tutar,
+        yon: 'iade',
+        islemId,
+        kullanici: secenek.kullanici
+      });
+    }
+
+    return { belgeNo, islemId, hesaplar };
   });
 
-  const ilk = sonuclar[0];
+  const ozet = sonuc.hesaplar.map((h) => ({
+    belgeNo: h.fisTutari > 0 ? sonuc.belgeNo : null,
+    islemId: sonuc.islemId,
+    stokKodu: h.stokKodu,
+    adet: h.adet,
+    depozito: h.depozito,
+    tutar: h.tutar,
+    birimFiyat: h.fark > 0 ? h.fisFiyati : null,
+    fisTutari: sonuc.belgeNo ? h.fisTutari : 0,
+    fark: h.fark,
+    kalanAdet: h.kalanAdet,
+    kalanTutar: h.kalanTutar
+  }));
+  const ilk = ozet[0];
   return {
     tamam: true,
-    satirlar: sonuclar,
+    satirlar: ozet,
+    belgeNo: sonuc.belgeNo,
+    islemId: sonuc.islemId,
     // Tek satırlı eski çağrılar için ilk satırın özeti.
-    belgeNo: ilk.belgeNo,
-    islemId: ilk.islemId,
     adet: ilk.adet,
     depozito: ilk.depozito,
     tutar: ilk.tutar,
     kalanAdet: ilk.kalanAdet,
     kalanTutar: ilk.kalanTutar,
-    duzenlendi: !!eski
+    duzenlendi: eskiler.length > 0
   };
 }
 
-async function kasaIadeSatiriYaz(t, o, s) {
-  const { v, firma, donem, cariInd, tarih, fisNo, depo, onek, stokGirisVarMi } = o;
+// Bir iade satırının kapanan depozitosu ve müşterinin borcundan düşecek
+// fiş tutarı. `acik`: müşterinin o tipteki açık adet/tutarı.
+function kasaIadeHesapla(acik, s) {
   const adet = Number(s.adet);
   const stokKodu = s.stokKodu || null;
-  const aciklama = `KASA IADE${stokKodu ? ' - ' + stokKodu : ''}` +
-    (fisNo ? ' - Fiş ' + fisNo : '');
-
   // Güncel kasa kartı fiyatı iade borcunu değiştirmez. Örneğin 9 kasa
   // 500 TL'den verildiyse, kart bugün 300 TL olsa bile 9'u geri geldiğinde
   // açık 4.500 TL'nin tamamı kapanır. Kısmi iadede açık tutarın adet başına
   // ortalaması kullanılır; son iadede kuruş kalmaması için tamamı alınır.
-  const acik = await yardimci.acikKasaDurumu(firma, cariInd, s.stokNo, t);
   if (adet > acik.acikAdet + 0.0005) {
     throw new Error(
       `Bu müşteride ${stokKodu || 'bu'} tipinden ${acik.acikAdet} kasa açık görünüyor; ${adet} kasa iade alınamaz.`
@@ -2067,80 +2192,17 @@ async function kasaIadeSatiriYaz(t, o, s) {
     }
   }
 
-  const yazilan = [];
-  let fisBelgeNo = null;
-
-  if (fisTutari > 0 && stokGirisVarMi) {
-    const kasaKarti = (await kasaKartlariniCoz(firma, [s.stokNo], t))
-      .get(Number(s.stokNo));
-    const fis = await stokGirisIadesiYaz(t, {
-      v, firma, donem, cariInd,
-      stokNo: kasaKarti.stokNo, stokKodu: kasaKarti.kod,
-      stokAdi: kasaKarti.ad, stokTipi: kasaKarti.stokTipi,
-      birimEx: kasaKarti.birimEx, birim: kasaKarti.birim,
-      carpan: kasaKarti.carpan,
-      adet, fiyat: fisFiyati, depo, tarih, aciklama, onek
-    });
-    fisBelgeNo = fis.belgeNo;
-    yazilan.push({
-      ad: 'Kasa iadesi', tur: 'kasaIade', ...fis,
-      birimFiyat: fiyatGirildi ? Number(s.birimFiyat) : null
-    });
-  } else if (fisTutari > 0) {
-    // Stok giriş fişi yazılamayan kurulum: fiş tutarı tek cari dekontla
-    // müşterinin borcundan düşer.
-    const dekont = await cariDekontuYaz(t, {
-      v, firma, donem, cariInd, tutar: fisTutari,
-      tarih, userNo: Number(o.userNo || 0),
-      // Kasa iadesi: parayı biz müşteriye veriyoruz → Cari ÇIKIŞ. Müşterinin
-      // kasa depozito borcu bu kadar azalır → ALACAK (borcMu:false).
-      giris: false,
-      borcMu: false,
-      aciklama,
-      onek
-    });
-    fisBelgeNo = dekont.belgeNo;
-    yazilan.push({
-      ad: 'Kasa iadesi', tur: 'kasaIade', ...dekont,
-      birimFiyat: fiyatGirildi ? Number(s.birimFiyat) : null
-    });
-  }
-
-  const belgeNo = fisBelgeNo;
-  const islemId = await yardimci.islemYaz(t, {
-    konu: 'KasaIade',
-    firma, donem, tarih, cariInd, cariAd: o.cariAd,
-    belgeNo,
-    tutar,
-    aciklama: 'Kasa iadesi',
-    fisNo: fisNo || null,
-    yazilan,
-    kullanici: o.kullanici
-  });
-
-  await yardimci.kasaHareketiYaz(t, {
-    firma, donem, tarih, cariInd, cariAd: o.cariAd,
-    stokNo: s.stokNo,
+  return {
+    stokNo: Number(s.stokNo),
     stokKodu,
     stokAdi: s.stokAdi || null,
-    adet: -adet,
-    depozito,
-    tutar: -tutar,
-    yon: 'iade',
-    islemId,
-    kullanici: o.kullanici
-  });
-
-  return {
-    belgeNo: fisBelgeNo,
-    islemId,
-    stokKodu,
     adet,
-    depozito,
     tutar,
-    birimFiyat: fiyatGirildi && fark > 0 ? fisFiyati : null,
-    fisTutari: fisBelgeNo ? fisTutari : 0,
+    depozito,
+    fisFiyati,
+    fisTutari,
     fark,
+    birimFiyat: fiyatGirildi ? Number(s.birimFiyat) : null,
     kalanAdet: acik.acikAdet - adet,
     kalanTutar: Math.round((acik.acikTutar - tutar) * 100) / 100
   };
@@ -2174,18 +2236,28 @@ async function vegaKaydiniGeriAl(t, kayitlar, firma, donem) {
   return silinen;
 }
 
+// islemIdleri: Son Belgeler'de birleşik görünen eski çok satırlı kasa
+// iadesinin bütün parçaları — hepsi aynı transaction'da geri alınır.
 async function belgeGeriAl(secenek) {
   kilitKontrol();
-  const islemId = Number(secenek.islemId);
-  const kayit = await yardimci.islemGetir(islemId);
-  if (kayit.GeriAlindi) throw new Error('Bu işlem zaten geri alınmış.');
-  if (!kayit.Yazilan) throw new Error("Bu işlemde Vega'ya yazılmış bir kayıt yok.");
-
-  const yazilan = JSON.parse(kayit.Yazilan);
+  const idler = [...new Set(
+    [].concat(secenek.islemIdleri || [], secenek.islemId || []).map(Number).filter(Boolean)
+  )];
+  if (!idler.length) throw new Error('Geri alınacak işlem seçilmedi.');
+  const kayitlar = [];
+  for (const islemId of idler) {
+    const kayit = await yardimci.islemGetir(islemId);
+    if (kayit.GeriAlindi) throw new Error('Bu işlem zaten geri alınmış.');
+    if (!kayit.Yazilan) throw new Error("Bu işlemde Vega'ya yazılmış bir kayıt yok.");
+    kayitlar.push({ islemId, kayit, yazilan: JSON.parse(kayit.Yazilan) });
+  }
 
   const silinen = await islem(async (t) => {
-    const s = await vegaKaydiniGeriAl(t, yazilan, kayit.Firma, kayit.Donem);
-    await yardimci.islemKayitlariniTamSil(t, islemId);
+    let s = 0;
+    for (const k of kayitlar) {
+      s += await vegaKaydiniGeriAl(t, k.yazilan, k.kayit.Firma, k.kayit.Donem);
+      await yardimci.islemKayitlariniTamSil(t, k.islemId);
+    }
     return s;
   });
 

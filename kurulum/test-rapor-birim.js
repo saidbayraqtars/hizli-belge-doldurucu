@@ -49,4 +49,31 @@ assert.strictEqual(_test.odemeNotu('NAKİT tahsilat', null), '');
 assert.strictEqual(_test.odemeNotu('EFT - pazar', 'EFT'), 'pazar');
 assert.strictEqual(_test.odemeNotu('Tahsilat', 'Kredi kartı'), 'Tahsilat · Kredi kartı');
 
-console.log('Rapor birim testleri geçti: fiş no, kasa türü, tahsilat açıklaması ve ödeme yöntemi.');
+// 27.10.2026: "+ Kasa Ekle" — ürünle aynı SiraNo'lu ürünsüz satır ürüne katılır.
+const gunluk = [
+  { IslemId: 7, SiraNo: 1, StokNo: 5, Tutar: 500, KasaTipiKod: 'KAYIK', KasaAdedi: 2, KasaTutari: 200 },
+  { IslemId: 7, SiraNo: 1, StokNo: null, Tutar: 0, KasaTipiKod: 'MSK', KasaAdedi: 3, KasaTutari: 30 },
+  { IslemId: 7, SiraNo: 2, StokNo: null, Tutar: 0, KasaTipiKod: 'UP', KasaAdedi: 1, KasaTutari: 10 },
+  { IslemId: 8, SiraNo: 2, StokNo: null, Tutar: 0, KasaTipiKod: 'UP', KasaAdedi: 4, KasaTutari: 40 }
+];
+const birlesik = _test.ekKasalariBirlestir(gunluk);
+assert.strictEqual(birlesik.length, 3, 'ek kasa ürüne katılır; yalnız kasa satırı ve başka işlem ayrı kalır');
+assert.deepStrictEqual(birlesik[0].kasalar, [
+  { tur: 'KAYIK', adet: 2, tutar: 200 },
+  { tur: 'MSK', adet: 3, tutar: 30 }
+]);
+assert.strictEqual(_test.kasaMetni(birlesik[0].kasalar), '2 KAYIK · 3 MSK');
+assert.strictEqual(_test.kasaMetni([{ tur: 'UP', adet: 4, tutar: 40 }]), 'UP');
+assert.deepStrictEqual(_test.kasaTurleriniTopla([{ kasalar: birlesik[0].kasalar }, satirlar[2]]), [
+  { anahtar: 'KAYIK', tur: 'KAYIK', adet: 2, tutar: 200 },
+  { anahtar: 'MSK', tur: 'MSK', adet: 3, tutar: 30 },
+  { anahtar: 'PK', tur: 'PK', adet: 1, tutar: 50 }
+]);
+
+// Hesap hareketleri açıklaması: program notu kısalır, iade adedi eklenir.
+assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'Hizli Belge Doldurucu - fis 812' }), 'Fiş 812');
+assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'Hizli Belge Doldurucu' }), '');
+assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'KASA IADE - KAYIK, MSK', iadeAdedi: 5 }),
+  'KASA IADE - KAYIK, MSK · 5 adet');
+
+console.log('Rapor birim testleri geçti: fiş no, kasa türü, ek kasa, hareket açıklaması, tahsilat açıklaması ve ödeme yöntemi.');

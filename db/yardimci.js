@@ -520,30 +520,51 @@ async function odemeDetayi(id, kayit) {
   };
 }
 
-async function kasaIadeDetayi(id, kayit) {
-  const k = (await sorgu(
-    `SELECT TOP 1 StokNo, StokKodu, StokAdi, Adet, Tarih
-     FROM [${vt()}].dbo.BD_KasaHareket WHERE IslemId = @id ORDER BY Id`,
-    { id }
-  ))[0];
-  if (!k) throw new Error('Bu kasa iadesinin kasa defteri kaydı bulunamadı.');
-  // 03.10.2026: elle girilen iade birim fiyatı Yazilan'da saklanır.
-  let yazilan = [];
-  try { yazilan = JSON.parse(kayit.Yazilan || '[]'); } catch (e) { yazilan = []; }
-  const fis = yazilan.find((y) => y && y.tur === 'kasaIade') || {};
+// 27.10.2026: bir iadenin bütün kasa tipleri tek kayıtta; her defter satırı
+// formda bir satır olur. Eski çok satırlı iadeler (her tip ayrı kayıt) Son
+// Belgeler'den islemIdleri ile birlikte istenir, satırları burada birleşir.
+async function kasaIadeDetayi(idler, kayitlar) {
+  const satirlar = [];
+  let tarih = null;
+  for (const [i, id] of idler.entries()) {
+    const kayit = kayitlar[i];
+    const defter = await sorgu(
+      `SELECT StokNo, StokKodu, StokAdi, Adet, Tutar, Tarih
+       FROM [${vt()}].dbo.BD_KasaHareket WHERE IslemId = @id ORDER BY Id`,
+      { id }
+    );
+    if (!defter.length) throw new Error('Bu kasa iadesinin kasa defteri kaydı bulunamadı.');
+    // Elle girilen iade birim fiyatı Yazilan'da saklanır: satır satır
+    // (`satirlar`, 27.10.2026) ya da eski tek satırlı kayıtta `birimFiyat`.
+    let yazilan = [];
+    try { yazilan = JSON.parse(kayit.Yazilan || '[]'); } catch (e) { yazilan = []; }
+    const ozet = (yazilan.find((y) => y && Array.isArray(y.satirlar)) || {}).satirlar || null;
+    const fis = yazilan.find((y) => y && y.tur === 'kasaIade') || {};
+    defter.forEach((k, sira) => {
+      const o = ozet ? ozet[sira] : null;
+      const birimFiyat = o ? o.birimFiyat : (defter.length === 1 ? fis.birimFiyat : null);
+      satirlar.push({
+        stokNo: Number(k.StokNo),
+        stokKodu: k.StokKodu || '',
+        adet: Math.abs(Number(k.Adet) || 0),
+        tutar: Math.abs(Number(k.Tutar) || 0),
+        birimFiyat: birimFiyat != null ? Number(birimFiyat) : null
+      });
+    });
+    if (!tarih) tarih = defter[0].Tarih || kayit.Tarih;
+  }
+  const ilk = kayitlar[0];
   return {
-    islemId: id,
+    islemId: idler[0],
+    islemIdleri: idler,
     tur: 'kasaIade',
-    firma: kayit.Firma,
-    donem: kayit.Donem,
-    tarih: k.Tarih || kayit.Tarih,
-    fisNo: kayit.FisNo || '',
-    stokNo: Number(k.StokNo),
-    stokKodu: k.StokKodu || '',
-    adet: Math.abs(Number(k.Adet) || 0),
-    tutar: Number(kayit.Tutar) || 0,
-    birimFiyat: fis.birimFiyat != null ? Number(fis.birimFiyat) : null,
-    cari: { cariInd: Number(kayit.CariInd), ad: kayit.CariAd || '', bakiye: await cariBakiyesiOku(kayit) }
+    firma: ilk.Firma,
+    donem: ilk.Donem,
+    tarih,
+    fisNo: ilk.FisNo || '',
+    satirlar,
+    tutar: satirlar.reduce((t, s) => t + s.tutar, 0),
+    cari: { cariInd: Number(ilk.CariInd), ad: ilk.CariAd || '', bakiye: await cariBakiyesiOku(ilk) }
   };
 }
 
@@ -575,7 +596,18 @@ async function islemDetayGetir(secenek) {
   const kayit = await islemGetir(id);
   if (kayit.GeriAlindi) throw new Error('Geri alınmış belge düzenlenemez.');
   if (kayit.Konu === 'tahsilat') return odemeDetayi(id, kayit);
-  if (kayit.Konu === 'KasaIade') return kasaIadeDetayi(id, kayit);
+  if (kayit.Konu === 'KasaIade') {
+    const idler = [...new Set([id].concat((secenek.islemIdleri || []).map(Number).filter(Boolean)))];
+    const kayitlar = [kayit];
+    for (const digerId of idler.slice(1)) {
+      const k = await islemGetir(digerId);
+      if (k.GeriAlindi || k.Konu !== 'KasaIade' || Number(k.CariInd) !== Number(kayit.CariInd)) {
+        throw new Error('Birleşik iadenin parçaları değişmiş; Son Belgeler’i yenileyin.');
+      }
+      kayitlar.push(k);
+    }
+    return kasaIadeDetayi(idler, kayitlar);
+  }
   if (kayit.Konu === 'alisFaturasi') return alisFaturasiDetayi(id, kayit);
   if (kayit.Konu !== 'satisFaturasi' && kayit.Konu !== 'cariCikis') {
     throw new Error('Bu belge türü düzenlenemez.');
@@ -618,7 +650,7 @@ async function islemDetayGetir(secenek) {
     tahsilatAciklama: tahsilatKaydi && tahsilatKaydi.aciklama
       ? String(tahsilatKaydi.aciklama)
       : (tahsilatKaydi ? 'Tahsilat' : ''),
-    satirlar: satirlar.map((s) => ({
+    satirlar: urunSatirlarinaKatil(satirlar).map(({ s, ekler }) => ({
       stokNo: s.StokNo == null ? null : Number(s.StokNo),
       stokKodu: s.StokKodu || null,
       stokAdi: s.StokAdi || null,
@@ -633,9 +665,30 @@ async function islemDetayGetir(secenek) {
       daraliMiktar: Number(s.DaraliMiktar) || 0,
       fiyat: Number(s.Fiyat) || 0,
       tutar: Number(s.Tutar) || 0,
-      aciklama: s.Aciklama || ''
+      aciklama: s.Aciklama || '',
+      ekKasalar: ekler.map((e) => ({
+        kasaAdedi: Number(e.KasaAdedi) || 0,
+        kasaStokNo: e.KasaStokNo == null ? null : Number(e.KasaStokNo),
+        kasaTipiKod: e.KasaTipiKod || null
+      }))
     }))
   };
+}
+
+// "+ Kasa Ekle" ile girilen ek kasa satırı (ürünsüz, ürünle aynı SiraNo —
+// bkz. yazma.js → belgeYaz) düzenleme formunda ürün satırının altına gelir.
+function urunSatirlarinaKatil(satirlar) {
+  const sonuc = [];
+  for (const s of satirlar) {
+    const onceki = sonuc[sonuc.length - 1];
+    if (onceki && s.SiraNo != null && onceki.s.SiraNo != null &&
+        Number(s.SiraNo) === Number(onceki.s.SiraNo) && s.StokNo == null && !Number(s.Tutar)) {
+      onceki.ekler.push(s);
+      continue;
+    }
+    sonuc.push({ s, ekler: [] });
+  }
+  return sonuc;
 }
 
 // Son Belgeler listesi. Arama verilmezse en yeni `limit` kayıt gelir.
@@ -752,14 +805,49 @@ async function sonIslemleriGetir(secenek) {
     ${kosullar.length ? 'WHERE ' + kosullar.join(' AND ') : ''}
     ORDER BY I.Id DESC
   `, parametreler);
+  const birlesik = eskiIadeleriBirlestir(islemler);
 
-  if (!parcalar.length || !(secenek && secenek.firma && secenek.donem)) return islemler;
+  if (!parcalar.length || !(secenek && secenek.firma && secenek.donem)) return birlesik;
 
   let vegadan = [];
   try {
     vegadan = await vegaBelgeleriniAra(secenek.firma, secenek.donem, parcalar, limit);
   } catch (e) { /* Vega araması düşerse günlük sonuçları yine gösterilir */ }
-  return islemler.concat(vegadan);
+  return birlesik.concat(vegadan);
+}
+
+// 27.10.2026 müşteri isteği: "kasa iadesi aldığında aynı saat aynı dakika
+// olanları satır satır yazmış, toplu görmek istiyor". Bu tarihten önce çok
+// satırlı iadenin her kasa tipi ayrı kayıttı. Ardışık, geri alınmamış,
+// aynı müşteri / belge tarihi / fiş no / kullanıcı ve aynı dakikada
+// kaydedilmiş iade parçaları tek satırda birleşir; `Idler` hepsini taşır,
+// ✎ ve Geri Al bütün parçalar için çalışır. Yeni iadeler zaten tek kayıt.
+function eskiIadeleriBirlestir(islemler) {
+  const dakika = (t) => (t ? Math.floor(new Date(t).getTime() / 60000) : null);
+  const gun = (t) => (t ? new Date(t).toDateString() : '');
+  const ayniIade = (a, b) =>
+    a.Konu === 'KasaIade' && b.Konu === 'KasaIade' && !a.GeriAlindi && !b.GeriAlindi &&
+    a.Firma === b.Firma && a.Donem === b.Donem && Number(a.CariInd) === Number(b.CariInd) &&
+    gun(a.Tarih) === gun(b.Tarih) && String(a.FisNo || '') === String(b.FisNo || '') &&
+    String(a.Kullanici || '') === String(b.Kullanici || '') &&
+    String(a.Bilgisayar || '') === String(b.Bilgisayar || '') &&
+    dakika(a.KayitTarihi) != null && dakika(a.KayitTarihi) === dakika(b.KayitTarihi);
+
+  const sonuc = [];
+  for (const k of islemler) {
+    const onceki = sonuc[sonuc.length - 1];
+    if (onceki && ayniIade(onceki, k)) {
+      // Liste en yeniden eskiye; birleşik satır en eski parçanın Id'siyle
+      // düzenlenir ki form satırları girildikleri sırada gelsin.
+      onceki.Idler.unshift(Number(k.Id));
+      onceki.Id = Number(k.Id);
+      onceki.BelgeNo = [k.BelgeNo, onceki.BelgeNo].filter(Boolean).join(' / ');
+      onceki.Tutar = (Number(onceki.Tutar) || 0) + (Number(k.Tutar) || 0);
+      continue;
+    }
+    sonuc.push(k.Konu === 'KasaIade' ? Object.assign({}, k, { Idler: [Number(k.Id)] }) : k);
+  }
+  return sonuc;
 }
 
 // Günlükte olmayan Vega belgeleri — satış faturası ile cari giriş/çıkış.

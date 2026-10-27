@@ -226,6 +226,13 @@ table.veri.girdi input.sayi { text-align: right; font-variant-numeric: tabular-n
 table.veri.girdi th.genis { min-width: 170px; }
 table.veri.girdi th.aciklamaSutun { min-width: 130px; }
 
+/* Ek kasa (27.10.2026): kasa tipinin yanında "+", ürünün altında ek satır. */
+td.kasaTipiHucre { white-space: nowrap; }
+td.kasaTipiHucre select { width: calc(100% - 34px); }
+.ekKasaDugmesi { margin-left: 4px; padding: 4px 8px; font-weight: 700; }
+tr.ekKasaSatiri > td { background: #f8faff; }
+td.ekKasaEtiket { color: #6b7280; font-size: 12px; padding-left: 18px !important; white-space: nowrap; }
+
 td.hesaplanan {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -241,6 +248,28 @@ td.hesaplanan.hata { color: #b91c1c; }
 #iadeSatirTablo input.sayi { width: 110px; }
 #iadeSatirTablo th.sayi, #iadeSatirTablo td.hesaplanan { min-width: 90px; }
 #iadeSatirTablo tfoot td { font-weight: 700; border-top: 2px solid #c9d3e0; }
+
+/* 27.10.2026 müşteri isteği: açık kasalar ince yazı yerine formun sağında
+   ayrıntılı. Dar pencerede panel formun altına iner. */
+.iadeDuzen { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.iadeForm { flex: 1 1 640px; min-width: 0; }
+.iadeAcikPanel {
+  flex: 0 1 380px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+}
+.iadeAcikPanel h3 { margin: 0 0 8px; font-size: 14px; color: #1e3a8a; }
+#iadeAcikTablo { font-size: 14px; }
+#iadeAcikTablo td { padding: 6px 8px; }
+#iadeAcikTablo tbody tr { cursor: pointer; }
+#iadeAcikTablo tbody tr:hover { background: #eff6ff; }
+#iadeAcikTablo tfoot td { font-weight: 700; border-top: 2px solid #c9d3e0; }
+#iadeAcikTablo td:first-child { font-weight: 600; }
+.iadeAcikPanel .ipucu { margin-bottom: 0; }
+.baslikEki { font-weight: 500; color: #1d4ed8; margin-left: 6px; }
 
 .bosSatir { text-align: center; color: #9ca3af; padding: 20px 8px; font-size: 13px; }
 
@@ -477,6 +506,13 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
 /* Fiş ara toplamındaki türe göre kasa dağılımı ("30 PK · 36 UP"). */
 table.veri.rapor tr.fisAra td.kasaTurDagilimi { font-size: 10.5px; font-weight: 600; white-space: normal; }
 
+/* Ekstre hareketleri: çift tıklayınca belge ayrıntısı (27.10.2026). */
+table.veri tbody tr.ciftTiklanir { cursor: pointer; }
+table.veri tbody tr.ciftTiklanir:hover { background: #eff6ff; }
+table.veri.rapor tr.devirSatiri td { font-weight: 600; background: #f8fafc; }
+#belgeAyrintiTablo td { white-space: nowrap; }
+#belgeAyrintiTablo td:first-child, #belgeAyrintiTablo td:last-child { white-space: normal; }
+
 /* Ödeme geçmişi tek müşteri için alınınca MÜŞTERİ sütunu gereksiz. */
 #odemeRaporTablo.tekCari .cariSutun { display: none; }
 
@@ -637,7 +673,8 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
 
   /* Yazıcıda açık gri hücre çizgileri kayboluyordu. Ayrıntılı fiş
      tablosundaki her mal satırı artık belirgin bir yatay çizgiyle ayrılır. */
-  #ekstreRaporGovde > tr:not(.fisAra):not(.fisAyrac):not(.genelToplam) > td {
+  #ekstreRaporGovde > tr:not(.fisAra):not(.fisAyrac):not(.genelToplam) > td,
+  table.hesapHareketleri tbody > tr:not(.genelToplam) > td {
     border-bottom: 1px solid #64748b !important;
   }
 

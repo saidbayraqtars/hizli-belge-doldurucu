@@ -37,7 +37,7 @@ const { sorgu } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, tablo, kart, tabloVarMi } = require('./firma');
 const {
-  izahatAdi, aciklamaBaglari, kasaIadeAdetBagi, yerelAniUtcYap, musteriTipiFiltresi, kolonVarMi
+  izahatAdi, hareketAdi, aciklamaBaglari, kasaIadeAdetBagi, yerelAniUtcYap, musteriTipiFiltresi, kolonVarMi
 } = require('./vega');
 const yardimci = require('./yardimci');
 
@@ -56,6 +56,20 @@ function odemeAciklamasi(satir) {
   return parcalar.filter((deger, sira) =>
     parcalar.findIndex((diger) => diger.toLocaleUpperCase('tr-TR') === deger.toLocaleUpperCase('tr-TR')) === sira
   ).join(' · ');
+}
+
+// Hesap hareketleri tablosunun açıklaması: işlem adı ayrı sütunda durduğu için
+// tekrarlanmaz; programın fatura notu ("Hizli Belge Doldurucu - fis 12")
+// kısaca "Fiş 12" olur. Kasa iadesinde geri gelen adet de yazılır.
+function hareketAciklamasi(satir) {
+  let not = String(satir.belgeAciklama || '').trim();
+  const fis = /^Hizli Belge Doldurucu(?:\s*-\s*fis\s+(\S+))?$/i.exec(not);
+  if (fis) not = fis[1] ? 'Fiş ' + fis[1] : '';
+  const adet = Number(satir.iadeAdedi) || 0;
+  return [
+    not,
+    adet ? adet.toLocaleString('tr-TR', { maximumFractionDigits: 3 }) + ' adet' : ''
+  ].filter(Boolean).join(' · ');
 }
 
 // --- Hafta hesabı ------------------------------------------------------------
@@ -182,9 +196,9 @@ async function haftalikOzet(secenek) {
     `SELECT CariInd, ISNULL(KasaTipiKod, '') AS tur,
             SUM(KasaAdedi) AS adet, SUM(KasaTutari) AS kasa
      FROM [${v}].dbo.BD_BelgeSatir
-     WHERE Firma = @firma AND GeriAlindi = 0 AND Tarih >= @bas AND Tarih <= @bitis
+     WHERE Firma = @firma AND GeriAlindi = 0 AND Tarih >= @bas AND Tarih < @ertesi
      GROUP BY CariInd, ISNULL(KasaTipiKod, '')`,
-    { firma, bas: baslangic, bitis }
+    { firma, bas: baslangic, ertesi }
   );
   for (const s of gunlukKasa) kasaEkle(s.CariInd, s.tur, s.adet, s.kasa);
 
@@ -224,9 +238,9 @@ async function haftalikOzet(secenek) {
   const gunlukKilo = await sorgu(
     `SELECT CariInd, SUM(ISNULL(DaraliMiktar, 0)) AS kg
      FROM [${v}].dbo.BD_BelgeSatir
-     WHERE Firma = @firma AND GeriAlindi = 0 AND Tarih >= @bas AND Tarih <= @bitis
+     WHERE Firma = @firma AND GeriAlindi = 0 AND Tarih >= @bas AND Tarih < @ertesi
      GROUP BY CariInd`,
-    { firma, bas: baslangic, bitis }
+    { firma, bas: baslangic, ertesi }
   );
   for (const s of gunlukKilo) kiloEkle(s.CariInd, s.kg);
 
@@ -318,19 +332,24 @@ async function cariBasligi(v, firma, cariInd) {
 }
 
 // Programın kendi satır günlüğü — asıl kaynak.
-async function gunlukSatirlari(v, firma, cariInd, baslangic, bitis) {
+//
+// Tarih DATE sütunu; aralığın sonu "< ertesi" ile sınanır. 27.10.2026'ya
+// kadar "<= bitis" idi: bitiş günü yerel gece yarısı olarak UTC'ye çevrilip
+// (Türkiye'de önceki gün 21:00) gittiği için son günün satırları raporda
+// görünmüyordu (ör. haftalık ayrıntılı ekstrede Cumartesi fişleri).
+async function gunlukSatirlari(v, firma, cariInd, baslangic, ertesi) {
   const r = await sorgu(
-    `SELECT Id, Tarih, BelgeNo, ISNULL(FisNo, '') AS FisNo, SiraNo,
+    `SELECT Id, IslemId, Tarih, BelgeNo, ISNULL(FisNo, '') AS FisNo, SiraNo, StokNo,
             ISNULL(StokAdi, ISNULL(StokKodu, ISNULL(KasaTipiKod, ''))) AS Cinsi,
             KasaAdedi, ISNULL(KasaTipiKod, '') AS KasaTipiKod, KasaTutari,
             DaraliMiktar, Fiyat, Tutar, ISNULL(Aciklama, '') AS Aciklama
      FROM [${v}].dbo.BD_BelgeSatir
      WHERE Firma = @firma AND CariInd = @cariInd AND GeriAlindi = 0
-       AND Tarih >= @bas AND Tarih <= @bitis
-     ORDER BY Tarih, FisNo, SiraNo, Id`,
-    { firma, cariInd: Number(cariInd), bas: baslangic, bitis }
+       AND Tarih >= @bas AND Tarih < @ertesi
+     ORDER BY Tarih, FisNo, IslemId, SiraNo, Id`,
+    { firma, cariInd: Number(cariInd), bas: baslangic, ertesi }
   );
-  return r.map((s) => ({
+  return ekKasalariBirlestir(r).map(({ s, kasalar }) => ({
     kaynak: 'gunluk',
     tarih: s.Tarih,
     belgeNo: String(s.BelgeNo || '').trim(),
@@ -338,14 +357,49 @@ async function gunlukSatirlari(v, firma, cariInd, baslangic, bitis) {
     // görünmemesi için o durumda Vega belge numarasına düş.
     fisNo: fisNoCoz(s.FisNo, s.BelgeNo),
     cinsi: String(s.Cinsi || '').trim(),
-    kasaAdedi: Number(s.KasaAdedi) || 0,
-    kasaTipiKod: String(s.KasaTipiKod || '').trim(),
-    kasaTutari: Number(s.KasaTutari) || 0,
+    kasaAdedi: kasalar.reduce((t, k) => t + k.adet, 0),
+    kasaTipiKod: kasaMetni(kasalar),
+    kasaTutari: kasalar.reduce((t, k) => t + k.tutar, 0),
+    kasalar,
     netKg: Number(s.DaraliMiktar) || 0,
     fiyat: Number(s.Fiyat) || 0,
     tutar: Number(s.Tutar) || 0,
     aciklama: String(s.Aciklama || '').trim()
   }));
+}
+
+// 27.10.2026 müşteri isteği: Belge Gir'de bir ürün satırına "+ Kasa Ekle" ile
+// birden çok kasa tipi girilebiliyor (20 kg bir kasada, 30 kg başka kasada).
+// Ek kasa, ürün satırıyla AYNI SiraNo'yu taşıyan ürünsüz BD_BelgeSatir
+// satırıdır; raporda ve düzenlemede ürün satırına katılır, ekstrede ürün tek
+// satır görünür. Eski kayıtlarda SiraNo her satırda farklı — birleşme olmaz.
+function ekKasalariBirlestir(satirlar) {
+  const sonuc = [];
+  for (const s of satirlar) {
+    const kasa = {
+      tur: String(s.KasaTipiKod || '').trim(),
+      adet: Number(s.KasaAdedi) || 0,
+      tutar: Number(s.KasaTutari) || 0
+    };
+    const onceki = sonuc[sonuc.length - 1];
+    if (onceki && s.SiraNo != null && onceki.s.SiraNo != null &&
+        Number(s.IslemId) === Number(onceki.s.IslemId) &&
+        Number(s.SiraNo) === Number(onceki.s.SiraNo) &&
+        s.StokNo == null && !Number(s.Tutar)) {
+      if (kasa.adet || kasa.tutar) onceki.kasalar.push(kasa);
+      continue;
+    }
+    sonuc.push({ s, kasalar: (kasa.adet || kasa.tutar) ? [kasa] : [] });
+  }
+  return sonuc;
+}
+
+// Tek kasa: "KAYIK" (adet ayrı sütunda). Birden çok: "2 KAYIK · 3 MSK".
+function kasaMetni(kasalar) {
+  if (kasalar.length <= 1) return kasalar[0] ? kasalar[0].tur : '';
+  return kasalar
+    .map((k) => `${k.adet.toLocaleString('tr-TR', { maximumFractionDigits: 3 })} ${k.tur}`)
+    .join(' · ');
 }
 
 function fisNoCoz(fisNo, belgeNo) {
@@ -443,17 +497,26 @@ function kasaTuruAnahtari(tur) {
 function kasaTurleriniTopla(satirlar) {
   const toplamlar = new Map();
   for (const s of satirlar || []) {
-    const adet = Number(s.kasaAdedi) || 0;
-    const tutar = Number(s.kasaTutari) || 0;
-    if (!adet && !tutar) continue;
-    const tur = String(s.kasaTipiKod || '').trim() || '—';
-    const anahtar = kasaTuruAnahtari(tur);
-    if (!toplamlar.has(anahtar)) toplamlar.set(anahtar, { anahtar, tur, adet: 0, tutar: 0 });
-    const toplam = toplamlar.get(anahtar);
-    toplam.adet += adet;
-    toplam.tutar += tutar;
+    for (const k of satirKasalari(s)) {
+      const adet = Number(k.adet) || 0;
+      const tutar = Number(k.tutar) || 0;
+      if (!adet && !tutar) continue;
+      const tur = String(k.tur || '').trim() || '—';
+      const anahtar = kasaTuruAnahtari(tur);
+      if (!toplamlar.has(anahtar)) toplamlar.set(anahtar, { anahtar, tur, adet: 0, tutar: 0 });
+      const toplam = toplamlar.get(anahtar);
+      toplam.adet += adet;
+      toplam.tutar += tutar;
+    }
   }
   return [...toplamlar.values()];
+}
+
+// Satırın kasaları: günlük satırında `kasalar` (ek kasalar dahil), Vega
+// faturasından gelen satırda tek kasa alanları.
+function satirKasalari(s) {
+  if (Array.isArray(s.kasalar)) return s.kasalar;
+  return [{ tur: s.kasaTipiKod, adet: s.kasaAdedi, tutar: s.kasaTutari }];
 }
 
 async function haftalikDetay(secenek) {
@@ -484,7 +547,7 @@ async function haftalikDetay(secenek) {
   const haftaBorc = Number(d[0] && d[0].haftaBorc) || 0;
   const haftaAlacak = Number(d[0] && d[0].haftaAlacak) || 0;
 
-  const gunluk = await gunlukSatirlari(v, firma, cariInd, baslangic, bitis);
+  const gunluk = await gunlukSatirlari(v, firma, cariInd, baslangic, ertesi);
   const bilinen = new Set(gunluk.map((s) => s.belgeNo).filter(Boolean));
   const vegadan = await faturaSatirlari(v, firma, donem, cariInd, baslangic, ertesi, bilinen);
 
@@ -509,12 +572,14 @@ async function haftalikDetay(secenek) {
   // Vega'dan gelen belgeler aynı blokta görünüyor.
   const kasaTurMap = new Map();
   for (const s of tumSatirlar) {
-    if (!s.kasaAdedi && !s.kasaTutari) continue;
-    const tur = s.kasaTipiKod || '—';
-    if (!kasaTurMap.has(tur)) kasaTurMap.set(tur, { tur, adet: 0, tutar: 0 });
-    const k = kasaTurMap.get(tur);
-    k.adet += s.kasaAdedi;
-    k.tutar += s.kasaTutari;
+    for (const kasa of satirKasalari(s)) {
+      if (!kasa.adet && !kasa.tutar) continue;
+      const tur = kasa.tur || '—';
+      if (!kasaTurMap.has(tur)) kasaTurMap.set(tur, { tur, adet: 0, tutar: 0 });
+      const k = kasaTurMap.get(tur);
+      k.adet += Number(kasa.adet) || 0;
+      k.tutar += Number(kasa.tutar) || 0;
+    }
   }
   const kasaVerilenleri = [...kasaTurMap.values()];
   const kasaAdedi = kasaVerilenleri.reduce((t, k) => t + k.adet, 0);
@@ -527,29 +592,52 @@ async function haftalikDetay(secenek) {
   const { joinlar: aciklamaJoinlari, aciklamaIfadesi } =
     await aciklamaBaglari(v, firma, donem);
   // Kasa iadesi satırında kaç kasa geri geldiği de yazılır (03.10.2026).
+  //
+  // 27.10.2026 müşteri isteği: "toplam tutarı toplam olarak değil ayrıntılı
+  // göstersin" — müşterinin kullandığı başka programın cari ekstresi örnek
+  // gösterildi: her hareket bir satır (DEVİR, Satış Faturası, Stok Fişi,
+  // Tahsilat…) ve BORÇ / ÖDENEN / KALAN. Aynı sorgu bütün hareketleri getirir;
+  // ÖDEME listesi bunun ALACAK satırlarıdır.
   const odemeParametreleri = { cariInd, bas: baslangic, ertesi };
   const iadeAdet = await kasaIadeAdetBagi(v, firma, donem, odemeParametreleri);
   const o = await sorgu(
-    `SELECT H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
+    `SELECT H.IND AS ind, H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
             ISNULL(H.EVRAKNO, '') AS evrakNo,
             ${aciklamaIfadesi} AS belgeAciklama,
             ${iadeAdet.ifade} AS iadeAdedi,
+            ISNULL(H.BORC, 0) AS borc,
             ISNULL(H.ALACAK, 0) AS alacak
      FROM ${hareketTablosu} H
      ${aciklamaJoinlari}
      ${iadeAdet.joinlar}
      WHERE H.FIRMANO = @cariInd AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
-       AND H.TARIH >= @bas AND H.TARIH < @ertesi AND ISNULL(H.ALACAK, 0) <> 0
+       AND H.TARIH >= @bas AND H.TARIH < @ertesi
      ORDER BY H.TARIH, H.IND`,
     odemeParametreleri
   );
-  const odemeler = o.map((s) => ({
+  const odemeler = o.filter((s) => Number(s.alacak)).map((s) => ({
     tarih: s.tarih,
     alinan: Number(s.alacak) || 0,
     iadeAdedi: Number(s.iadeAdedi) || 0,
     aciklama: odemeAciklamasi(s)
   }));
   const odemeToplam = odemeler.reduce((t, s) => t + s.alinan, 0);
+  let kalan = devir;
+  const hareketler = o.map((s) => {
+    const borc = Number(s.borc) || 0;
+    const alacak = Number(s.alacak) || 0;
+    kalan += borc - alacak;
+    return {
+      ind: Number(s.ind),
+      tarih: s.tarih,
+      islem: hareketAdi(s.izahat, borc, alacak),
+      evrakNo: String(s.evrakNo || '').trim(),
+      aciklama: hareketAciklamasi(s),
+      borc,
+      alacak,
+      kalan
+    };
+  });
 
   // "Geri Gelen Kasalar" bloğu 30.09.2026 müşteri isteğiyle çıktıdan
   // kaldırıldı; iadenin parası yukarıdaki ÖDEME satırlarında zaten görünüyor.
@@ -568,6 +656,7 @@ async function haftalikDetay(secenek) {
     toplam: urunTutari + kasaTutari,
     odemeler,
     odemeToplam,
+    hareketler,
     haftaBorc,
     haftaAlacak,
     bakiye: devir + haftaBorc - haftaAlacak
@@ -808,10 +897,218 @@ async function odemeGecmisi(secenek) {
   };
 }
 
+// --- 4. Belge ayrıntısı ------------------------------------------------------
+//
+// 27.10.2026 müşteri isteği: ekstrede bir harekete çift tıklayınca o belgenin
+// ayrıntısı açılsın (müşterinin kullandığı başka programdaki gibi). Önce
+// programın kendi kaydı aranır (satırlar BD_ tablolarından, düzenlenebilir);
+// yoksa belge Vega'nın kendi tablolarından okunur (salt okunur).
+const VEGA_BELGE_KAYNAKLARI = {
+  21: { baslik: 'TBLSATFATBASLIK', hareket: 'TBLSATFATHAREKET', tur: 'urun' },
+  20: { baslik: 'TBLALFATBASLIK', hareket: 'TBLALFATHAREKET', tur: 'urun' },
+  32: { baslik: 'TBLSTKGIRBASLIK', hareket: 'TBLSTKGIRHAREKET', tur: 'urun' },
+  34: { baslik: 'TBLSTKGIRBASLIK', hareket: 'TBLSTKGIRHAREKET', tur: 'urun' },
+  33: { baslik: 'TBLSTKCIKBASLIK', hareket: 'TBLSTKCIKHAREKET', tur: 'urun' },
+  13: { baslik: 'TBLCARGIRBASLIK', hareket: 'TBLCARGIRHAREKET', tur: 'cari' },
+  11: { baslik: 'TBLCARCIKBASLIK', hareket: 'TBLCARCIKHAREKET', tur: 'cari' }
+};
+const DUZENLENEBILIR_KONULAR = ['satisFaturasi', 'cariCikis', 'tahsilat', 'KasaIade', 'alisFaturasi'];
+
+async function belgeAyrintisi(secenek) {
+  const { firma, donem } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
+  await yardimci.hazirla();
+  const v = vt();
+  const cariInd = Number(secenek.cariInd);
+  const hareketTablosu = tablo(v, firma, donem, 'TBLCARIHAREKETLERI');
+  const lnVar = await kolonVarMi(hareketTablosu, 'LN');
+  const h = (await sorgu(
+    `SELECT H.IND AS ind, H.TARIH AS tarih, LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) AS izahat,
+            LTRIM(RTRIM(ISNULL(H.EVRAKNO, ''))) AS evrakNo,
+            ISNULL(H.BORC, 0) AS borc, ISNULL(H.ALACAK, 0) AS alacak,
+            ${lnVar ? 'H.LN' : 'NULL'} AS ln
+     FROM ${hareketTablosu} H WHERE H.IND = @ind AND H.FIRMANO = @cariInd`,
+    { ind: Number(secenek.ind), cariInd }
+  ))[0];
+  if (!h) throw new Error('Hareket bulunamadı; ekstreyi yenileyin.');
+
+  const sonuc = {
+    islem: hareketAdi(h.izahat, h.borc, h.alacak),
+    evrakNo: h.evrakNo,
+    tarih: h.tarih,
+    borc: Number(h.borc) || 0,
+    alacak: Number(h.alacak) || 0,
+    fisNo: '',
+    aciklama: '',
+    kaynak: 'vega',
+    islemId: null,
+    duzenlenebilir: false,
+    satirlar: []
+  };
+
+  if (h.evrakNo && await programKaydindanDoldur(v, firma, donem, cariInd, h, sonuc)) return sonuc;
+  await vegaBelgesindenDoldur(v, firma, donem, cariInd, h, sonuc);
+  return sonuc;
+}
+
+async function programKaydindanDoldur(v, firma, donem, cariInd, h, sonuc) {
+  const adaylar = await sorgu(
+    `SELECT Id, Konu, Tutar, FisNo, Aciklama, Yazilan
+     FROM [${v}].dbo.BD_Islem
+     WHERE Firma = @firma AND Donem = @donem AND CariInd = @cariInd AND GeriAlindi = 0
+       AND CHARINDEX(' / ' + @evrakNo + ' / ', ' / ' + ISNULL(BelgeNo, '') + ' / ') > 0
+     ORDER BY Id DESC`,
+    { firma, donem, cariInd, evrakNo: h.evrakNo }
+  );
+  for (const kayit of adaylar) {
+    let yazilan = [];
+    try { yazilan = JSON.parse(kayit.Yazilan || '[]'); } catch (e) { yazilan = []; }
+    // Evrak no her seride ayrı sayılıyor; belge tipi de tutmalı.
+    const parca = yazilan.find((y) => y && String(y.belgeNo || '').trim() === h.evrakNo &&
+      (y.belgeTipi == null || Number(y.belgeTipi) === Number(h.izahat)));
+    if (!parca) continue;
+
+    sonuc.kaynak = 'program';
+    sonuc.islemId = Number(kayit.Id);
+    sonuc.duzenlenebilir = DUZENLENEBILIR_KONULAR.includes(kayit.Konu);
+    sonuc.fisNo = String(kayit.FisNo || '').trim();
+    const id = { islemId: Number(kayit.Id) };
+
+    if (parca.tur === 'satisFaturasi' || parca.tur === 'cariCikis') {
+      const r = await sorgu(
+        `SELECT IslemId, SiraNo, StokNo, ISNULL(StokAdi, ISNULL(StokKodu, '')) AS Cinsi,
+                KasaAdedi, ISNULL(KasaTipiKod, '') AS KasaTipiKod, KasaTutari,
+                BrutMiktar, DaraliMiktar, Fiyat, Tutar, ISNULL(Aciklama, '') AS Aciklama
+         FROM [${v}].dbo.BD_BelgeSatir
+         WHERE IslemId = @islemId AND GeriAlindi = 0
+         ORDER BY ISNULL(SiraNo, 2147483647), Id`, id);
+      sonuc.satirlar = ekKasalariBirlestir(r).map(({ s, kasalar }) => ({
+        cinsi: String(s.Cinsi || '').trim() || (kasalar.length ? 'Kasa' : ''),
+        kasa: kasalar.length === 1
+          ? `${kasalar[0].adet.toLocaleString('tr-TR', { maximumFractionDigits: 3 })} ${kasalar[0].tur}`
+          : kasaMetni(kasalar),
+        kasaTutari: kasalar.reduce((t, k) => t + k.tutar, 0),
+        miktar: Number(s.DaraliMiktar) || 0,
+        fiyat: Number(s.Fiyat) || 0,
+        tutar: Number(s.Tutar) || 0,
+        aciklama: String(s.Aciklama || '').trim()
+      }));
+    } else if (parca.tur === 'kasaIade') {
+      const r = await sorgu(
+        `SELECT StokKodu, StokAdi, Adet, Tutar FROM [${v}].dbo.BD_KasaHareket
+         WHERE IslemId = @islemId ORDER BY Id`, id);
+      const ozet = Array.isArray(parca.satirlar) ? parca.satirlar : [];
+      sonuc.satirlar = r.map((k, sira) => {
+        const adet = Math.abs(Number(k.Adet) || 0);
+        const depozito = Math.abs(Number(k.Tutar) || 0);
+        const birimFiyat = ozet[sira] && ozet[sira].birimFiyat != null
+          ? Number(ozet[sira].birimFiyat)
+          : (r.length === 1 && parca.birimFiyat != null ? Number(parca.birimFiyat) : null);
+        const fiyat = birimFiyat != null ? birimFiyat : (adet ? depozito / adet : 0);
+        return {
+          cinsi: String(k.StokKodu || k.StokAdi || 'Kasa').trim(),
+          kasa: '', kasaTutari: 0,
+          miktar: adet,
+          fiyat,
+          tutar: Math.round(adet * fiyat * 100) / 100,
+          aciklama: birimFiyat != null && Math.abs(adet * birimFiyat - depozito) > 0.01
+            ? `açık depozito ${depozito.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL`
+            : ''
+        };
+      });
+    } else if (parca.tur === 'alisFaturasi') {
+      sonuc.satirlar = (parca.satirlar || []).map((s) => ({
+        cinsi: String(s.stokAdi || s.stokKodu || '').trim(),
+        kasa: '', kasaTutari: 0,
+        miktar: Number(s.miktar) || 0,
+        fiyat: Number(s.fiyat) || 0,
+        tutar: Number(s.tutar) || 0,
+        aciklama: ''
+      }));
+      sonuc.aciklama = parca.not || '';
+    } else {
+      // Tahsilat (Belge Gir'deki ya da Ödemeler ekranındaki).
+      sonuc.satirlar = [{
+        cinsi: 'Tahsilat', kasa: '', kasaTutari: 0, miktar: 0, fiyat: 0,
+        tutar: Number(parca.toplam) || sonuc.alacak || sonuc.borc,
+        aciklama: String(parca.not || parca.aciklama || '').trim()
+      }];
+      // Belge Gir'deki tahsilat ürün belgesiyle aynı kayıtta; düzenlenirse
+      // bütün belge açılır.
+    }
+    return true;
+  }
+  return false;
+}
+
+async function vegaBelgesindenDoldur(v, firma, donem, cariInd, h, sonuc) {
+  const kaynak = VEGA_BELGE_KAYNAKLARI[Number(h.izahat)];
+  if (!kaynak || !(await tabloVarMi(firma, donem, kaynak.baslik))) return;
+  const baslikTam = tablo(v, firma, donem, kaynak.baslik);
+  const notAlani = (await kolonVarMi(baslikTam, 'ALTNOT')) ? 'ALTNOT'
+    : (await kolonVarMi(baslikTam, 'ACIKLAMA')) ? 'ACIKLAMA' : null;
+  const ln = Number(h.ln) || 0;
+  const b = (await sorgu(
+    `SELECT TOP 1 B.IND AS ind, ${notAlani ? `CAST(B.${notAlani} AS NVARCHAR(500))` : "''"} AS notMetni
+     FROM ${baslikTam} B
+     WHERE ${ln > 0 ? 'B.IND = @ln' : 'B.FIRMANO = @cariInd AND B.BELGENO = @evrakNo'}
+     ORDER BY B.IND DESC`,
+    { ln, cariInd, evrakNo: h.evrakNo }
+  ))[0];
+  if (!b) return;
+  const not = String(b.notMetni || '').trim();
+  const fis = /fi[sş]\s+(\S+)/i.exec(not);
+  sonuc.fisNo = fis ? fis[1] : '';
+  sonuc.aciklama = /^Hizli Belge Doldurucu/i.test(not) ? '' : not;
+
+  if (!(await tabloVarMi(firma, donem, kaynak.hareket))) return;
+  const hareketTam = tablo(v, firma, donem, kaynak.hareket);
+  const alan = async (ad, ifade) => ((await kolonVarMi(hareketTam, ad)) ? ifade : 'NULL');
+  if (kaynak.tur === 'urun') {
+    const r = await sorgu(
+      `SELECT ${await alan('MALINCINSI', 'CAST(H.MALINCINSI AS NVARCHAR(250))')} AS cinsi,
+              ${await alan('STOKKODU', 'H.STOKKODU')} AS kod,
+              ${await alan('MIKTAR', 'H.MIKTAR')} AS miktar,
+              ${await alan('FIYATI', 'H.FIYATI')} AS fiyat,
+              ${await alan('GERCEKTOPLAM', 'H.GERCEKTOPLAM')} AS tutar,
+              ${await alan('ACIKLAMA', 'CAST(H.ACIKLAMA AS NVARCHAR(250))')} AS aciklama
+       FROM ${hareketTam} H WHERE H.EVRAKNO = @ind ORDER BY H.IND`,
+      { ind: Number(b.ind) }
+    );
+    sonuc.satirlar = r.map((s) => {
+      const miktar = Number(s.miktar) || 0;
+      const fiyat = Number(s.fiyat) || 0;
+      return {
+        cinsi: String(s.cinsi || s.kod || '').trim(),
+        kasa: '', kasaTutari: 0,
+        miktar,
+        fiyat,
+        tutar: s.tutar != null ? Number(s.tutar) || 0 : Math.round(miktar * fiyat * 100) / 100,
+        aciklama: String(s.aciklama || '').trim()
+      };
+    });
+  } else {
+    const r = await sorgu(
+      `SELECT ${await alan('TUTAR', 'H.TUTAR')} AS tutar,
+              ${await alan('ACIKLAMA', 'CAST(H.ACIKLAMA AS NVARCHAR(250))')} AS aciklama
+       FROM ${hareketTam} H WHERE H.EVRAKNO = @ind ORDER BY H.IND`,
+      { ind: Number(b.ind) }
+    );
+    sonuc.satirlar = r.map((s) => ({
+      cinsi: sonuc.islem, kasa: '', kasaTutari: 0, miktar: 0, fiyat: 0,
+      tutar: Number(s.tutar) || 0,
+      aciklama: String(s.aciklama || '').trim()
+    }));
+  }
+}
+
 module.exports = {
   haftaAraligi,
   haftalikOzet,
   haftalikDetay,
   odemeGecmisi,
-  _test: { fisNoCoz, kasaTurleriniTopla, fislereBol, odemeAciklamasi, odemeYontemiCoz, odemeNotu, odemeFisNo }
+  belgeAyrintisi,
+  _test: {
+    fisNoCoz, kasaTurleriniTopla, fislereBol, odemeAciklamasi, odemeYontemiCoz, odemeNotu, odemeFisNo,
+    ekKasalariBirlestir, kasaMetni, hareketAciklamasi
+  }
 };

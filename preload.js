@@ -32,6 +32,7 @@ const KANALLAR = [
   'rapor:haftalikOzet',
   'rapor:haftalikDetay',
   'rapor:odemeGecmisi',
+  'rapor:belgeAyrintisi',
   'cari:formBilgisi',
   'cari:ac',
   'cari:liste',

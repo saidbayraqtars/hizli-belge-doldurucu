@@ -41,6 +41,14 @@ function izahatAdi(ham) {
   return String(ham == null ? '' : ham).trim() || '—';
 }
 
+// Hareketin ekrandaki adı. Belge Gir'in "Cari Giriş Olarak Kaydet"i satışı
+// IZAHAT 13 + BORÇ ile yazar: tahsilat değil, mal satışı. Ekstrede "Tahsilat"
+// yazınca müşteri ödeme sanıyordu (27.10.2026 uçtan uca denemede görüldü).
+function hareketAdi(izahat, borc, alacak) {
+  if (Number(izahat) === 13 && Number(borc) > 0 && !Number(alacak)) return 'Cari Giriş';
+  return izahatAdi(izahat);
+}
+
 // Müşteri veritabanları arasında alan farkı olabiliyor: DELETED bazı
 // kurulumlarda hiç yok. Sorguyu kurmadan önce bir kez soruyoruz.
 const kolonOnbellek = new Map();
@@ -626,7 +634,7 @@ async function cariEkstre(secenek) {
       tarih: s.tarih,
       islemTarihi: s.islemTarihi || null,
       izahat: String(s.izahat || '').trim(),
-      izahatAdi: izahatAdi(s.izahat),
+      izahatAdi: hareketAdi(s.izahat, borc, alacak),
       evrakNo: String(s.evrakNo || '').trim(),
       aciklama: String(s.aciklama || '').trim(),
       kasaAdedi: Number(s.kasaAdedi) || 0,
@@ -689,6 +697,7 @@ module.exports = {
   kasaKartlariniGetir,
   cariEkstre,
   izahatAdi,
+  hareketAdi,
   aciklamaBaglari,
   kasaIadeAdetBagi,
   yerelAniUtcYap,

@@ -74,9 +74,9 @@ Program altı sekmeden oluşur:
 | Sekme | İş |
 |---|---|
 | 📝 **Belge Gir** | Asıl ekran. Müşteri seçilir, satırlar girilir, Vega'ya yazılır |
-| 🧺 **Kasa** | Müşterideki açık kasalar ve tek tuşla kasa iadesi |
+| 🧺 **Kasa** | Çok satırlı kasa iadesi; seçili müşterinin açık kasaları formun sağında |
 | 📊 **Haftalık Rapor** | *GENEL MÜŞTERİYE GÖRE KALAN* borç dökümü |
-| 📄 **Ekstre** | Cari ekstre, fiş bazlı ayrıntılı rapor, haftalık giriş/çıkış |
+| 📄 **Ekstre** | Cari ekstre, fiş bazlı ayrıntılı rapor + hesap hareketleri (borç / ödenen / kalan), çift tıkla belge ayrıntısı |
 | 🗂️ **Son Belgeler** | Yazılan belgelerin günlüğü — düzenle / geri al |
 | ⚙️ **Ayarlar** | Sunucu, firma/dönem, depo, yazma kilidi, kasa tipleri |
 
@@ -92,8 +92,8 @@ yanlarında kaç kart olduğuyla listelenir. Açılışta `TOPTAN` varsa o seçi
 | **Cinsi** | VEGADB stok kartından seçilir — "Google gibi" arama |
 | **Brüt Miktar** | Kasayla birlikte tartılan kg; ürün seçiminden sonra ilk bu alan doldurulur |
 | **Kasa Adedi** | Kaç kasa/kap gitti |
-| **Kasa Tipi** | Seçili firmada Vega kartı `KOD1 = KASA` olan tipler |
-| **Dara** | Kasa adedi × tipin darası — *kendiliğinden* |
+| **Kasa Tipi** | Seçili firmada Vega kartı `KOD1 = KASA` olan tipler. Yanındaki **+** aynı ürüne başka tipte kasa ekler (kilo bölünmez) |
+| **Dara** | Kasa adedi × tipin darası — *kendiliğinden*; ek kasaların darası da kilodan düşer |
 | **Daralı Miktar** | Brüt − dara — *kendiliğinden* |
 | **Fiyat** | Elle girilir; kartta fiyat varsa öneri olarak gelir |
 | **Tutar** | Daralı miktar × fiyat — *kendiliğinden* |
