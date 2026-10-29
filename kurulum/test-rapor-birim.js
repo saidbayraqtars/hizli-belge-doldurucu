@@ -76,4 +76,9 @@ assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'Hizli Belge Dolduru
 assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'KASA IADE - KAYIK, MSK', iadeAdedi: 5 }),
   'KASA IADE - KAYIK, MSK · 5 adet');
 
-console.log('Rapor birim testleri geçti: fiş no, kasa türü, ek kasa, hareket açıklaması, tahsilat açıklaması ve ödeme yöntemi.');
+// Tedarikçi hesabı: BORÇ'lu cari çıkış "Ödeme", alış faturası kendi adıyla.
+assert.strictEqual(_test.tedarikciHareketAdi('11', 1000, 0), 'Ödeme');
+assert.strictEqual(_test.tedarikciHareketAdi('20', 0, 1550), 'Alış Faturası');
+assert.strictEqual(_test.tedarikciHareketAdi('11', 0, 50), 'Cari Çıkış');
+
+console.log('Rapor birim testleri geçti: fiş no, kasa türü, ek kasa, hareket açıklaması, tedarikçi hareketi, tahsilat açıklaması ve ödeme yöntemi.');

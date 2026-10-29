@@ -509,7 +509,9 @@ async function odemeDetayi(id, kayit) {
   const ilk = yazilan[0] || {};
   return {
     islemId: id,
-    tur: 'odeme',
+    // Tedarikçi ödemesi Alış Faturası ekranındaki ödeme formunda açılır.
+    tur: kayit.Konu === 'tediye' ? 'tediye' : 'odeme',
+    yontem: String(ilk.yontem || 'nakit'),
     firma: kayit.Firma,
     donem: kayit.Donem,
     tarih: kayit.Tarih,
@@ -595,7 +597,7 @@ async function islemDetayGetir(secenek) {
   const id = Number(secenek && secenek.islemId);
   const kayit = await islemGetir(id);
   if (kayit.GeriAlindi) throw new Error('Geri alınmış belge düzenlenemez.');
-  if (kayit.Konu === 'tahsilat') return odemeDetayi(id, kayit);
+  if (kayit.Konu === 'tahsilat' || kayit.Konu === 'tediye') return odemeDetayi(id, kayit);
   if (kayit.Konu === 'KasaIade') {
     const idler = [...new Set([id].concat((secenek.islemIdleri || []).map(Number).filter(Boolean)))];
     const kayitlar = [kayit];
@@ -775,6 +777,7 @@ async function sonIslemleriGetir(secenek) {
       CASE I.Konu WHEN 'satisFaturasi' THEN N'Satış Faturası'
                   WHEN 'cariCikis' THEN N'Cari Giriş'
                   WHEN 'tahsilat' THEN N'Tahsilat Ödeme'
+                  WHEN 'tediye' THEN N'Tedarikçi Ödemesi Ödeme'
                   WHEN 'KasaIade' THEN N'Kasa İadesi'
                   WHEN 'alisFaturasi' THEN N'Alış Faturası'
                   ELSE ISNULL(I.Konu, '') END + ' ' +

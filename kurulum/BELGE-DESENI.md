@@ -283,6 +283,22 @@ kasa bakiyesi gerçeği tutmaz. Bu yüzden `IZAHAT`, `PORTNO` ve `BANKANO`
 alanlarına dokunulmuyor. `test-yazma.js` bu alanların boş kaldığını ayrıca
 sınıyor.
 
+Gerçekten para el değiştiren iki fiş istisnadır: **tahsilat** (Cari Giriş,
+müşteriden) ve 27.10.2026'dan beri **tedarikçiye ödeme** (Cari Çıkış, Alış
+Faturası ekranındaki Para Gönder). Desen VEGADB_KAYITSINAMA'da Vega'nın kendi
+kestiği cari çıkışlardan (F0101D0001: 1.935 nakit, 333 banka satırı) alındı:
+
+| | Nakit | EFT / Havale |
+|---|---|---|
+| `TBLCARCIKHAREKET.IZAHAT` / `PORTNO` | 1 / −1 | 11 / −1 |
+| `TBLKASA` | `ISLEM` −3, `GIDER`, `BELGEIZAHAT` 11, `ISLEMTIPI` 1, `LINELINK` = satır | yok |
+| `TBLCARIHAREKETLERI` | `BORC` = tutar, `LN` = başlık | aynı |
+| `TBLCARIGENELHAREKET` | `BELGELINK` −1, `GECIKMEHESAPLA` 1, `ISLEMIZAHAT` 1, `ISLEMIND` = satır | `ISLEMIZAHAT` 11 |
+
+`BELGELINK` / `GECIKMEHESAPLA` borçlu çıkışta da −1 / 1'dir (Vega'nın bütün
+ödemeli cari çıkışlarında); ödemesiz dekontta eski davranış sürer.
+`test-yazma.js` §G sınıyor.
+
 ---
 
 ## 5.1. Kasa iadesi — Stok Giriş İade Fişi (tip 34) ✅

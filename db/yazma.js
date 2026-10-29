@@ -699,7 +699,13 @@ async function cariDekontuYaz(t, ayrinti) {
     // İkincisini başlık IND'i ve belge tipiyle doldurmak, Vega'nın belgeyi
     // kendi satırlarıyla eşleştirmesini bozuyordu.
     islemInd: ilkSatirInd,
-    islemIzahat: nakit ? ODEME_NAKIT : (banka ? ODEME_BANKA : undefined)
+    islemIzahat: nakit ? ODEME_NAKIT : (banka ? ODEME_BANKA : undefined),
+    // Ödeme aracı olan fişte Vega yön ne olursa olsun BELGELINK=-1 ve
+    // GECIKMEHESAPLA=1 yazıyor — tedarikçiye ödenen (BORÇ'lu) cari çıkışta da
+    // (VEGADB_KAYITSINAMA F0101D0001: 1933 nakit + 328 banka satırının hepsi).
+    // Ödemesiz dekontta eski sezgisel davranış (bkz. cariGenelHareketEkle).
+    belgeLink: (nakit || banka) ? -1 : undefined,
+    gecikmeHesapla: (nakit || banka) ? 1 : undefined
   });
   kayitlar.push(...cari);
 
@@ -1848,19 +1854,26 @@ async function duzenlenecekKaydiOku(islemId, konular, firma, donem) {
   return { kayit, yazilan };
 }
 
+// Ödemeler ekranındaki tahsilat (müşteriden gelen para: Cari Giriş, ALACAK).
+// `tedarikci: true` — Alış Faturası ekranındaki tedarikçiye ödeme (27.10.2026
+// müşteri isteği: "gönderdiğimiz parayı da o ekrandan düşelim"): Cari Çıkış
+// (tediye, tip 11), tedarikçiye BORÇ; nakitte kasadan GİDER. Desen Vega'nın
+// kendi kestiği nakit/banka cari çıkışlarıyla aynı (bkz. cariDekontuYaz).
 async function odemeYaz(secenek) {
   kilitKontrol();
   await yardimci.hazirla();
 
+  const tedarikci = !!secenek.tedarikci;
+  const konu = tedarikci ? 'tediye' : 'tahsilat';
   const tutar = Math.round((Number(secenek.tutar) || 0) * 100) / 100;
   if (!(tutar > 0)) throw new Error('Ödeme tutarı sıfırdan büyük olmalı.');
   const cariInd = Number(secenek.cariInd);
-  if (!cariInd) throw new Error('Müşteri seçilmeli.');
+  if (!cariInd) throw new Error(tedarikci ? 'Tedarikçi seçilmeli.' : 'Müşteri seçilmeli.');
 
   const { firma, donem } = await dogrula(secenek.firma, secenek.donem);
   const duzenlenenIslemId = Number(secenek.duzenlenenIslemId) || null;
   const eski = duzenlenenIslemId
-    ? await duzenlenecekKaydiOku(duzenlenenIslemId, ['tahsilat'], firma, donem)
+    ? await duzenlenecekKaydiOku(duzenlenenIslemId, [konu], firma, donem)
     : null;
 
   const eskiYontem = eski && eski.yazilan[0] ? String(eski.yazilan[0].yontem || '') : '';
@@ -1873,10 +1886,12 @@ async function odemeYaz(secenek) {
   const not = String(secenek.aciklama || '').trim();
   const fisNo = String(secenek.fisNo || '').trim().substring(0, 50);
   const parcalar = [];
-  if (yontem.arac !== 'nakit') parcalar.push(yontem.etiket);
+  // Tahsilatta nakit yazılmaz (Belge Gir tahsilatıyla aynı); tedarikçi
+  // hesabında ödemenin nasıl gittiği açıklamadan okunur, NAKİT de yazılır.
+  if (tedarikci || yontem.arac !== 'nakit') parcalar.push(yontem.etiket);
   if (fisNo) parcalar.push('Fiş ' + fisNo);
   if (not) parcalar.push(not);
-  const baslikAciklamasi = (parcalar.join(' - ') || 'Tahsilat').substring(0, 250);
+  const baslikAciklamasi = (parcalar.join(' - ') || (tedarikci ? 'Ödeme' : 'Tahsilat')).substring(0, 250);
   const onek = await onekTespitEt(firma, donem);
 
   return islem(async (t) => {
@@ -1888,7 +1903,8 @@ async function odemeYaz(secenek) {
     const d = await cariDekontuYaz(t, {
       v, firma, donem, cariInd, tutar, tarih,
       userNo: Number(secenek.userNo || 0),
-      giris: true,
+      giris: !tedarikci,
+      borcMu: tedarikci,
       aciklama: baslikAciklamasi,
       // Nakitte satır açıklaması Belge Gir tahsilatıyla aynı (boş); bankada
       // havale/EFT ayrımı yalnız burada durduğu için yazılır.
@@ -1898,14 +1914,14 @@ async function odemeYaz(secenek) {
     });
 
     const islemId = await yardimci.islemYaz(t, {
-      konu: 'tahsilat',
+      konu,
       firma, donem, tarih, cariInd, cariAd: secenek.cariAd || null,
       belgeNo: d.belgeNo,
       tutar,
       aciklama: baslikAciklamasi,
       fisNo: fisNo || null,
       yazilan: [{
-        ad: 'Tahsilat', tur: 'tahsilat', yontem: yontemKodu,
+        ad: tedarikci ? 'Tedarikçi ödemesi' : 'Tahsilat', tur: konu, yontem: yontemKodu,
         aciklama: baslikAciklamasi, not, fisNo, ...d
       }],
       kullanici: secenek.kullanici

@@ -506,10 +506,18 @@ table.veri.rapor.dar tr.genelToplam td { font-size: 13px; }
 /* Fiş ara toplamındaki türe göre kasa dağılımı ("30 PK · 36 UP"). */
 table.veri.rapor tr.fisAra td.kasaTurDagilimi { font-size: 10.5px; font-weight: 600; white-space: normal; }
 
-/* Ekstre hareketleri: çift tıklayınca belge ayrıntısı (27.10.2026). */
-table.veri tbody tr.ciftTiklanir { cursor: pointer; }
-table.veri tbody tr.ciftTiklanir:hover { background: #eff6ff; }
-table.veri.rapor tr.devirSatiri td { font-weight: 600; background: #f8fafc; }
+/* Ekstre hareketleri: çift tıklayınca belge ayrıntısı (27.10.2026). Tedarikçi
+   hesabında tek tık yeter (tiklanir). */
+table.veri tbody tr.ciftTiklanir, table.veri tbody tr.tiklanir { cursor: pointer; }
+table.veri tbody tr.ciftTiklanir:hover, table.veri tbody tr.tiklanir:hover { background: #eff6ff; }
+
+/* Tedarikçi hesabı (Alış Faturası, 27.10.2026): uzun liste kendi içinde
+   kayar, başlık üstte kalır; en yeni hareket altta (eski sistemdeki gibi). */
+.tedHesapKaydir { max-height: 360px; overflow-y: auto; border: 1px solid #e2e5eb; border-radius: 6px; }
+.tedHesapKaydir table.veri.rapor { margin: 0; }
+.tedHesapKaydir thead th { position: sticky; top: 0; z-index: 1; }
+#tedHesapGovde td:nth-child(-n+3) { white-space: nowrap; }
+#tedHesapKutu h3 { margin: 16px 0 8px; font-size: 14px; color: #1e3a8a; }
 #belgeAyrintiTablo td { white-space: nowrap; }
 #belgeAyrintiTablo td:first-child, #belgeAyrintiTablo td:last-child { white-space: normal; }
 
@@ -673,8 +681,7 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
 
   /* Yazıcıda açık gri hücre çizgileri kayboluyordu. Ayrıntılı fiş
      tablosundaki her mal satırı artık belirgin bir yatay çizgiyle ayrılır. */
-  #ekstreRaporGovde > tr:not(.fisAra):not(.fisAyrac):not(.genelToplam) > td,
-  table.hesapHareketleri tbody > tr:not(.genelToplam) > td {
+  #ekstreRaporGovde > tr:not(.fisAra):not(.fisAyrac):not(.genelToplam) > td {
     border-bottom: 1px solid #64748b !important;
   }
 

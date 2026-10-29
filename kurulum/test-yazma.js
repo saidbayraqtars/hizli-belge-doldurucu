@@ -151,7 +151,8 @@ const HAREKET_TABLOLARI = [
   'TBLCARGIRBASLIK', 'TBLCARGIRHAREKET',
   'TBLSATFATBASLIK', 'TBLSATFATHAREKET',
   'TBLSTOKHAREKETLERI', 'TBLDEPOENVANTER',
-  'TBLSTKGIRBASLIK', 'TBLSTKGIRHAREKET'
+  'TBLSTKGIRBASLIK', 'TBLSTKGIRHAREKET',
+  'TBLALFATBASLIK', 'TBLALFATHAREKET', 'TBLKASA'
 ];
 
 async function tumSayilar() {
@@ -1159,11 +1160,12 @@ async function calistir() {
       odemeMetinleri[0].includes(cokSatir.belgeNo) && !odemeMetinleri[0].includes('KASA IADE FARKI'),
     odemeMetinleri.join(' | '));
   kontrol('Ekstre ODEME toplami 170', Math.abs(ekstreD.odemeToplam - 170) < 0.01, String(ekstreD.odemeToplam));
-  const iadeHareketi = ekstreD.hareketler.find((h) => h.evrakNo === cokSatir.belgeNo);
-  kontrol('Hesap hareketlerinde iade: ODENEN 170, KALAN = bakiye',
-    !!iadeHareketi && iadeHareketi.alacak === 170 && iadeHareketi.islem === 'Stok Giriş İade Fişi' &&
-      Math.abs(ekstreD.hareketler[ekstreD.hareketler.length - 1].kalan - ekstreD.bakiye) < 0.01,
-    iadeHareketi ? `${iadeHareketi.islem} · ${iadeHareketi.alacak} · ${iadeHareketi.aciklama}` : 'yok');
+  // 27.10.2026: ayrıntılı ekstrede hesap hareketleri listesi yok (müşteri "o
+  // tedarikçiler için olacaktı" dedi); ÖDEME bloğu yukarıda sınandı.
+  kontrol('Ayrintili ekstrede hesap hareketleri listesi yok', !('hareketler' in ekstreD));
+  const ekstreListesiD = await vega.cariEkstre({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
+  const iadeHareketi = ekstreListesiD.satirlar.find((h) => h.evrakNo === cokSatir.belgeNo);
+  kontrol('Ekstre listesinde iade hareketi (cift tik icin IND var)', !!iadeHareketi && !!iadeHareketi.ind);
 
   // Ekstrede çift tıklanan iade hareketinin belge ayrıntısı.
   const ayrintiD = await rapor.belgeAyrintisi({
@@ -1435,6 +1437,152 @@ async function calistir() {
         WHERE CATEGORY = 1 AND LTRIM(RTRIM(KOD)) = N'FİRMA'`);
     }
   }
+
+  // ======================================================================
+  // 27.10.2026 müşteri isteği: Alış Faturası'nda tedarikçi seçilince eski
+  // sistemlerindeki hesap ekranı (BORÇ = aldığımız mal, ÖDENEN = gönderilen
+  // para, KALAN); para aynı ekrandan Cari Çıkış (tediye) olarak gönderilir.
+  bolum('G — Tedarikci hesabi ve odemesi');
+
+  const ted = cariler[1] || cari;
+  const hesapG0 = await rapor.tedarikciHesabi({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  const bakiyeG0 = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  const kartFiyatiG = async () => Number((await sql.sorgu(
+    `SELECT ALISFIYATI FROM ${vtAdi('TBLSTOKLAR', false)} WHERE IND = @ind`,
+    { ind: stoklar[0].stokNo }))[0].ALISFIYATI || 0);
+  const kartFiyatG0 = await kartFiyatiG();
+
+  const alisG = await yazma.alisFaturasiKaydet({
+    firma: FIRMA, donem: DONEM, cariInd: ted.cariInd, cariAd: ted.ad,
+    tarih: new Date(), faturaNo: 'SINAMA-G', kdvOrani: 0,
+    satirlar: [
+      { stokNo: stoklar[0].stokNo, stokKodu: stoklar[0].kod, stokAdi: stoklar[0].ad,
+        birim: stoklar[0].birim, birimEx: stoklar[0].birimEx, miktar: 100, fiyat: 12.5 },
+      { stokNo: stoklar[1].stokNo, stokKodu: stoklar[1].kod, stokAdi: stoklar[1].ad,
+        birim: stoklar[1].birim, birimEx: stoklar[1].birimEx, miktar: 10, fiyat: 30 }
+    ]
+  });
+  kontrol('Alis faturasi yazildi (1.550 TL)', alisG.tamam && alisG.toplam === 1550, String(alisG.toplam));
+
+  const tediyeG = (tutar, yontem, ek) => yazma.odemeYaz(Object.assign({
+    firma: FIRMA, donem: DONEM, cariInd: ted.cariInd, cariAd: ted.ad,
+    tarih: new Date(), tutar, yontem, tedarikci: true
+  }, ek || {}));
+  const nakitG = await tediyeG(1000, 'nakit', { aciklama: 'SINAMA elden' });
+  const eftG = await tediyeG(300, 'eft');
+  kontrol('Iki tedarikci odemesi yazildi', nakitG.tamam && eftG.tamam,
+    `${nakitG.belgeNo} · ${eftG.belgeNo}`);
+
+  // Vega deseni: Vega'nın kendi kestiği nakit/banka cari çıkışlarıyla aynı.
+  const desenG = async (belgeNo) => (await sql.sorgu(`
+    SELECT B.IND AS baslik, B.BELGETIPI, B.GIRIS, B.TUTAR, LTRIM(RTRIM(ISNULL(B.OZELKOD1, ''))) AS sube,
+           K.IND AS satir, K.IZAHAT AS arac, K.PORTNO,
+           C.IZAHAT AS cariIzahat, C.BORC, C.ALACAK, C.LN,
+           G.BELGELINK, G.GECIKMEHESAPLA, G.ISLEMIZAHAT, G.ISLEMIND, G.BORC AS genelBorc,
+           (SELECT COUNT(*) FROM ${vtAdi('TBLKASA', true)} X WHERE X.LINELINK = K.IND AND X.BELGEIZAHAT = 11) AS kasaSayisi,
+           (SELECT MAX(X.ISLEM) FROM ${vtAdi('TBLKASA', true)} X WHERE X.LINELINK = K.IND AND X.BELGEIZAHAT = 11) AS kasaIslem,
+           (SELECT SUM(X.GIDER) FROM ${vtAdi('TBLKASA', true)} X WHERE X.LINELINK = K.IND AND X.BELGEIZAHAT = 11) AS kasaGider,
+           (SELECT SUM(X.GELIR) FROM ${vtAdi('TBLKASA', true)} X WHERE X.LINELINK = K.IND AND X.BELGEIZAHAT = 11) AS kasaGelir,
+           (SELECT MAX(X.ISLEMTIPI) FROM ${vtAdi('TBLKASA', true)} X WHERE X.LINELINK = K.IND AND X.BELGEIZAHAT = 11) AS kasaTipi
+    FROM ${vtAdi('TBLCARCIKBASLIK', true)} B
+    JOIN ${vtAdi('TBLCARCIKHAREKET', true)} K ON K.EVRAKNO = B.IND
+    JOIN ${vtAdi('TBLCARIHAREKETLERI', true)} C ON C.EVRAKNO = B.BELGENO AND C.IZAHAT = '11'
+    LEFT JOIN ${vtAdi('TBLCARIGENELHAREKET', true)} G ON G.BELGENO = B.BELGENO AND G.BELGEIZAHAT = 11
+    WHERE B.BELGENO = @no`, { no: belgeNo }));
+  const dn = await desenG(nakitG.belgeNo);
+  const dn0 = dn[0] || {};
+  kontrol('Nakit odeme: Cari Cikis basligi (11, GIRIS 0, 1.000, sube dolu)',
+    dn.length === 1 && Number(dn0.BELGETIPI) === 11 && Number(dn0.GIRIS) === 0 &&
+      Number(dn0.TUTAR) === 1000 && !!dn0.sube,
+    JSON.stringify(dn0));
+  kontrol('Nakit odeme: satir IZAHAT 1 / PORTNO -1, kasadan GIDER (ISLEM -3, ISLEMTIPI 1)',
+    Number(dn0.arac) === 1 && Number(dn0.PORTNO) === -1 && Number(dn0.kasaSayisi) === 1 &&
+      Number(dn0.kasaIslem) === -3 && Number(dn0.kasaGider) === 1000 && Number(dn0.kasaGelir) === 0 &&
+      Number(dn0.kasaTipi) === 1,
+    `arac ${dn0.arac} · kasa ${dn0.kasaSayisi}/${dn0.kasaIslem}/${dn0.kasaGider}`);
+  kontrol('Nakit odeme: tedarikciye BORC, LN baslik; genel harekette BELGELINK -1 / GECIKMEHESAPLA 1 / arac 1',
+    Number(dn0.BORC) === 1000 && Number(dn0.ALACAK) === 0 && Number(dn0.LN) === Number(dn0.baslik) &&
+      Number(dn0.BELGELINK) === -1 && Number(dn0.GECIKMEHESAPLA) === 1 && Number(dn0.ISLEMIZAHAT) === 1 &&
+      Number(dn0.ISLEMIND) === Number(dn0.satir) && Number(dn0.genelBorc) === 1000,
+    `borc ${dn0.BORC} · ln ${dn0.LN}/${dn0.baslik} · genel ${dn0.BELGELINK}/${dn0.GECIKMEHESAPLA}/${dn0.ISLEMIZAHAT}`);
+  const de0 = (await desenG(eftG.belgeNo))[0] || {};
+  kontrol('EFT odeme: satir IZAHAT 11, kasaya girmez, genel harekette arac 11',
+    Number(de0.arac) === 11 && Number(de0.kasaSayisi) === 0 && Number(de0.ISLEMIZAHAT) === 11 &&
+      Number(de0.BELGELINK) === -1 && Number(de0.BORC) === 300,
+    `arac ${de0.arac} · kasa ${de0.kasaSayisi} · genel ${de0.ISLEMIZAHAT}`);
+
+  const bakiyeG1 = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  kontrol('Tedarikci bakiyesi: 1.550 alacak − 1.300 odeme = −250',
+    Math.abs((bakiyeG1 - bakiyeG0) - (-250)) < 0.01, `${bakiyeG0} → ${bakiyeG1}`);
+
+  const hesapG1 = await rapor.tedarikciHesabi({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  const yeniG = hesapG1.hareketler.slice(hesapG0.hareketler.length);
+  kontrol('Hesapta uc yeni satir: Alis Faturasi (BORC 1.550), Odeme 1.000, Odeme 300',
+    yeniG.length === 3 &&
+      yeniG[0].islem === 'Alış Faturası' && yeniG[0].borc === 1550 && yeniG[0].odenen === 0 &&
+      yeniG[1].islem === 'Ödeme' && yeniG[1].odenen === 1000 && yeniG[1].borc === 0 &&
+      yeniG[2].islem === 'Ödeme' && yeniG[2].odenen === 300,
+    yeniG.map((s) => `${s.islem} ${s.borc}/${s.odenen}/${s.kalan}`).join(' · '));
+  kontrol('Hesap toplamlari: BORC +1.550, ODENEN +1.300, KALAN +250 = son satir',
+    Math.abs(hesapG1.borc - hesapG0.borc - 1550) < 0.01 && Math.abs(hesapG1.odenen - hesapG0.odenen - 1300) < 0.01 &&
+      Math.abs(hesapG1.kalan - hesapG0.kalan - 250) < 0.01 &&
+      Math.abs(hesapG1.hareketler[hesapG1.hareketler.length - 1].kalan - hesapG1.kalan) < 0.01 &&
+      Math.abs(hesapG1.kalan + bakiyeG1) < 0.01,
+    `${hesapG1.borc} / ${hesapG1.odenen} / ${hesapG1.kalan} · bakiye ${bakiyeG1}`);
+  kontrol('Aciklamalar: fatura no, NAKIT + not, EFT',
+    yeniG[0].aciklama.includes('SINAMA-G') && yeniG[1].aciklama.includes('NAKİT') &&
+      yeniG[1].aciklama.includes('SINAMA elden') && yeniG[2].aciklama === 'EFT',
+    yeniG.map((s) => s.aciklama).join(' | '));
+
+  const ayrintiG = await rapor.belgeAyrintisi({
+    firma: FIRMA, donem: DONEM, cariInd: ted.cariInd, ind: yeniG[0].ind });
+  kontrol('Mal satirina tiklayinca faturanin icerigi: iki urun, fatura no, duzenlenebilir',
+    ayrintiG.kaynak === 'program' && ayrintiG.islemId === alisG.islemId && ayrintiG.duzenlenebilir &&
+      ayrintiG.fisNo === 'SINAMA-G' && ayrintiG.satirlar.length === 2 &&
+      ayrintiG.satirlar[0].miktar === 100 && ayrintiG.satirlar[0].tutar === 1250 &&
+      ayrintiG.satirlar[1].tutar === 300,
+    ayrintiG.satirlar.map((s) => `${s.cinsi} ${s.miktar}×${s.fiyat}=${s.tutar}`).join(' · '));
+  const ayrintiOdeme = await rapor.belgeAyrintisi({
+    firma: FIRMA, donem: DONEM, cariInd: ted.cariInd, ind: yeniG[1].ind });
+  kontrol('Odeme satirinin ayrintisi: Odeme 1.000, duzenlenebilir',
+    ayrintiOdeme.kaynak === 'program' && ayrintiOdeme.duzenlenebilir &&
+      ayrintiOdeme.satirlar.length === 1 && ayrintiOdeme.satirlar[0].cinsi === 'Ödeme' &&
+      ayrintiOdeme.satirlar[0].tutar === 1000,
+    JSON.stringify(ayrintiOdeme.satirlar));
+
+  const sonG = await yardimci.sonIslemleriGetir({ firma: FIRMA, limit: 10 });
+  kontrol('Son Belgeler: iki Tedarikci Odemesi kaydi',
+    sonG.filter((k) => k.Konu === 'tediye').length === 2);
+
+  // Düzenleme: nakit 1.000 → EFT 1.200. Kasa satırı kalkar, hesap güncellenir.
+  const detayG = await yardimci.islemDetayGetir({ islemId: nakitG.islemId });
+  kontrol('Odeme duzenleme detayi: tur tediye, nakit, 1.000, not',
+    detayG.tur === 'tediye' && detayG.yontem === 'nakit' && detayG.tutar === 1000 &&
+      detayG.aciklama === 'SINAMA elden',
+    `${detayG.tur} · ${detayG.yontem} · ${detayG.tutar} · ${detayG.aciklama}`);
+  const duzG = await tediyeG(1200, 'eft', { duzenlenenIslemId: nakitG.islemId, aciklama: 'SINAMA elden' });
+  const kasaKalanG = Number((await sql.sorgu(
+    `SELECT COUNT(*) AS adet FROM ${vtAdi('TBLKASA', true)} WHERE BELGEIZAHAT = 11`))[0].adet);
+  const hesapG2 = await rapor.tedarikciHesabi({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  kontrol('Duzenleme: EFT 1.200, kasadan cikis kalkti, ODENEN +1.500',
+    duzG.duzenlendi && kasaKalanG === 0 && Math.abs(hesapG2.odenen - hesapG0.odenen - 1500) < 0.01 &&
+      hesapG2.hareketler.length === hesapG0.hareketler.length + 3,
+    `kasa ${kasaKalanG} · odenen ${hesapG2.odenen}`);
+  let yanlisKonu = '';
+  try {
+    await yazma.odemeYaz({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd, tutar: 5,
+      duzenlenenIslemId: eftG.islemId });
+  } catch (e) { yanlisKonu = e.message; }
+  kontrol('Tedarikci odemesi Odemeler ekranindan (tahsilat) duzenlenemez',
+    /düzenlenemez/.test(yanlisKonu), yanlisKonu);
+
+  for (const id of [alisG.islemId, duzG.islemId, eftG.islemId]) await yazma.belgeGeriAl({ islemId: id });
+  const hesapG3 = await rapor.tedarikciHesabi({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  const bakiyeG3 = await vega.cariBakiye({ firma: FIRMA, donem: DONEM, cariInd: ted.cariInd });
+  kontrol('Geri alininca hesap, bakiye ve kartin alis fiyati eski haline dondu',
+    hesapG3.hareketler.length === hesapG0.hareketler.length && Math.abs(hesapG3.kalan - hesapG0.kalan) < 0.01 &&
+      Math.abs(bakiyeG3 - bakiyeG0) < 0.01 && (await kartFiyatiG()) === kartFiyatG0,
+    `${hesapG3.hareketler.length} satir · bakiye ${bakiyeG3} · kart ${await kartFiyatiG()}/${kartFiyatG0}`);
 
   // ======================================================================
   bolum('Temizlik');

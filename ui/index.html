@@ -134,6 +134,7 @@
       <p class="ipucu">
         Gelen faturayı buraya girin: ürünler depoya girer, tedarikçinin hesabına
         fatura tutarı alacak yazılır ve ürün kartının alış fiyatı güncellenir.
+        Tedarikçi seçilince hesabı açılır; gönderilen para da oradan düşülür.
         Yanlış giriş Son Belgeler'den ✎ ile düzeltilir ya da geri alınır.
       </p>
       <div class="satirlar-ust">
@@ -162,6 +163,66 @@
         <div class="alan buyuk">
           <label for="alisAciklama">Açıklama</label>
           <input type="text" id="alisAciklama" maxlength="150" placeholder="(isteğe bağlı)" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <!-- 27.10.2026 müşteri isteği: tedarikçi seçilince eski sistemlerindeki
+         hesap ekranı — aldığımız mal (BORÇ), gönderdiğimiz para (ÖDENEN),
+         KALAN. Mal satırına tıklayınca içeriği açılır; para buradan gönderilir
+         (yazma:tedarikciOdemesi → Cari Çıkış). Veri: rapor:tedarikciHesabi. -->
+    <div class="kutu gizli" id="tedHesapKutu">
+      <h2>Tedarikçi Hesabı <span class="baslikEki" id="tedHesapAd"></span></h2>
+      <div class="tedHesapKaydir">
+        <table class="veri rapor dar" id="tedHesapTablo">
+          <thead>
+            <tr>
+              <th>Tarih</th>
+              <th>İşlem</th>
+              <th>Evrak No</th>
+              <th class="genis">Açıklama</th>
+              <th class="sayi">Borç</th>
+              <th class="sayi">Ödenen</th>
+              <th class="sayi">Kalan</th>
+            </tr>
+          </thead>
+          <tbody id="tedHesapGovde"></tbody>
+        </table>
+      </div>
+      <div class="raporOzet">
+        <div class="kalem"><span>BORÇ</span><b id="tedHesapBorc">0,00</b></div>
+        <div class="kalem"><span>ÖDENEN</span><b id="tedHesapOdenen">0,00</b></div>
+        <div class="kalem vurgu"><span>KALAN</span><b id="tedHesapKalan">0,00</b></div>
+      </div>
+      <p class="ipucu">Mal satırına tıklayınca faturanın içeriği açılır. Borç: aldığımız mal ·
+        Ödenen: gönderdiğimiz para · Kalan: tedarikçiye kalan borcumuz.</p>
+
+      <div class="kutu duzenlemeBilgi gizli" id="tedOdemeDuzenlemeBilgi"></div>
+      <h3>Para Gönder</h3>
+      <div class="satirlar-ust">
+        <div class="alan">
+          <label for="tedOdemeTarih">Tarih</label>
+          <input type="date" id="tedOdemeTarih">
+        </div>
+        <div class="alan">
+          <label for="tedOdemeTutar">Tutar</label>
+          <input type="text" id="tedOdemeTutar" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        </div>
+        <div class="alan">
+          <label for="tedOdemeYontem">Nasıl</label>
+          <select id="tedOdemeYontem">
+            <option value="nakit">Nakit (kasadan)</option>
+            <option value="eft">EFT</option>
+            <option value="havale">Havale</option>
+          </select>
+        </div>
+        <div class="alan buyuk">
+          <label for="tedOdemeAciklama">Açıklama</label>
+          <input type="text" id="tedOdemeAciklama" maxlength="200" placeholder="(isteğe bağlı)" autocomplete="off">
+        </div>
+        <div class="alan dugmeAlani">
+          <button class="dugme birincil" id="tedOdemeKaydet">Ödemeyi Kaydet</button>
+          <button class="dugme ucuncul gizli" id="tedOdemeIptal">Düzenlemeyi İptal Et</button>
         </div>
       </div>
     </div>

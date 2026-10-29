@@ -76,7 +76,7 @@ Program altı sekmeden oluşur:
 | 📝 **Belge Gir** | Asıl ekran. Müşteri seçilir, satırlar girilir, Vega'ya yazılır |
 | 🧺 **Kasa** | Çok satırlı kasa iadesi; seçili müşterinin açık kasaları formun sağında |
 | 📊 **Haftalık Rapor** | *GENEL MÜŞTERİYE GÖRE KALAN* borç dökümü |
-| 📄 **Ekstre** | Cari ekstre, fiş bazlı ayrıntılı rapor + hesap hareketleri (borç / ödenen / kalan), çift tıkla belge ayrıntısı |
+| 📄 **Ekstre** | Cari ekstre, fiş bazlı ayrıntılı rapor, çift tıkla belge ayrıntısı |
 | 🗂️ **Son Belgeler** | Yazılan belgelerin günlüğü — düzenle / geri al |
 | ⚙️ **Ayarlar** | Sunucu, firma/dönem, depo, yazma kilidi, kasa tipleri |
 
@@ -138,6 +138,15 @@ Numara programın kendi serisinden (`H…`). Stok kartının alış fiyatı gün
 tarihli fatura kartı ezmez); **✎** ile düzeltme ve **Geri Al** kartı eski fiyatına döndürür.
 Tedarikçi kutusunda ve listesinde yalnız cari tipi **Satıcı** (ya da Alıcı + Satıcı) olan
 kartlar gelir; alıcılar, Özel Kod 1'i PERAKENDE olanlar ve FIRMATIPI 4 bitli kartlar gelmez.
+
+**Tedarikçi hesabı** (27.10.2026): tedarikçi seçilince dönemin bütün hareketleri listelenir —
+`TARİH | İŞLEM | EVRAK NO | AÇIKLAMA | BORÇ | ÖDENEN | KALAN`, altta toplamlar. BORÇ aldığımız
+mal (Vega'da tedarikçiye ALACAK), ÖDENEN gönderdiğimiz para (Vega'da BORÇ), KALAN tedarikçiye
+kalan borcumuz. Satıra **tek tıkla** belgenin içeriği açılır. **Para Gönder** aynı ekrandan
+tedarikçiye ödemeyi Vega'ya **Cari Çıkış (tip 11)** olarak yazar: Nakit kasadan gider
+(`IZAHAT` 1, `TBLKASA` `ISLEM` −3), EFT / Havale kasaya girmez (`IZAHAT` 11). Ödeme Son
+Belgeler'de **Tedarikçi Ödemesi** olarak görünür, **✎** ile düzeltilir. Fatura kaydedilince
+tedarikçi ekranda kalır.
 
 ### 🧺 Kasa
 

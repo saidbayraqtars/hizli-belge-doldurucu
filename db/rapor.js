@@ -592,52 +592,32 @@ async function haftalikDetay(secenek) {
   const { joinlar: aciklamaJoinlari, aciklamaIfadesi } =
     await aciklamaBaglari(v, firma, donem);
   // Kasa iadesi satırında kaç kasa geri geldiği de yazılır (03.10.2026).
-  //
-  // 27.10.2026 müşteri isteği: "toplam tutarı toplam olarak değil ayrıntılı
-  // göstersin" — müşterinin kullandığı başka programın cari ekstresi örnek
-  // gösterildi: her hareket bir satır (DEVİR, Satış Faturası, Stok Fişi,
-  // Tahsilat…) ve BORÇ / ÖDENEN / KALAN. Aynı sorgu bütün hareketleri getirir;
-  // ÖDEME listesi bunun ALACAK satırlarıdır.
+  // 27.10.2026'da burası bir günlüğüne bütün hareketleri BORÇ / ÖDENEN / KALAN
+  // ile gösterdi; müşteri "o tedarikçiler için olacaktı" dedi, ÖDEME bloğu geri
+  // geldi — hesap hareketleri artık Alış Faturası ekranında (tedarikciHesabi).
   const odemeParametreleri = { cariInd, bas: baslangic, ertesi };
   const iadeAdet = await kasaIadeAdetBagi(v, firma, donem, odemeParametreleri);
   const o = await sorgu(
-    `SELECT H.IND AS ind, H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
+    `SELECT H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
             ISNULL(H.EVRAKNO, '') AS evrakNo,
             ${aciklamaIfadesi} AS belgeAciklama,
             ${iadeAdet.ifade} AS iadeAdedi,
-            ISNULL(H.BORC, 0) AS borc,
-            ISNULL(H.ALACAK, 0) AS alacak
+            ISNULL(H.ALACAK, 0) AS alinan
      FROM ${hareketTablosu} H
      ${aciklamaJoinlari}
      ${iadeAdet.joinlar}
      WHERE H.FIRMANO = @cariInd AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
-       AND H.TARIH >= @bas AND H.TARIH < @ertesi
+       AND H.TARIH >= @bas AND H.TARIH < @ertesi AND ISNULL(H.ALACAK, 0) <> 0
      ORDER BY H.TARIH, H.IND`,
     odemeParametreleri
   );
-  const odemeler = o.filter((s) => Number(s.alacak)).map((s) => ({
+  const odemeler = o.map((s) => ({
     tarih: s.tarih,
-    alinan: Number(s.alacak) || 0,
+    alinan: Number(s.alinan) || 0,
     iadeAdedi: Number(s.iadeAdedi) || 0,
     aciklama: odemeAciklamasi(s)
   }));
   const odemeToplam = odemeler.reduce((t, s) => t + s.alinan, 0);
-  let kalan = devir;
-  const hareketler = o.map((s) => {
-    const borc = Number(s.borc) || 0;
-    const alacak = Number(s.alacak) || 0;
-    kalan += borc - alacak;
-    return {
-      ind: Number(s.ind),
-      tarih: s.tarih,
-      islem: hareketAdi(s.izahat, borc, alacak),
-      evrakNo: String(s.evrakNo || '').trim(),
-      aciklama: hareketAciklamasi(s),
-      borc,
-      alacak,
-      kalan
-    };
-  });
 
   // "Geri Gelen Kasalar" bloğu 30.09.2026 müşteri isteğiyle çıktıdan
   // kaldırıldı; iadenin parası yukarıdaki ÖDEME satırlarında zaten görünüyor.
@@ -656,10 +636,73 @@ async function haftalikDetay(secenek) {
     toplam: urunTutari + kasaTutari,
     odemeler,
     odemeToplam,
-    hareketler,
     haftaBorc,
     haftaAlacak,
     bakiye: devir + haftaBorc - haftaAlacak
+  };
+}
+
+// --- 2b. Tedarikçi hesabı (Alış Faturası ekranı) ---------------------------
+//
+// 27.10.2026 müşteri isteği: "Alış faturası olan yere firma ismini yazınca
+// eski sistemimizdeki gibi ekran gelsin; mal aldıkça yazmışız, para
+// gönderdikçe yazmışız. Mala tıklayınca içeriğini versin." Eski sistemin
+// (Access) tedarikçi ekranı: TARİH / FİŞ NO / BORÇ / ÖDENEN / KALAN / AÇIKLAMA,
+// altta toplamlar. Dönemin bütün hareketleri, eskiden yeniye.
+//
+// Yön müşterinin tersi: aldığımız mal Vega'da tedarikçiye ALACAK yazılır ama
+// ekranda BORÇ'tur (bizim borcumuz); gönderdiğimiz para Vega'da BORÇ, ekranda
+// ÖDENEN. KALAN = tedarikçiye kalan borcumuz.
+function tedarikciHareketAdi(izahat, borc, alacak) {
+  if (Number(izahat) === 11 && Number(borc) > 0 && !Number(alacak)) return 'Ödeme';
+  return hareketAdi(izahat, borc, alacak);
+}
+
+async function tedarikciHesabi(secenek) {
+  const { firma, donem } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
+  const cariInd = Number(secenek.cariInd);
+  if (!cariInd) throw new Error('Tedarikçi seçilmeli.');
+
+  const v = vt();
+  const hareketTablosu = tablo(v, firma, donem, 'TBLCARIHAREKETLERI');
+  const { joinlar, aciklamaIfadesi } = await aciklamaBaglari(v, firma, donem);
+  const r = await sorgu(
+    `SELECT H.IND AS ind, H.TARIH AS tarih, ISNULL(H.IZAHAT, '') AS izahat,
+            ISNULL(H.EVRAKNO, '') AS evrakNo,
+            ${aciklamaIfadesi} AS belgeAciklama,
+            ISNULL(H.BORC, 0) AS borc,
+            ISNULL(H.ALACAK, 0) AS alacak
+     FROM ${hareketTablosu} H
+     ${joinlar}
+     WHERE H.FIRMANO = @cariInd AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
+     ORDER BY H.TARIH, H.IND`,
+    { cariInd }
+  );
+
+  let kalan = 0;
+  const hareketler = r.map((s) => {
+    const alinan = Number(s.alacak) || 0;   // mal (ekranda BORÇ)
+    const odenen = Number(s.borc) || 0;     // gönderilen para (ekranda ÖDENEN)
+    kalan += alinan - odenen;
+    const islem = tedarikciHareketAdi(s.izahat, odenen, alinan);
+    const aciklama = hareketAciklamasi(s);
+    return {
+      ind: Number(s.ind),
+      tarih: s.tarih,
+      islem,
+      evrakNo: String(s.evrakNo || '').trim(),
+      aciklama: aciklama.toLocaleUpperCase('tr-TR') === islem.toLocaleUpperCase('tr-TR') ? '' : aciklama,
+      borc: alinan,
+      odenen,
+      kalan
+    };
+  });
+
+  return {
+    hareketler,
+    borc: hareketler.reduce((t, s) => t + s.borc, 0),
+    odenen: hareketler.reduce((t, s) => t + s.odenen, 0),
+    kalan
   };
 }
 
@@ -912,7 +955,7 @@ const VEGA_BELGE_KAYNAKLARI = {
   13: { baslik: 'TBLCARGIRBASLIK', hareket: 'TBLCARGIRHAREKET', tur: 'cari' },
   11: { baslik: 'TBLCARCIKBASLIK', hareket: 'TBLCARCIKHAREKET', tur: 'cari' }
 };
-const DUZENLENEBILIR_KONULAR = ['satisFaturasi', 'cariCikis', 'tahsilat', 'KasaIade', 'alisFaturasi'];
+const DUZENLENEBILIR_KONULAR = ['satisFaturasi', 'cariCikis', 'tahsilat', 'KasaIade', 'alisFaturasi', 'tediye'];
 
 async function belgeAyrintisi(secenek) {
   const { firma, donem } = await dogrula(secenek && secenek.firma, secenek && secenek.donem);
@@ -1026,9 +1069,10 @@ async function programKaydindanDoldur(v, firma, donem, cariInd, h, sonuc) {
       }));
       sonuc.aciklama = parca.not || '';
     } else {
-      // Tahsilat (Belge Gir'deki ya da Ödemeler ekranındaki).
+      // Tahsilat (Belge Gir'deki ya da Ödemeler ekranındaki) ya da
+      // tedarikçiye ödeme (Alış Faturası ekranındaki).
       sonuc.satirlar = [{
-        cinsi: 'Tahsilat', kasa: '', kasaTutari: 0, miktar: 0, fiyat: 0,
+        cinsi: parca.tur === 'tediye' ? 'Ödeme' : 'Tahsilat', kasa: '', kasaTutari: 0, miktar: 0, fiyat: 0,
         tutar: Number(parca.toplam) || sonuc.alacak || sonuc.borc,
         aciklama: String(parca.not || parca.aciklama || '').trim()
       }];
@@ -1107,8 +1151,9 @@ module.exports = {
   haftalikDetay,
   odemeGecmisi,
   belgeAyrintisi,
+  tedarikciHesabi,
   _test: {
     fisNoCoz, kasaTurleriniTopla, fislereBol, odemeAciklamasi, odemeYontemiCoz, odemeNotu, odemeFisNo,
-    ekKasalariBirlestir, kasaMetni, hareketAciklamasi
+    ekKasalariBirlestir, kasaMetni, hareketAciklamasi, tedarikciHareketAdi
   }
 };

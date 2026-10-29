@@ -172,7 +172,8 @@ uc('yardimci:islemDetay', async (girdi) => yardimci.islemDetayGetir(girdi));
 
 uc('yazma:durum', async () => ({ acik: yazma.yazmaAcikMi() }));
 uc('yazma:belge', async (girdi) => yazma.belgeYaz(girdi));
-uc('yazma:odeme', async (girdi) => yazma.odemeYaz(girdi));
+uc('yazma:odeme', async (girdi) => yazma.odemeYaz(Object.assign({}, girdi, { tedarikci: false })));
+uc('yazma:tedarikciOdemesi', async (girdi) => yazma.odemeYaz(Object.assign({}, girdi, { tedarikci: true })));
 uc('yazma:alisFaturasi', async (girdi) => yazma.alisFaturasiKaydet(girdi));
 uc('yazma:belgeGeriAl', async (girdi) => yazma.belgeGeriAl(girdi));
 uc('yazma:kasaIade', async (girdi) => yazma.kasaIadesiYaz(girdi));
@@ -191,6 +192,7 @@ uc('rapor:haftalikDetay', async (girdi) => rapor.haftalikDetay(girdi));
 uc('rapor:odemeGecmisi', async (girdi) => rapor.odemeGecmisi(girdi));
 // Ekstrede çift tıklanan hareketin belgesi (27.10.2026).
 uc('rapor:belgeAyrintisi', async (girdi) => rapor.belgeAyrintisi(girdi));
+uc('rapor:tedarikciHesabi', async (girdi) => rapor.tedarikciHesabi(girdi));
 
 // --- Cari kartı ------------------------------------------------------------
 
