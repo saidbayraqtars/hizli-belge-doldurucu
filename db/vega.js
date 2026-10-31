@@ -546,7 +546,7 @@ function yerelAniUtcYap(ifade) {
 // tarafının adetleri (KS/KF) ÖDEME satırlarına karışmasın diye ayrı.
 // Adet pozitif döner (defterde iade eksi tutulur).
 async function kasaIadeAdetBagi(v, firma, donem, parametreler) {
-  if (!(await bdTablolariVarMi(v))) return { joinlar: '', ifade: '0' };
+  if (!(await bdTablolariVarMi(v))) return { joinlar: '', ifade: '0', turOzeti: "''" };
   parametreler.bdFirma = firma;
   parametreler.bdDonem = donem;
   return {
@@ -559,8 +559,28 @@ async function kasaIadeAdetBagi(v, firma, donem, parametreler) {
           AND I.Konu = 'KasaIade' AND I.GeriAlindi = 0
           AND ISNULL(H.EVRAKNO, '') <> ''
           AND (I.BelgeNo = H.EVRAKNO OR I.BelgeNo LIKE H.EVRAKNO + ' / %')
-      ) KI`,
-    ifade: 'ISNULL(KI.adet, 0)'
+      ) KI
+      OUTER APPLY (
+        SELECT STUFF((
+          SELECT ', ' + X.kod + ' ' + CAST(CAST(X.adet AS FLOAT) AS VARCHAR(30))
+          FROM (
+            SELECT ISNULL(K.StokKodu, '') AS kod, -SUM(K.Adet) AS adet
+            FROM [${v}].dbo.BD_KasaHareket K
+            JOIN [${v}].dbo.BD_Islem I ON I.Id = K.IslemId
+            WHERE I.Firma = @bdFirma AND I.Donem = @bdDonem AND I.CariInd = H.FIRMANO
+              AND I.Konu = 'KasaIade' AND I.GeriAlindi = 0
+              AND ISNULL(H.EVRAKNO, '') <> ''
+              AND (I.BelgeNo = H.EVRAKNO OR I.BelgeNo LIKE H.EVRAKNO + ' / %')
+            GROUP BY ISNULL(K.StokKodu, '')
+          ) X
+          WHERE X.adet <> 0
+          ORDER BY X.kod
+          FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS ozet
+      ) KO`,
+    ifade: 'ISNULL(KI.adet, 0)',
+    // "S.MUZ 5, PK 10, SB 15" — iadeyle gelen kasaların türe göre dökümü.
+    turOzeti: 'ISNULL(KO.ozet, \'\')'
   };
 }
 

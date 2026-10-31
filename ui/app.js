@@ -3091,6 +3091,11 @@ function ekstreIcerigiCiz(d, ust, govde, alt) {
   // Adres, telefon, dönem ve devir üst bilgide tekrar edilmez.
   ust.innerHTML = '';
   ust.append(bilgiKutusu('FİRMA', d.cari.ad, true));
+  // 29.10.2026 müşteri isteği: çıktıda tarih yoktu ("Tarih gelmemiş"). Yalnız
+  // raporun tarih aralığı eklenir; adres/telefon/dönem yine yazılmaz.
+  if (d.baslangic && d.bitis) {
+    ust.append(bilgiKutusu('TARİH', `${tarihYaz(d.baslangic)} — ${tarihYaz(d.bitis)}`));
+  }
 
   // Satırlar — fiş fiş. Her fişin sonunda ara toplam, sonra ince bir ayraç
   // (kullanıcı isteği: "fiş sırası bitince sonunda boşluk bıraksın, o seriyi

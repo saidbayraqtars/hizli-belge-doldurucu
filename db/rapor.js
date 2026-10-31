@@ -47,6 +47,14 @@ function vt() {
 
 function odemeAciklamasi(satir) {
   const adet = Number(satir.iadeAdedi) || 0;
+  // Kasa iadesi (29.10.2026 müşteri isteği): "Stok Giriş İade Fişi · KASA IADE -
+  // PK, S.MUZ · 32 adet" yerine yalnız türe göre adet: "S.MUZ 5, PK 10, SB 15".
+  const turler = String(satir.iadeTurleri || '').trim();
+  if (adet && turler) {
+    const fis = /Fiş\s+(\S+)/i.exec(String(satir.belgeAciklama || ''));
+    return [turler, fis ? 'Fiş ' + fis[1] : '', String(satir.evrakNo || '').trim()]
+      .filter(Boolean).join(' · ');
+  }
   const parcalar = [
     izahatAdi(satir.izahat),
     satir.belgeAciklama,
@@ -602,6 +610,7 @@ async function haftalikDetay(secenek) {
             ISNULL(H.EVRAKNO, '') AS evrakNo,
             ${aciklamaIfadesi} AS belgeAciklama,
             ${iadeAdet.ifade} AS iadeAdedi,
+            ${iadeAdet.turOzeti} AS iadeTurleri,
             ISNULL(H.ALACAK, 0) AS alinan
      FROM ${hareketTablosu} H
      ${aciklamaJoinlari}

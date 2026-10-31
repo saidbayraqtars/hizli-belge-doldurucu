@@ -76,6 +76,14 @@ assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'Hizli Belge Dolduru
 assert.strictEqual(_test.hareketAciklamasi({ belgeAciklama: 'KASA IADE - KAYIK, MSK', iadeAdedi: 5 }),
   'KASA IADE - KAYIK, MSK · 5 adet');
 
+// ÖDEME açıklaması: kasa iadesinde yalnız türe göre adet, fiş türü yazısı yok.
+assert.strictEqual(_test.odemeAciklamasi({
+  izahat: '34', belgeAciklama: 'KASA IADE - PK, S.MUZ, SB', iadeAdedi: 30, iadeTurleri: 'S.MUZ 5, PK 10, SB 15', evrakNo: 'H0002558'
+}), 'S.MUZ 5, PK 10, SB 15 · H0002558');
+assert.strictEqual(_test.odemeAciklamasi({
+  izahat: '34', belgeAciklama: 'KASA IADE - PK - Fiş 812', iadeAdedi: 10, iadeTurleri: 'PK 10', evrakNo: 'H0002558'
+}), 'PK 10 · Fiş 812 · H0002558');
+
 // Tedarikçi hesabı: BORÇ'lu cari çıkış "Ödeme", alış faturası kendi adıyla.
 assert.strictEqual(_test.tedarikciHareketAdi('11', 1000, 0), 'Ödeme');
 assert.strictEqual(_test.tedarikciHareketAdi('20', 0, 1550), 'Alış Faturası');
