@@ -21,6 +21,10 @@
   "belgeOneki": "H",
   "_belgeOnekiNotu": "Yalnızca yedek: program önce o firma/dönemde Vega'nın kendi satış faturası serisini bulup sürdürmeye çalışır; hiç fatura yoksa bu öneğe düşülür.",
 
+  "whatsappAdres": "",
+  "whatsappToken": "",
+  "_whatsappNotu": "Ekstre yalnız elle (Ekstre > Ayrıntılı Rapor > WhatsApp'la Gönder) gönderilir. Adres: Vega WhatsApp'ın çalıştığı bilgisayar (http://IP:3100); token: o programın config.json wa.relayToken değeri.",
+
   "vegayaYazmaAktif": false,
   "_vegayaYazmaNotu": "true yapılana kadar program VEGADB'ye tek satır yazmaz; yalnızca okuma ekranları çalışır."
 }

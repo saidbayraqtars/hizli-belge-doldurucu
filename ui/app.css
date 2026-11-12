@@ -124,7 +124,7 @@ label { font-size: 12px; font-weight: 600; color: #4b5563; }
   cursor: pointer;
 }
 
-input[type="text"], input[type="password"], input[type="date"], select {
+input[type="text"], input[type="password"], input[type="date"], select, textarea {
   font: inherit;
   padding: 8px 10px;
   border: 1px solid #cbd2dc;
@@ -133,7 +133,8 @@ input[type="text"], input[type="password"], input[type="date"], select {
   color: inherit;
   width: 100%;
 }
-input:focus, select:focus { outline: 2px solid #93c5fd; outline-offset: -1px; border-color: #3b82f6; }
+input:focus, select:focus, textarea:focus { outline: 2px solid #93c5fd; outline-offset: -1px; border-color: #3b82f6; }
+textarea { resize: vertical; }
 
 input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 
@@ -623,7 +624,7 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
 @media print {
   @page { margin: 10mm 8mm; }
 
-  .ustcubuk, .uyari, .yazdirilmaz, .sekmeler, .durum { display: none !important; }
+  .ustcubuk, .uyari, .yazdirilmaz, .sekmeler, .durum, .perde { display: none !important; }
   body { background: #fff; font-size: 10px; }
   main { padding: 0; max-width: none; }
   .kutu {

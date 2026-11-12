@@ -39,6 +39,8 @@ const KANALLAR = [
   'cari:ac',
   'cari:liste',
   'yazdir',
+  'whatsapp:durum',
+  'whatsapp:ekstreGonder',
   'guncelleme:kontrol',
   'guncelleme:durum',
   'onay'

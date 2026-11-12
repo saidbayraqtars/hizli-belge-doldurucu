@@ -1155,8 +1155,8 @@ async function calistir() {
     baslangic: tarihAnahtari(new Date()), bitis: tarihAnahtari(new Date())
   });
   const odemeMetinleri = ekstreD.odemeler.map((o) => o.aciklama);
-  kontrol('Ekstre ODEME: tek iade satiri, 10 adet, fark satiri yok',
-    odemeMetinleri.length === 1 && odemeMetinleri[0].includes('10 adet') &&
+  kontrol('Ekstre ODEME: tek iade satiri, tür bazlı 10 adet (1.12.1 biçimi), fark satiri yok',
+    odemeMetinleri.length === 1 && odemeMetinleri[0].includes('SINAMA-KASA 10') &&
       odemeMetinleri[0].includes(cokSatir.belgeNo) && !odemeMetinleri[0].includes('KASA IADE FARKI'),
     odemeMetinleri.join(' | '));
   kontrol('Ekstre ODEME toplami 170', Math.abs(ekstreD.odemeToplam - 170) < 0.01, String(ekstreD.odemeToplam));

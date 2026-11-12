@@ -3079,9 +3079,92 @@ function raporSatiriEkle(govde, hucreler, sinif) {
   return tr;
 }
 
+let sonEkstreRapor = null; // WhatsApp penceresi müşteri/tarih/telefonu buradan alır
+
 function ekstreRaporCiz(d) {
+  sonEkstreRapor = d;
   ekstreIcerigiCiz(d, el('ekstreRaporUst'), el('ekstreRaporGovde'), el('ekstreRaporAlt'));
 }
+
+// ─── Ekstreyi WhatsApp'la gönder (12.11.2026) ───
+//
+// Hakan Bey isteği: haftalık ekstre WhatsApp'tan gitsin ama Vega WhatsApp
+// bozulmasın. Gönderimi Vega WhatsApp'ın relay'i yapar (db/whatsapp.js); burada
+// yalnız numara + mesaj alınır, PDF yazdırma görünümünden üretilir.
+
+function waDosyaAdi(d) {
+  const ascii = String(d.cari.ad || 'Musteri')
+    .replace(/ç/g, 'c').replace(/Ç/g, 'C').replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
+    .replace(/ı/g, 'i').replace(/İ/g, 'I').replace(/ö/g, 'o').replace(/Ö/g, 'O')
+    .replace(/ş/g, 's').replace(/Ş/g, 'S').replace(/ü/g, 'u').replace(/Ü/g, 'U')
+    .replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '');
+  const gun = (t) => String(t || '').slice(0, 10).replace(/-/g, '');
+  return `Ekstre-${ascii || 'Musteri'}-${gun(d.baslangic)}-${gun(d.bitis)}.pdf`;
+}
+
+function waPenceresiniAc() {
+  const d = sonEkstreRapor;
+  if (!d || !d.cari || el('ekstreRapor').classList.contains('gizli')) {
+    return bildir('Önce müşteriyi seçip Ayrıntılı Rapor\'u açın.', 'hata');
+  }
+  const ust = el('waUst');
+  ust.innerHTML = '';
+  ust.append(bilgiKutusu('FİRMA', d.cari.ad, true));
+  if (d.baslangic && d.bitis) {
+    ust.append(bilgiKutusu('TARİH', `${tarihYaz(d.baslangic)} — ${tarihYaz(d.bitis)}`));
+  }
+  el('waTelefon').value = d.cari.telefon || '';
+  const tarih = d.baslangic && d.bitis ? `${tarihYaz(d.baslangic)} — ${tarihYaz(d.bitis)} tarihleri arasındaki ` : '';
+  el('waMesaj').value = `Sayın ${d.cari.ad}, ${tarih}hesap ekstreniz ektedir.`;
+  el('waBilgi').textContent = d.cari.telefon
+    ? 'Numara müşteri kartından geldi; gerekirse düzeltin. Kart değişmez.'
+    : 'Müşteri kartında telefon yok — numarayı yazın. Kart değişmez.';
+  el('waGonder').disabled = false;
+  el('waPerde').classList.remove('gizli');
+  el('waTelefon').focus();
+}
+
+function waPenceresiniKapat() {
+  el('waPerde').classList.add('gizli');
+}
+
+async function waGonder() {
+  const d = sonEkstreRapor;
+  if (!d) return;
+  const dugme = el('waGonder');
+  const bilgi = el('waBilgi');
+  dugme.disabled = true;
+  bilgi.textContent = 'Gönderiliyor…';
+
+  // PDF, ekranda yazdırma görünümüne alınan ekstre kutusundan üretilir; böylece
+  // kâğıda çıkan ile WhatsApp'a giden aynı olur. Pencere (.perde) yazdırmada gizli.
+  const hedef = el('ekstreRapor');
+  document.body.classList.add('yazdirmaModu', 'hedefliYazdirma');
+  hedef.classList.add('yazdirmaHedefi');
+  try {
+    await new Promise((coz) => requestAnimationFrame(() => setTimeout(coz, 80)));
+    const s = await cagir('whatsapp:ekstreGonder', {
+      telefon: el('waTelefon').value,
+      mesaj: el('waMesaj').value,
+      dosyaAdi: waDosyaAdi(d)
+    });
+    waPenceresiniKapat();
+    bildir(`Ekstre WhatsApp'tan gönderildi (${s.telefon}).`, 'basarili');
+  } catch (e) {
+    bilgi.textContent = 'Gönderilemedi: ' + e.message;
+    dugme.disabled = false;
+  } finally {
+    document.body.classList.remove('yazdirmaModu', 'hedefliYazdirma');
+    hedef.classList.remove('yazdirmaHedefi');
+  }
+}
+
+el('ekstreRaporWhatsapp').addEventListener('click', waPenceresiniAc);
+el('waKapat').addEventListener('click', waPenceresiniKapat);
+el('waGonder').addEventListener('click', waGonder);
+el('waPerde').addEventListener('click', (olay) => {
+  if (olay.target === el('waPerde')) waPenceresiniKapat();
+});
 
 // Bir müşterinin ayrıntılı dökümünü verilen kaplara çizer. Kaplar dışarıdan
 // geliyor: aynı çizim hem tek müşterilik Ekstre ekranında, hem de haftalık
@@ -3865,6 +3948,9 @@ function ayarSayfasiniDoldur() {
   el('ayKdv').value = a.varsayilanKdv != null ? a.varsayilanKdv : 0;
   el('ayOnek').value = a.belgeOneki || 'H';
   el('ayYazmaAktif').checked = !!a.vegayaYazmaAktif;
+  el('ayWaAdres').value = a.whatsappAdres || '';
+  el('ayWaToken').value = '';
+  el('ayWaToken').placeholder = a.whatsappTokenGirildi ? '(kayıtlı — değiştirmek için yazın)' : '';
   el('surumBilgi').textContent = a.surum ? `Kurulu sürüm: ${a.surum}` : '';
   firmaSecimDoldur();
   depoSecimDoldur();
@@ -3963,6 +4049,20 @@ el('ayBaglantiTest').addEventListener('click', async () => {
   }
 });
 
+el('ayWaTest').addEventListener('click', async () => {
+  const sonuc = el('ayWaSonuc');
+  sonuc.textContent = 'Deneniyor…';
+  try {
+    await ayarlariKaydet(true);
+    const d = await cagir('whatsapp:durum', {});
+    sonuc.textContent = d.bagli
+      ? `Vega WhatsApp bağlı${d.numara ? ' (' + d.numara + ')' : ''} — ekstre gönderilebilir.`
+      : d.hata;
+  } catch (e) {
+    sonuc.textContent = 'Bağlanamadı: ' + e.message;
+  }
+});
+
 el('ayKaydet').addEventListener('click', async () => {
   try {
     await ayarlariKaydet(false);
@@ -3989,13 +4089,20 @@ async function ayarlariKaydet(sessiz) {
     varsayilanDepo: Number(el('ayDepo').value) || 1,
     varsayilanKdv: sayiOku(el('ayKdv').value),
     belgeOneki: el('ayOnek').value.trim().toUpperCase() || 'H',
-    vegayaYazmaAktif: el('ayYazmaAktif').checked
+    vegayaYazmaAktif: el('ayYazmaAktif').checked,
+    whatsappAdres: el('ayWaAdres').value.trim()
   };
   const sifre = el('aySifre').value;
   if (sifre) yeni.sifre = sifre;
+  const waToken = el('ayWaToken').value.trim();
+  if (waToken) yeni.whatsappToken = waToken;
 
   durum.ayar = await cagir('ayar:yaz', yeni);
   el('aySifre').value = '';
+  el('ayWaToken').value = '';
+  el('ayWaToken').placeholder = durum.ayar.whatsappTokenGirildi
+    ? '(kayıtlı — değiştirmek için yazın)'
+    : '';
   el('aySifre').placeholder = durum.ayar.sifreGirildi
     ? '(kayıtlı — değiştirmek için yazın)'
     : '';

@@ -12,6 +12,7 @@ const yazma = require('./db/yazma');
 const rapor = require('./db/rapor');
 const cari = require('./db/cari');
 const guncelleme = require('./db/guncelleme');
+const whatsapp = require('./db/whatsapp');
 
 // Windows 7 kurulumlarında eski ekran kartı sürücüleri yüzünden pencere bazen
 // bomboş açılıyor. Bu program bir form uygulaması; donanım hızlandırmasına
@@ -121,6 +122,8 @@ uc('ayar:oku', async () => {
   const kopya = Object.assign({}, a);
   delete kopya.sifre;
   kopya.sifreGirildi = !!a.sifre;
+  delete kopya.whatsappToken;
+  kopya.whatsappTokenGirildi = !!a.whatsappToken;
   kopya.ayarDosyasi = ayarYolu();
   kopya.surum = app.getVersion();
   return kopya;
@@ -130,12 +133,15 @@ uc('ayar:yaz', async (girdi) => {
   const yeni = Object.assign({}, girdi);
   // Şifre alanı boş gönderildiyse mevcut şifreye dokunulmuyor.
   if (yeni.sifre === '' || yeni.sifre == null) delete yeni.sifre;
+  if (yeni.whatsappToken === '' || yeni.whatsappToken == null) delete yeni.whatsappToken;
   const sonuc = ayarYaz(yeni);
   await sql.havuzKapat();
   firma.onbellekTemizle();
   const kopya = Object.assign({}, sonuc);
   delete kopya.sifre;
   kopya.sifreGirildi = !!sonuc.sifre;
+  delete kopya.whatsappToken;
+  kopya.whatsappTokenGirildi = !!sonuc.whatsappToken;
   return kopya;
 });
 
@@ -212,6 +218,29 @@ uc('yazdir', async () => {
       else if (hata === 'cancelled') coz({ tamam: false, iptal: true });
       else red(new Error(hata || 'Yazdırılamadı.'));
     });
+  });
+});
+
+// --- WhatsApp (Vega WhatsApp relay'i, db/whatsapp.js) ----------------------
+//
+// Arayüz önce yalnız ekstre kutusunu yazdırma moduna alır (body sınıfları),
+// sonra bu kanalı çağırır; PDF o görünümden üretilir, yani kâğıda çıkan ile
+// WhatsApp'a giden aynıdır.
+
+uc('whatsapp:durum', async () => whatsapp.durum());
+
+uc('whatsapp:ekstreGonder', async (girdi) => {
+  if (!pencere) throw new Error('Pencere yok.');
+  const pdf = await pencere.webContents.printToPDF({
+    printBackground: true,
+    pageSize: 'A4',
+    marginsType: 0
+  });
+  return whatsapp.pdfGonder({
+    telefon: girdi.telefon,
+    mesaj: girdi.mesaj,
+    dosyaAdi: girdi.dosyaAdi,
+    pdf
   });
 });
 

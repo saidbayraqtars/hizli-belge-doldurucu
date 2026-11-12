@@ -546,6 +546,7 @@
       <div class="baslikSatir yazdirilmaz">
         <h2>Ayrıntılı Rapor (fiş bazlı)</h2>
         <div class="eylemler">
+          <button class="dugme ikincil" id="ekstreRaporWhatsapp">WhatsApp'la Gönder</button>
           <button class="dugme ikincil" id="ekstreRaporYazdir">Yazdır</button>
           <button class="dugme ucuncul" id="ekstreRaporKapat">Kapat</button>
         </div>
@@ -806,6 +807,32 @@
     </div>
 
     <div class="kutu">
+      <h2>WhatsApp (Ekstre Gönderme)</h2>
+      <p class="ipucu">
+        Ekstre yalnız <b>elle</b> gönderilir (Ekstre → Ayrıntılı Rapor → "WhatsApp'la Gönder"); otomatik ya da toplu
+        gönderim yoktur. Gönderim <b>Vega WhatsApp</b> programının açık olduğu bilgisayar üzerinden yapılır;
+        bu program kendi WhatsApp oturumu açmaz, Vega WhatsApp'ın çalışmasını bozmaz.
+        Adres o bilgisayarın adresi ve portudur (ör. <code>http://192.168.1.20:3100</code>);
+        parola, Vega WhatsApp'ın <code>config.json</code> dosyasındaki
+        <code>wa.relayToken</code> değeridir.
+      </p>
+      <div class="izgara">
+        <div class="alan">
+          <label for="ayWaAdres">Vega WhatsApp adresi</label>
+          <input type="text" id="ayWaAdres" placeholder="http://192.168.1.20:3100" autocomplete="off">
+        </div>
+        <div class="alan">
+          <label for="ayWaToken">Parola (relay token)</label>
+          <input type="password" id="ayWaToken" placeholder="(değiştirmek için yazın)" autocomplete="off">
+        </div>
+      </div>
+      <div class="eylemler sol">
+        <button class="dugme ikincil" id="ayWaTest">Bağlantıyı Dene</button>
+      </div>
+      <div id="ayWaSonuc" class="ipucu"></div>
+    </div>
+
+    <div class="kutu">
       <h2>Vega'ya Yazma</h2>
       <p class="ipucu">
         Program kendi ayrı bir veritabanı tutmuyor — kapalıyken hiçbir belge
@@ -881,6 +908,30 @@
       </table>
     </div>
     <div class="ipucu" id="cariListeBilgi"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ EKSTRE → WHATSAPP ══════════════════ -->
+<!-- 12.11.2026: ayrıntılı rapor PDF olarak Vega WhatsApp relay'i ile gider. -->
+<div class="perde gizli" id="waPerde">
+  <div class="pencere">
+    <div class="pencereBaslik">
+      <h2>Ekstreyi WhatsApp'la Gönder</h2>
+      <button type="button" class="dugme mini ucuncul" id="waKapat">Kapat</button>
+    </div>
+    <div class="raporUst" id="waUst"></div>
+    <div class="alan">
+      <label for="waTelefon">Telefon</label>
+      <input type="text" id="waTelefon" inputmode="tel" placeholder="0532 123 45 67" autocomplete="off">
+    </div>
+    <div class="alan">
+      <label for="waMesaj">Mesaj (PDF ile birlikte gider)</label>
+      <textarea id="waMesaj" rows="3"></textarea>
+    </div>
+    <div class="ipucu" id="waBilgi"></div>
+    <div class="eylemler">
+      <button type="button" class="dugme birincil" id="waGonder">Gönder</button>
+    </div>
   </div>
 </div>
 
