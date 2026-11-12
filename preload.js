@@ -40,6 +40,9 @@ const KANALLAR = [
   'cari:liste',
   'yazdir',
   'whatsapp:durum',
+  'whatsapp:baglan',
+  'whatsapp:qrIptal',
+  'whatsapp:cikis',
   'whatsapp:ekstreGonder',
   'guncelleme:kontrol',
   'guncelleme:durum',
@@ -47,7 +50,7 @@ const KANALLAR = [
 ];
 
 // Ana sürecin kendiliğinden gönderdiği tek yönlü bildirimler.
-const DINLENEBILIR = ['guncelleme:durum', 'kasaKartlari:degisti'];
+const DINLENEBILIR = ['guncelleme:durum', 'kasaKartlari:degisti', 'whatsapp:degisti'];
 
 contextBridge.exposeInMainWorld('api', {
   cagir(kanal, girdi) {

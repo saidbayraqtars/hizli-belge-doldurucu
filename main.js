@@ -85,6 +85,7 @@ function pencereOlustur() {
 }
 
 app.on('window-all-closed', async () => {
+  try { whatsapp.kapat(); } catch (e) { /* yoksay */ }
   try { await sql.havuzKapat(); } catch (e) { /* yoksay */ }
   if (process.platform !== 'darwin') app.quit();
 });
@@ -92,6 +93,8 @@ app.on('window-all-closed', async () => {
 app.whenReady().then(() => {
   pencereOlustur();
   gecmisBakimiBaslat();
+  // Kayıtlı WhatsApp oturumu varsa sessizce bağlan (QR üretmez).
+  whatsapp.otomatikBaslat().catch(() => {});
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) pencereOlustur();
   });
@@ -122,8 +125,6 @@ uc('ayar:oku', async () => {
   const kopya = Object.assign({}, a);
   delete kopya.sifre;
   kopya.sifreGirildi = !!a.sifre;
-  delete kopya.whatsappToken;
-  kopya.whatsappTokenGirildi = !!a.whatsappToken;
   kopya.ayarDosyasi = ayarYolu();
   kopya.surum = app.getVersion();
   return kopya;
@@ -133,15 +134,12 @@ uc('ayar:yaz', async (girdi) => {
   const yeni = Object.assign({}, girdi);
   // Şifre alanı boş gönderildiyse mevcut şifreye dokunulmuyor.
   if (yeni.sifre === '' || yeni.sifre == null) delete yeni.sifre;
-  if (yeni.whatsappToken === '' || yeni.whatsappToken == null) delete yeni.whatsappToken;
   const sonuc = ayarYaz(yeni);
   await sql.havuzKapat();
   firma.onbellekTemizle();
   const kopya = Object.assign({}, sonuc);
   delete kopya.sifre;
   kopya.sifreGirildi = !!sonuc.sifre;
-  delete kopya.whatsappToken;
-  kopya.whatsappTokenGirildi = !!sonuc.whatsappToken;
   return kopya;
 });
 
@@ -221,27 +219,41 @@ uc('yazdir', async () => {
   });
 });
 
-// --- WhatsApp (Vega WhatsApp relay'i, db/whatsapp.js) ----------------------
+// --- WhatsApp (programın kendi oturumu, db/whatsapp.js) ---------------------
 //
-// Arayüz önce yalnız ekstre kutusunu yazdırma moduna alır (body sınıfları),
-// sonra bu kanalı çağırır; PDF o görünümden üretilir, yani kâğıda çıkan ile
-// WhatsApp'a giden aynıdır.
+// Ayarlar'dan QR okutulur; ekstre yalnız elle gönderilir. Arayüz önce yalnız
+// ekstre kutusunu yazdırma moduna alır (body sınıfları), sonra bu kanalı çağırır;
+// PDF o görünümden üretilir, yani kâğıda çıkan ile WhatsApp'a giden aynıdır.
 
 uc('whatsapp:durum', async () => whatsapp.durum());
+uc('whatsapp:baglan', async () => whatsapp.baglan({ qrIste: true }));
+uc('whatsapp:qrIptal', async () => whatsapp.qrIptal());
+uc('whatsapp:cikis', async () => whatsapp.cikis());
 
 uc('whatsapp:ekstreGonder', async (girdi) => {
   if (!pencere) throw new Error('Pencere yok.');
-  const pdf = await pencere.webContents.printToPDF({
-    printBackground: true,
-    pageSize: 'A4',
-    marginsType: 0
-  });
+  // Electron 33'te pencerenin açık gri arka planı PDF kenar boşluklarına da
+  // basılıyordu; PDF üretilirken beyaz yapılır.
+  let pdf;
+  pencere.setBackgroundColor('#ffffff');
+  try {
+    pdf = await pencere.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4'
+    });
+  } finally {
+    if (pencere && !pencere.isDestroyed()) pencere.setBackgroundColor('#f4f5f7');
+  }
   return whatsapp.pdfGonder({
     telefon: girdi.telefon,
     mesaj: girdi.mesaj,
     dosyaAdi: girdi.dosyaAdi,
     pdf
   });
+});
+
+whatsapp.dinle((d) => {
+  if (pencere && !pencere.isDestroyed()) pencere.webContents.send('whatsapp:degisti', d);
 });
 
 // --- Otomatik güncelleme ---------------------------------------------------

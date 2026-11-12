@@ -25,13 +25,7 @@ const VARSAYILAN = {
   // firma/dönem) bu öneğe düşülür.
   belgeOneki: 'H',
 
-  vegayaYazmaAktif: false,
-
-  // Ekstreyi WhatsApp'tan göndermek için Vega WhatsApp'ın relay uçları
-  // (db/whatsapp.js). Adres: http://VEGA-WHATSAPP-PC:3100; token: o programın
-  // config.json → wa.relayToken değeri. Boşsa gönder düğmesi uyarı verir.
-  whatsappAdres: '',
-  whatsappToken: ''
+  vegayaYazmaAktif: false
 };
 
 // Ayar dosyası nerede duruyor?

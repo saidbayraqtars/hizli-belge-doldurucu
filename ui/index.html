@@ -809,27 +809,24 @@
     <div class="kutu">
       <h2>WhatsApp (Ekstre Gönderme)</h2>
       <p class="ipucu">
-        Ekstre yalnız <b>elle</b> gönderilir (Ekstre → Ayrıntılı Rapor → "WhatsApp'la Gönder"); otomatik ya da toplu
-        gönderim yoktur. Gönderim <b>Vega WhatsApp</b> programının açık olduğu bilgisayar üzerinden yapılır;
-        bu program kendi WhatsApp oturumu açmaz, Vega WhatsApp'ın çalışmasını bozmaz.
-        Adres o bilgisayarın adresi ve portudur (ör. <code>http://192.168.1.20:3100</code>);
-        parola, Vega WhatsApp'ın <code>config.json</code> dosyasındaki
-        <code>wa.relayToken</code> değeridir.
+        Ekstre bu programdan, <b>kendi WhatsApp bağlantısıyla</b> gönderilir: aşağıdan QR okutulur,
+        telefonda <b>Bağlı cihazlar</b> listesine "Hizli Belge Doldurucu" olarak eklenir. Gönderim yalnız
+        <b>elle</b> yapılır (Ekstre → Ayrıntılı Rapor → "WhatsApp'la Gönder"); otomatik ya da toplu
+        gönderim yoktur. Vega WhatsApp'tan ayrı bir bağlı cihazdır, onu etkilemez.
       </p>
-      <div class="izgara">
-        <div class="alan">
-          <label for="ayWaAdres">Vega WhatsApp adresi</label>
-          <input type="text" id="ayWaAdres" placeholder="http://192.168.1.20:3100" autocomplete="off">
-        </div>
-        <div class="alan">
-          <label for="ayWaToken">Parola (relay token)</label>
-          <input type="password" id="ayWaToken" placeholder="(değiştirmek için yazın)" autocomplete="off">
-        </div>
+      <div class="waDurum" id="ayWaDurum">—</div>
+      <div class="waQr gizli" id="ayWaQrKutu">
+        <img id="ayWaQr" alt="WhatsApp QR kodu" width="280" height="280">
+        <p class="ipucu">
+          Telefonda WhatsApp → <b>Bağlı cihazlar</b> → <b>Cihaz bağla</b> ile bu kodu okutun.
+          Kod birkaç saniyede bir yenilenir.
+        </p>
       </div>
       <div class="eylemler sol">
-        <button class="dugme ikincil" id="ayWaTest">Bağlantıyı Dene</button>
+        <button class="dugme birincil" id="ayWaBaglan">QR Okut</button>
+        <button class="dugme ucuncul gizli" id="ayWaIptal">Vazgeç</button>
+        <button class="dugme ikincil gizli" id="ayWaCikis">Bağlantıyı Kes</button>
       </div>
-      <div id="ayWaSonuc" class="ipucu"></div>
     </div>
 
     <div class="kutu">

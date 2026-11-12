@@ -3948,9 +3948,6 @@ function ayarSayfasiniDoldur() {
   el('ayKdv').value = a.varsayilanKdv != null ? a.varsayilanKdv : 0;
   el('ayOnek').value = a.belgeOneki || 'H';
   el('ayYazmaAktif').checked = !!a.vegayaYazmaAktif;
-  el('ayWaAdres').value = a.whatsappAdres || '';
-  el('ayWaToken').value = '';
-  el('ayWaToken').placeholder = a.whatsappTokenGirildi ? '(kayıtlı — değiştirmek için yazın)' : '';
   el('surumBilgi').textContent = a.surum ? `Kurulu sürüm: ${a.surum}` : '';
   firmaSecimDoldur();
   depoSecimDoldur();
@@ -4049,18 +4046,46 @@ el('ayBaglantiTest').addEventListener('click', async () => {
   }
 });
 
-el('ayWaTest').addEventListener('click', async () => {
-  const sonuc = el('ayWaSonuc');
-  sonuc.textContent = 'Deneniyor…';
-  try {
-    await ayarlariKaydet(true);
-    const d = await cagir('whatsapp:durum', {});
-    sonuc.textContent = d.bagli
-      ? `Vega WhatsApp bağlı${d.numara ? ' (' + d.numara + ')' : ''} — ekstre gönderilebilir.`
-      : d.hata;
-  } catch (e) {
-    sonuc.textContent = 'Bağlanamadı: ' + e.message;
-  }
+// ─── WhatsApp oturumu (Ayarlar) ───
+// Durum ana süreçten 'whatsapp:degisti' ile gelir (db/whatsapp.js).
+let waDurumu = { durum: 'kapali', bagli: false, qr: null, numara: '', hata: '', oturumVar: false };
+
+function waDurumunuCiz(d) {
+  waDurumu = d;
+  const metin = {
+    kapali: 'Bağlı değil.',
+    baglaniyor: 'Bağlanılıyor…',
+    qr: 'QR okutulmayı bekliyor.',
+    bagli: `Bağlı${d.numara ? ' — ' + d.numara : ''}. Ekstre gönderilebilir.`
+  }[d.durum] || '—';
+  el('ayWaDurum').textContent = metin + (d.hata ? '  ' + d.hata : '');
+  el('ayWaDurum').className = 'waDurum' + (d.bagli ? ' bagli' : '');
+  el('ayWaQrKutu').classList.toggle('gizli', !(d.durum === 'qr' && d.qr));
+  if (d.qr) el('ayWaQr').src = d.qr;
+  el('ayWaBaglan').classList.toggle('gizli', d.durum === 'bagli' || d.durum === 'qr' || d.durum === 'baglaniyor');
+  el('ayWaIptal').classList.toggle('gizli', !(d.durum === 'qr' || (d.durum === 'baglaniyor' && !d.oturumVar)));
+  el('ayWaCikis').classList.toggle('gizli', !(d.durum === 'bagli' || (d.oturumVar && d.durum !== 'qr')));
+  el('ayWaBaglan').textContent = d.oturumVar ? 'Yeniden Bağlan' : 'QR Okut';
+}
+
+window.api.dinle('whatsapp:degisti', waDurumunuCiz);
+cagir('whatsapp:durum', {}).then(waDurumunuCiz).catch(() => {});
+
+el('ayWaBaglan').addEventListener('click', async () => {
+  try { waDurumunuCiz(await cagir('whatsapp:baglan', {})); } catch (e) { bildir('WhatsApp: ' + e.message, 'hata'); }
+});
+el('ayWaIptal').addEventListener('click', async () => {
+  try { waDurumunuCiz(await cagir('whatsapp:qrIptal', {})); } catch (e) { bildir('WhatsApp: ' + e.message, 'hata'); }
+});
+el('ayWaCikis').addEventListener('click', async () => {
+  const o = await cagir('onay', {
+    baslik: 'WhatsApp bağlantısını kes',
+    mesaj: 'Bağlantı kesilsin mi?',
+    ayrinti: 'Bu bilgisayar telefondaki "Bağlı cihazlar" listesinden çıkarılır. Ekstre göndermek için yeniden QR okutmak gerekir.',
+    tamamBaslik: 'Bağlantıyı kes'
+  });
+  if (!o.onaylandi) return;
+  try { waDurumunuCiz(await cagir('whatsapp:cikis', {})); } catch (e) { bildir('WhatsApp: ' + e.message, 'hata'); }
 });
 
 el('ayKaydet').addEventListener('click', async () => {
@@ -4089,20 +4114,13 @@ async function ayarlariKaydet(sessiz) {
     varsayilanDepo: Number(el('ayDepo').value) || 1,
     varsayilanKdv: sayiOku(el('ayKdv').value),
     belgeOneki: el('ayOnek').value.trim().toUpperCase() || 'H',
-    vegayaYazmaAktif: el('ayYazmaAktif').checked,
-    whatsappAdres: el('ayWaAdres').value.trim()
+    vegayaYazmaAktif: el('ayYazmaAktif').checked
   };
   const sifre = el('aySifre').value;
   if (sifre) yeni.sifre = sifre;
-  const waToken = el('ayWaToken').value.trim();
-  if (waToken) yeni.whatsappToken = waToken;
 
   durum.ayar = await cagir('ayar:yaz', yeni);
   el('aySifre').value = '';
-  el('ayWaToken').value = '';
-  el('ayWaToken').placeholder = durum.ayar.whatsappTokenGirildi
-    ? '(kayıtlı — değiştirmek için yazın)'
-    : '';
   el('aySifre').placeholder = durum.ayar.sifreGirildi
     ? '(kayıtlı — değiştirmek için yazın)'
     : '';

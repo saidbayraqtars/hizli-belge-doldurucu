@@ -625,6 +625,7 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
   @page { margin: 10mm 8mm; }
 
   .ustcubuk, .uyari, .yazdirilmaz, .sekmeler, .durum, .perde { display: none !important; }
+  html { background: #fff !important; }
   body { background: #fff; font-size: 10px; }
   main { padding: 0; max-width: none; }
   .kutu {
@@ -710,3 +711,17 @@ table.veri.rapor tbody tr.secili > td { background: #eef4ff; }
 
   a[href]:after { content: none !important; }
 }
+
+/* ─── WhatsApp bağlantısı (Ayarlar) ─── */
+
+.waDurum {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+}
+.waDurum.bagli { background: #dcfce7; color: #166534; }
+.waQr { margin: 8px 0; }
+.waQr img { display: block; border: 1px solid #cbd2dc; border-radius: 8px; background: #fff; padding: 6px; }

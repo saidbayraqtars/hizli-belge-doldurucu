@@ -1,6 +1,6 @@
 {
   "name": "hizli-belge-doldurucu",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "private": true,
   "description": "Haftalık ürün satış girişi ve kasa depozito takibi — belge oluşunca VegaWin (VEGADB) veritabanına yazar",
   "author": "Bayraktar Yazılım",
@@ -19,12 +19,14 @@
     "yayinla": "electron-builder --win --publish always"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.23",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",
-    "mssql": "9.3.2"
+    "mssql": "9.3.2",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "electron": "22.3.27",
+    "electron": "33.4.11",
     "electron-builder": "24.13.3"
   },
   "build": {
