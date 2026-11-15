@@ -372,11 +372,15 @@ function cariKutusuKur(aramaId, sonucId, seciliId, secildiginde, ekParametre, or
       return;
     }
     try {
+      // firmaHaric: Özel Kod 1 = FİRMA kartları (tedarikçiler) yalnız Alış
+      // Faturası'nda listelenir (2026-11-15 müşteri isteği); Alış kutusu
+      // ekParametre'de firmaHaric: false verir.
       const ham = await cagir('vega:cariler', Object.assign({
         firma: firmaKodu(),
         donem: donemKodu(),
         arama: metin,
-        limit: 200
+        limit: 200,
+        firmaHaric: true
       }, ekParametre ? ekParametre() : null));
       // Sunucu "hangi kartlar eşleşiyor"u veriyor; sıralamayı burada yapıyoruz:
       // aranan kelime adın başındaysa o kart üste çıksın.
@@ -485,15 +489,21 @@ const iadeCari = cariKutusuKur('iadeCariArama', 'iadeCariSonuc', 'iadeCariSecili
   iadeBilgisiniGuncelle();
   kasaBakiyesiniYukle();
 }, null, true);
+// 2026-11-15 müşteri isteği: Ekstre'de de toptan / perakende seçimi (Belge
+// Gir'deki Özel Kod 1 süzgecinin aynısı, kendi seçimiyle).
+function ekstreMusteriTipi() {
+  const s = el('ekstreMusteriTipi');
+  return s ? s.value : '';
+}
 const ekstreCari = cariKutusuKur('ekstreCariArama', 'ekstreCariSonuc', 'ekstreCariSecili',
-  (c, secenek) => ekstreCariDegisti(c, secenek), null, true);
+  (c, secenek) => ekstreCariDegisti(c, secenek), () => ({ musteriTipi: ekstreMusteriTipi() }), true);
 const odemeCari = cariKutusuKur('odemeCariArama', 'odemeCariSonuc', 'odemeCariSecili',
   () => odemeGecmisiGetir(), null, true);
 // 01.10.2026 müşteri isteği: tedarikçi kutusunda yalnız satıcı tipli cariler;
 // perakende ve alıcılar gelmesin (bkz. db/vega.js → cariTipFiltresi).
 // Seçilince tedarikçinin hesabı açılır (27.10.2026, bkz. tedarikciHesabiniYukle).
 const alisCari = cariKutusuKur('alisCariArama', 'alisCariSonuc', 'alisCariSecili',
-  () => tedarikciHesabiniYukle(), () => ({ tip: 'tedarikci' }));
+  () => tedarikciHesabiniYukle(), () => ({ tip: 'tedarikci', firmaHaric: false }));
 
 // ═══════════════════════ BELGE GİR ═══════════════════════
 
@@ -1071,6 +1081,7 @@ function toplamlariGuncelle() {
 }
 
 el('musteriTipi').addEventListener('change', () => belgeCari.tekrarAra());
+el('ekstreMusteriTipi').addEventListener('change', () => ekstreCari.tekrarAra());
 el('satirEkle').addEventListener('click', () => satirEkle());
 tutarGirdisiBagla(el('tahsilat'));
 el('tahsilat').addEventListener('input', () => toplamlariGuncelle());
@@ -3648,15 +3659,26 @@ function odemeGecmisiCiz() {
     }
   }
 
-  const toplam = satirlar.reduce((t, s) => t + s.tutar, 0);
+  // Kasa iadeleri (2026-11-15) ödemeden ayrı toplanır: ödeme sayısı ve
+  // toplamı yalnız para; iade varsa ayrıca gösterilip genel toplama katılır.
+  const odemeler = satirlar.filter((s) => !s.kasaIadesi);
+  const iadeler = satirlar.filter((s) => s.kasaIadesi);
+  const odemeToplami = odemeler.reduce((t, s) => t + s.tutar, 0);
+  const iadeToplami = iadeler.reduce((t, s) => t + s.tutar, 0);
 
   alt.innerHTML = '';
   const ozet = document.createElement('div');
   ozet.className = 'raporOzet';
-  ozet.append(
-    ozetKalemi('ÖDEME SAYISI', miktarYaz(satirlar.length)),
-    ozetKalemi('TOPLAM ÖDEME', para(toplam), true)
-  );
+  ozet.append(ozetKalemi('ÖDEME SAYISI', miktarYaz(odemeler.length)));
+  if (iadeler.length) {
+    ozet.append(
+      ozetKalemi('TOPLAM ÖDEME', para(odemeToplami)),
+      ozetKalemi('KASA İADESİ', `${para(iadeToplami)} (${miktarYaz(iadeler.length)})`),
+      ozetKalemi('TOPLAM DÜŞEN', para(odemeToplami + iadeToplami), true)
+    );
+  } else {
+    ozet.append(ozetKalemi('TOPLAM ÖDEME', para(odemeToplami), true));
+  }
   const cari = odemeCari.secili();
   if (d.cari && cari && Number(cari.cariInd) === Number(d.cari.cariInd)) {
     ozet.insertBefore(ozetKalemi('GÜNCEL BAKİYE', para(cari.bakiye)), ozet.lastChild);
@@ -3729,8 +3751,11 @@ async function cariListesiniYukle() {
       donem: donemKodu(),
       tip: el('cariListeTip').value || null,
       sadeceBakiyeli: el('cariListeBakiyeli').checked,
-      // Belge ekranından açıldıysa oradaki toptan/perakende seçimi geçerli.
-      musteriTipi: cariHedefi === 'belge' ? musteriTipi() : ''
+      // Belge / Ekstre ekranından açıldıysa oradaki toptan/perakende seçimi geçerli.
+      musteriTipi: cariHedefi === 'belge' ? musteriTipi()
+        : cariHedefi === 'ekstre' ? ekstreMusteriTipi() : '',
+      // FİRMA kartları yalnız Alış Faturası'nda (2026-11-15).
+      firmaHaric: cariHedefi !== 'alis'
     });
     cariListesiniCiz();
   } catch (e) {
@@ -4396,10 +4421,19 @@ async function ozelKodlariYukle() {
   }
   ozelKodSecimiDoldur(el('musteriTipi'), el('musteriTipiAlani'),
     ozelKodIlkYukleme ? 'TOPTAN' : null);
+  ozelKodSecimiDoldur(el('ekstreMusteriTipi'), el('ekstreMusteriTipiAlani'),
+    ozelKodIlkYukleme ? 'TOPTAN' : null);
   ozelKodIlkYukleme = false;
 }
 
+// FİRMA (tedarikçi) grubu müşteri süzgeçlerinde seçenek olarak çıkmaz: o
+// kartlar Alış Faturası dışında zaten listelenmiyor (2026-11-15).
+function firmaKoduMu(deger) {
+  return String(deger || '').trim().toLocaleUpperCase('tr').replace(/İ/g, 'I') === 'FIRMA';
+}
+
 function ozelKodSecimiDoldur(secim, alan, varsayilan) {
+  const degerler = durum.ozelKod1.filter((k) => !firmaKoduMu(k.deger));
   const eski = secim.value;
   secim.innerHTML = '';
   const hepsi = document.createElement('option');
@@ -4407,7 +4441,7 @@ function ozelKodSecimiDoldur(secim, alan, varsayilan) {
   hepsi.textContent = 'Hepsi';
   secim.appendChild(hepsi);
 
-  for (const k of durum.ozelKod1) {
+  for (const k of degerler) {
     const o = document.createElement('option');
     o.value = k.deger;
     o.textContent = `${k.deger} (${k.adet})`;
@@ -4417,11 +4451,11 @@ function ozelKodSecimiDoldur(secim, alan, varsayilan) {
   // İlk yüklemede varsayılan denenir, sonrakilerde kullanıcının seçimi korunur.
   // Firma değişip değer listede kalmadıysa "Hepsi"ye düşülür.
   const aday = String(varsayilan == null ? eski : varsayilan);
-  const bulunan = durum.ozelKod1.find(
+  const bulunan = degerler.find(
     (k) => k.deger.toLocaleLowerCase('tr') === aday.toLocaleLowerCase('tr')
   );
   secim.value = bulunan ? bulunan.deger : '';
-  if (alan) alan.classList.toggle('gizli', durum.ozelKod1.length === 0);
+  if (alan) alan.classList.toggle('gizli', degerler.length === 0);
 }
 
 async function kasaKartlariniYukle() {

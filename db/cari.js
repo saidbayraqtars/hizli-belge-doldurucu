@@ -57,7 +57,9 @@
 const { sorgu, islem } = require('./sql');
 const { ayarOku } = require('./ayar');
 const { dogrula, kart, tablo } = require('./firma');
-const { kolonVarMi, musteriTipiFiltresi, ozelKod1Degerleri, cariTipFiltresi } = require('./vega');
+const {
+  kolonVarMi, musteriTipiFiltresi, firmaHaricFiltresi, ozelKod1Degerleri, cariTipFiltresi
+} = require('./vega');
 const yazma = require('./yazma');
 
 function vt() {
@@ -351,7 +353,7 @@ async function carileriListele(secenek) {
   const parametreler = {};
   const musteriTipi = await musteriTipiFiltresi(
     cariTablosu, secenek && secenek.musteriTipi, 'C', parametreler
-  );
+  ) + await firmaHaricFiltresi(cariTablosu, secenek && secenek.firmaHaric, 'C', parametreler);
 
   const adIfadesi = `
     COALESCE(

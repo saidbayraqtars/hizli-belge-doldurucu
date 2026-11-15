@@ -946,6 +946,14 @@ async function calistir() {
   kontrol('9 kasa iadesi eski 4500 TL borcu tamamen kapatti',
     iade.kalanAdet === 0 && iade.kalanTutar === 0 && iade.tutar === 4500,
     `${iade.kalanAdet} adet / ${iade.kalanTutar} TL`);
+  // 2026-11-15: düşülen kasalar Ödemeler ekranının geçmişinde de görünür.
+  const gecmisC = await rapor.odemeGecmisi({ firma: FIRMA, donem: DONEM, cariInd: cari.cariInd });
+  const iadeSatiriC = gecmisC.satirlar.find((s) => s.belgeNo === iade.belgeNo);
+  kontrol('Kasa iadesi Odeme Gecmisinde turuyle listelendi',
+    iadeSatiriC && iadeSatiriC.kasaIadesi && iadeSatiriC.tutar === 4500 &&
+      iadeSatiriC.aciklama.includes('Kasa İadesi') && iadeSatiriC.aciklama.includes(kasa.kod + ' 9') &&
+      iadeSatiriC.islemKonu === 'KasaIade',
+    iadeSatiriC ? `${iadeSatiriC.aciklama} · ${iadeSatiriC.tutar}` : 'satir yok');
 
   const sC = await tumSayilar();
   // sC.TBLCARGIRBASLIK: belgeC'nin urun+kasa'si TEK belgede birlesik (Cari
@@ -1406,6 +1414,20 @@ async function calistir() {
     kontrol('Iki tedarikci karti FIRMA koduyla acildi',
       kartlarF.length === 2 && kartlarF.every((r) => r.KOD1 === 'FİRMA' && Number(r.FIRMATIPI) === 2),
       kartlarF.map((r) => `${r.IND}:${r.KOD1}/${r.FIRMATIPI}`).join(' · '));
+    // 2026-11-15: FİRMA kartları Alış Faturası dışındaki aramalarda çıkmaz.
+    const aramaF = async (ek) => (await vega.carileriGetir(Object.assign({
+      firma: FIRMA, donem: DONEM, arama: 'SINAMA-F1'
+    }, ek))).some((c) => c.cariInd === k1.cariInd);
+    const listeF = async (ek) => (await cariKarti.carileriListele(Object.assign({
+      firma: FIRMA, donem: DONEM
+    }, ek))).some((c) => c.cariInd === k1.cariInd);
+    const [haricArama, tedarikciArama, haricListe, alisListe] = await Promise.all([
+      aramaF({ firmaHaric: true }), aramaF({ tip: 'tedarikci', firmaHaric: false }),
+      listeF({ firmaHaric: true }), listeF({ tip: 'tedarikci', firmaHaric: false })
+    ]);
+    kontrol('FIRMA karti musteri aramasinda ve listesinde yok, Alis aramasinda var',
+      !haricArama && tedarikciArama && !haricListe && alisListe,
+      `arama ${haricArama}/${tedarikciArama} · liste ${haricListe}/${alisListe}`);
     const tanimSonra = await firmaTanimSayisi();
     kontrol('FIRMA tanimi Vega Ozel Kod 1 tablosunda tek satir',
       tanimSonra === 1, `once ${tanimOnce} · sonra ${tanimSonra}`);

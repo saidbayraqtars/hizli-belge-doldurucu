@@ -154,7 +154,8 @@ async function carileriGetir(secenek) {
   const parametreler = {};
   const tipFiltresi = await musteriTipiFiltresi(
     cariTablosu, secenek && secenek.musteriTipi, 'C', parametreler
-  ) + ' ' + await cariTipFiltresi(secenek && secenek.tip, 'C', cariTablosu);
+  ) + ' ' + await cariTipFiltresi(secenek && secenek.tip, 'C', cariTablosu) +
+    ' ' + await firmaHaricFiltresi(cariTablosu, secenek && secenek.firmaHaric, 'C', parametreler);
   const aramaFiltresi = aramaFiltresiKur(
     `(ISNULL(C.FIRMAADI, '') + ' ' + ISNULL(C.UNVAN, '') + ' ' + ISNULL(C.FIRMAKODU, ''))`,
     aramaParcalari(arama),
@@ -229,6 +230,19 @@ async function musteriTipiFiltresi(cariTablosu, tip, takma, parametreler) {
   if (parametreler) parametreler.ozelKod1 = secilen;
   return ` AND LTRIM(RTRIM(ISNULL(${takma}.KOD1, ''))) COLLATE Latin1_General_CI_AI
              = @ozelKod1 COLLATE Latin1_General_CI_AI`;
+}
+
+// 2026-11-15 müşteri isteği: "Firmalar alış faturası dışında gözükmesin."
+// Özel Kod 1 = FİRMA olan kartlar (mal alınan tedarikçiler) Belge Gir, Kasa,
+// Ödemeler ve Ekstre'nin müşteri aramasında listelenmez; yalnız Alış
+// Faturası'nda görünür. Değer parametreyle verilir (dosya kodlaması sorguya
+// karışmasın); CI_AI harmanında FİRMA / FIRMA / Firma aynı sayılır.
+async function firmaHaricFiltresi(cariTablosu, haric, takma, parametreler) {
+  if (!haric) return '';
+  if (!(await kolonVarMi(cariTablosu, 'KOD1'))) return '';
+  parametreler.firmaKod1 = 'FİRMA';
+  return ` AND LTRIM(RTRIM(ISNULL(${takma}.KOD1, ''))) COLLATE Latin1_General_CI_AI
+             <> @firmaKod1 COLLATE Latin1_General_CI_AI`;
 }
 
 // Cari kartlarında Özel Kod 1'de geçen değerler — süzgeç kutularını doldurmak
@@ -724,6 +738,7 @@ module.exports = {
   kolonVarMi,
   cariTipFiltresi,
   musteriTipiFiltresi,
+  firmaHaricFiltresi,
   ozelKod1Degerleri,
   satisSerisiTespitEt
 };

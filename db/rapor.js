@@ -735,6 +735,7 @@ const ODEME_YONTEM_ADI = {
   kart: 'Kredi Kartı',
   cek: 'Çek',
   senet: 'Senet',
+  kasaIadesi: 'Kasa İadesi',
   diger: 'Belirtilmemiş'
 };
 
@@ -810,6 +811,10 @@ async function odemeGecmisi(secenek) {
 
   const girisVar = (await tabloVarMi(firma, donem, 'TBLCARGIRBASLIK')) &&
     (await tabloVarMi(firma, donem, 'TBLCARGIRHAREKET'));
+  // 2026-11-15 müşteri isteği: "Düştüğümüz kasalar ödemelerde gözükmüyor."
+  // Kasa iadesi (Stok Giriş İade Fişi, IZAHAT 34) müşterinin borcundan düşer;
+  // ödeme geçmişinde de türe göre adetle ("S.MUZ 5, PK 10") listelenir.
+  const iadeAdet = await kasaIadeAdetBagi(v, firma, donem, parametreler);
   const baslikTablosu = girisVar ? tablo(v, firma, donem, 'TBLCARGIRBASLIK') : null;
   const satirTablosu = girisVar ? tablo(v, firma, donem, 'TBLCARGIRHAREKET') : null;
 
@@ -836,7 +841,9 @@ async function odemeGecmisi(secenek) {
       ${girisVar ? 'B.baslikAciklama' : "''"} AS baslikAciklama,
       ${girisVar ? 'R.arac' : 'NULL'} AS arac,
       ${girisVar ? 'R.satirTutar' : 'NULL'} AS satirTutar,
-      ${girisVar ? 'R.satirAciklama' : "''"} AS satirAciklama
+      ${girisVar ? 'R.satirAciklama' : "''"} AS satirAciklama,
+      ${iadeAdet.ifade} AS iadeAdedi,
+      ${iadeAdet.turOzeti} AS iadeTurleri
     FROM ${hareketTablosu} H
     LEFT JOIN ${kart(v, firma, 'TBLCARI')} C ON C.IND = H.FIRMANO
     OUTER APPLY (
@@ -848,6 +855,7 @@ async function odemeGecmisi(secenek) {
         AND CHARINDEX(' / ' + H.EVRAKNO + ' / ', ' / ' + ISNULL(I.BelgeNo, '') + ' / ') > 0
       ORDER BY I.Id DESC
     ) P
+    ${iadeAdet.joinlar}
     ${girisVar ? `
     OUTER APPLY (
       SELECT TOP 1 GB.IND, CAST(GB.ACIKLAMA AS NVARCHAR(500)) AS baslikAciklama
@@ -863,7 +871,7 @@ async function odemeGecmisi(secenek) {
       FROM ${satirTablosu} GH
       WHERE GH.EVRAKNO = B.IND
     ) R` : ''}
-    WHERE LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) IN ('13', '83')
+    WHERE LTRIM(RTRIM(ISNULL(H.IZAHAT, ''))) IN ('13', '83', '34')
       AND ISNULL(H.ALACAK, 0) > 0
       AND ISNULL(H.OZELKOD, '') <> 'KREDIHESABI'
       ${kosullar.length ? 'AND ' + kosullar.join(' AND ') : ''}
@@ -893,6 +901,20 @@ async function odemeGecmisi(secenek) {
       islemKonu: ana.islemKonu || null
     };
     const alacak = Number(ana.alacak) || 0;
+    if (String(ana.izahat).trim() === '34') {
+      const adet = Number(ana.iadeAdedi) || 0;
+      const turler = String(ana.iadeTurleri || '').trim() ||
+        (adet ? adet.toLocaleString('tr-TR', { maximumFractionDigits: 3 }) + ' adet' : '');
+      // Fiş no programın kaydından (BD_Islem); Vega'dan elle girilen iadede boş.
+      sonuc.push(Object.assign({}, ortak, {
+        yontem: 'kasaIadesi',
+        yontemAdi: ODEME_YONTEM_ADI.kasaIadesi,
+        kasaIadesi: true,
+        tutar: alacak,
+        aciklama: ['Kasa İadesi', turler].filter(Boolean).join(' · ')
+      }));
+      continue;
+    }
     const yontemler = new Set(parcalar.map((p) => odemeYontemiCoz(ana.izahat, p.arac, p.satirAciklama)));
 
     if (parcalar.length <= 1 || yontemler.size === 1) {
